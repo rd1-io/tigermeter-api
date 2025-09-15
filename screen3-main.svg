@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="560" height="120" viewBox="0 0 560 120">
+  <rect width="170" height="120" x="0" y="0" fill="#050505" />
+  <text x="20" y="54" font-family="system-ui,Arial" font-size="30" fill="#ffffff" font-weight="700">BITCOIN</text>
+  <rect x="170" y="0" width="360" height="120" fill="#ffffff" stroke="#000000" stroke-width="1" />
+  <text x="350" y="30" text-anchor="middle" font-family="system-ui,Arial" font-size="14" fill="#111">9:45am 15 Sep 2025</text>
+  <text x="350" y="78" text-anchor="middle" font-family="system-ui,Arial" font-size="56" fill="#111" font-weight="600">$116,435</text>
+  <text x="350" y="104" text-anchor="middle" font-family="system-ui,Arial" font-size="16" fill="#222">132K (+25%)</text>
+  <!-- Trend color bar (animated green/red) -->
+  <rect x="530" y="0" width="30" height="120" fill="#18d851">
+    <animate attributeName="fill" values="#18d851;#ff3b30;#18d851" dur="4s" repeatCount="indefinite" />
+  </rect>
+  <text x="545" y="60" text-anchor="middle" font-family="system-ui,Arial" font-size="10" fill="#042b10" writing-mode="tb" glyph-orientation-vertical="0" font-weight="600">TREND</text>
+</svg>

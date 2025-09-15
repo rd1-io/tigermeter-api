@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="560" height="120" viewBox="0 0 560 120">
+  <rect width="170" height="120" x="0" y="0" fill="#050505" />
+  <text x="20" y="54" font-family="system-ui,Arial" font-size="34" fill="#ffffff" font-weight="700">CLAIM</text>
+  <rect x="170" y="0" width="390" height="120" fill="#ffffff" stroke="#000000" stroke-width="1" />
+  <text x="365" y="68" text-anchor="middle" font-family="system-ui,Arial" font-size="48" fill="#111" font-weight="600" letter-spacing="14">4 8 1 9 2 7</text>
+  <text x="365" y="100" text-anchor="middle" font-family="system-ui,Arial" font-size="18" fill="#222">tiger.com/tickr</text>
+  <!-- Blue pulsing LED -->
+  <rect x="530" y="0" width="30" height="120" fill="#000000">
+    <animate attributeName="fill" values="#000000;#0a2d66;#1e6fff;#0a2d66;#000000" dur="6s" repeatCount="indefinite" keyTimes="0;0.25;0.5;0.75;1" />
+  </rect>
+  <text x="545" y="60" text-anchor="middle" font-family="system-ui,Arial" font-size="10" fill="#cfe4ff" writing-mode="tb" glyph-orientation-vertical="0" font-weight="600">LED</text>
+</svg>

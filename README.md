@@ -1,55 +1,17 @@
 
 
 ### Экран 1: Приветствие / Wi‑Fi Setup
-<table style="border-collapse:collapse; width:560px; font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; margin:0 0 20px 0;">
-    <tr>
-        <td style="background:#050505;color:#fff;font-weight:700;font-size:28px;padding:30px 24px;vertical-align:middle;width:420px;text-align:center;">
-            TigerMeter
-            <div style="margin-top:18px;font-size:16px;font-weight:500;letter-spacing:0.5px;">Подключитесь к Wi‑Fi</div>
-            <div style="margin-top:10px;font-size:18px;font-weight:600;">"TigerMeter-abc123"</div>
-        </td>
-        <td style="padding:0;border:1px solid #000;border-left:none;width:30px;vertical-align:middle;text-align:center;background-color:black;">
-            <img src="./led-blue-pulse.svg" alt="blue pulse" width="30" height="120" style="display:block;margin:0 auto;" />
-        </td>
-    </tr>
-</table>
+![Экран 1](./screen1-welcome.svg)
 
 ### Экран 2: Код привязки (Claim)
-<table style="border-collapse:collapse; width:560px; font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; margin:0 0 28px 0;">
-    <tr>
-        <td style="background:#050505;color:#fff;font-weight:700;font-size:20px;padding:20px 20px;vertical-align:middle;width:170px;text-align:left;">CLAIM</td>
-        <td style="border:1px solid #000;border-left:none;padding:18px 24px 18px 24px;vertical-align:middle;background:#fff;width:330px;text-align:center;">
-            <div style="font-size:42px;font-weight:600;letter-spacing:6px;">4 8 1 9 2 7</div>
-            <div style="margin-top:14px;font-size:16px;">tiger.com/tickr</div>
-        </td>
-        <td style="padding:0;border:1px solid #000;border-left:none;width:30px;vertical-align:middle;text-align:center;background-color:black;">
-            <img src="./led-blue-pulse.svg" alt="blue pulse" width="30" height="120" style="display:block;margin:0 auto;" />
-        </td>
-    </tr>
-</table>
+![Экран 2](./screen2-claim.svg)
 
-<div style="margin:-12px 0 40px 0;font-size:11px;line-height:1.4;color:#444;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
-    Ограничения e‑Ink: крупные шрифты, минимум графики, высококонтрастные блоки. Синий мигающий LED (черный→тёмно‑синий→яркий сине‑голубой) сигнализирует режим настройки / ожидания привязки. Интервалы мигания можно синхронизировать с внутренним таймером (например, 6s цикл). Код разбит пробелами для уменьшения визуального шума от частых перерисовок e‑Ink.
-</div>
+### Экран 3: Основное отображение
+![Экран 3](./screen3-main.svg)
 
-### Экран 3: Нормально отображение
-<table style="border-collapse:collapse; width:560px; font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; margin-bottom:28px;">
-    <tr>
-        <td style="background:#050505;color:#fff;font-weight:700;font-size:24px;padding:24px 20px;letter-spacing:0.5px;vertical-align:middle;width:170px;text-align:left;">BITCOIN<sup style="font-size:12px;color:#bbb;margin-left:4px;">1</sup></td>
-        <td style="border:1px solid #000;border-left:none;padding:12px 24px;vertical-align:middle;background:#fff;width:290px;">
-            <div style="font-size:14px;text-align:center;margin-bottom:4px;color:#111;white-space:nowrap;">9:45am 15 Sep 2025<sup style="font-size:10px;margin-left:4px;color:#666;">2</sup></div>
-            <div style="font-size:56px;font-weight:600;line-height:1;text-align:center;color:#111;white-space:nowrap;">$116,435<sup style="font-size:11px;margin-left:4px;color:#666;">3</sup></div>
-            <div style="font-size:15px;text-align:center;margin-top:6px;color:#222;white-space:nowrap;">132K (+25%)<sup style="font-size:10px;margin-left:4px;color:#666;">4</sup></div>
-        </td>
-        <td style="padding:0;border:1px solid #000;border-left:none;width:30px;vertical-align:middle;text-align:center;background-color:black;">
-            <img src="./trend-bar.svg" alt="trend bar" width="30" height="120" style="display:block;margin:0 auto;" />
-            <div style="position:relative;font-size:10px;margin-top:2px;color:#444;">5</div>
-        </td>
-    </tr>
-</table>
-<div style="margin:-12px 0 32px 0;font-size:12px;color:#333;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
-    (1) name · (2) timestamp · (3) price · (4) portfolioValue + portfolioChangePercent · (5) ledColor / trend bar (анимированная смена цвета).  Доп. поля: beep / flashCount / ledBrightness не показаны.
-</div>
+> Примечание: GitHub удаляет большинство инлайн-стилей и может не отображать сложную верстку таблиц одинаково во всех темах. Поэтому макеты вынесены в отдельные SVG-файлы: они масштабируемы, верно передают композицию и поддерживают простую SMIL-анимацию (мигание LED / смена цвета тренда). При необходимости можно экспортировать PNG (например, через `rsvg-convert` или векторный редактор) для статичных снапшотов.
+
+Кратко: Welcome → Claim Code → Main Display. LED (синий пульс) активен на первых двух экранах, затем заменяется столбцом тренда (green/red).
 
 - [Этапы](#этапы)
 - [Ключевые принципы](#ключевые-принципы)
