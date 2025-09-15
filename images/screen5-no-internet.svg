@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="448" height="144" viewBox="0 0 448 144">
+  <!-- Left panel -->
+  <rect x="0" y="0" width="153" height="144" fill="#050505"/>
+  <!-- Wi-Fi icon centered -->
+  <g id="wifi-left" transform="translate(76.5,72)">
+    <g stroke="#f0f0f0" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round" transform="translate(-40,-32)">
+      <path d="M8 32c24-24 64-24 88 0"/>
+      <path d="M20 44c18-18 46-18 64 0"/>
+      <path d="M34 58c10-10 24-10 34 0"/>
+      <circle cx="51" cy="72" r="6" fill="#f0f0f0" stroke="none"/>
+    </g>
+  </g>
+  <!-- Right panel (greyed existing data) -->
+  <rect x="153" y="0" width="259" height="144" fill="#f0f0f0" stroke="#000" stroke-width="1"/>
+  <text x="282.5" y="36" text-anchor="middle" font-family="system-ui,Arial" font-size="16" fill="#111">9:45 15 Сен 2025</text>
+  <text x="282.5" y="86" text-anchor="middle" font-family="system-ui,Arial" font-size="52" fill="#111" font-weight="600">$116,435</text>
+  <text x="282.5" y="116" text-anchor="middle" font-family="system-ui,Arial" font-size="18" fill="#111" font-weight="600">НЕТ СЕТИ (ПОВТОР…)</text>
+  <!-- Status bar (yellow) -->
+  <rect x="412" y="0" width="36" height="144" fill="#000000"/>
+</svg>

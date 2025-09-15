@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="448" height="144" viewBox="0 0 448 144">
+  <!-- Left panel -->
+  <rect x="0" y="0" width="153" height="144" fill="#050505"/>
+  <!-- Battery icon centered in left panel -->
+  <g id="battery-left" transform="translate(76.5,72)">
+    <!-- center anchor: shift icon by half widths -->
+    <g transform="translate(-36,-16)">
+      <rect x="0" y="0" width="72" height="32" rx="4" ry="4" fill="none" stroke="#f0f0f0" stroke-width="3"/>
+      <rect x="72" y="8" width="6" height="16" rx="2" fill="#f0f0f0"/>
+      <!-- Low level fill (example 12%) ensure min width 8 -->
+  <rect x="4" y="4" width="8" height="24" rx="2" fill="#000000"/>
+  <text x="36" y="21" text-anchor="middle" font-family="system-ui,Arial" font-size="14" fill="#f0f0f0" font-weight="600">2%</text>
+    </g>
+  </g>
+  <!-- Right panel -->
+  <rect x="153" y="0" width="259" height="144" fill="#f0f0f0" stroke="#000" stroke-width="1"/>
+  <text x="282.5" y="56" text-anchor="middle" font-family="system-ui,Arial" font-size="26" fill="#111" font-weight="700">НИЗКИЙ ЗАРЯД</text>
+  <text x="282.5" y="102" text-anchor="middle" font-family="system-ui,Arial" font-size="16" fill="#111" font-weight="600">ПОДКЛЮЧИТЕ ПИТАНИЕ</text>
+  <!-- Status bar (red) -->
+  <rect x="412" y="0" width="36" height="144" fill="#000000"/>
+</svg>
