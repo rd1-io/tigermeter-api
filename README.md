@@ -1,13 +1,13 @@
 
 
 ### Экран 1: Приветствие / Wi‑Fi Setup
-![Экран 1](./screen1-welcome.svg)
+![Экран 1](./images/screen1-welcome.svg)
 
 ### Экран 2: Код привязки (Claim)
-![Экран 2](./screen2-claim.svg)
+![Экран 2](./images/screen2-claim.svg)
 
 ### Экран 3: Основное отображение
-![Экран 3](./screen3-main.svg)
+![Экран 3](./images/screen3-main.svg)
 
 
 - (1) name — тикер / идентификатор актива (`single.name`).
