@@ -1,12 +1,44 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="560" height="120" viewBox="0 0 560 120">
-  <rect width="170" height="120" x="0" y="0" fill="#050505" />
-  <text x="20" y="54" font-family="system-ui,Arial" font-size="34" fill="#ffffff" font-weight="700">CLAIM</text>
-  <rect x="170" y="0" width="390" height="120" fill="#ffffff" stroke="#000000" stroke-width="1" />
-  <text x="365" y="68" text-anchor="middle" font-family="system-ui,Arial" font-size="48" fill="#111" font-weight="600" letter-spacing="14">4 8 1 9 2 7</text>
-  <text x="365" y="100" text-anchor="middle" font-family="system-ui,Arial" font-size="18" fill="#222">tiger.com/tickr</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="560" height="144" viewBox="0 0 560 144">
+  <rect width="170" height="144" x="0" y="0" fill="#050505" />
+  <!-- QR placeholder linking to registration page -->
+  <a href="https://tiger.com/tickr" target="_blank">
+    <g id="qr" transform="translate(16,20) scale(1)">
+      <rect x="0" y="0" width="96" height="96" fill="#fff" />
+      <rect x="4" y="4" width="24" height="24" fill="#000" />
+      <rect x="8" y="8" width="16" height="16" fill="#fff" />
+      <rect x="12" y="12" width="8" height="8" fill="#000" />
+      <rect x="68" y="4" width="24" height="24" fill="#000" />
+      <rect x="72" y="8" width="16" height="16" fill="#fff" />
+      <rect x="76" y="12" width="8" height="8" fill="#000" />
+      <rect x="4" y="68" width="24" height="24" fill="#000" />
+      <rect x="8" y="72" width="16" height="16" fill="#fff" />
+      <rect x="12" y="76" width="8" height="8" fill="#000" />
+      <!-- Random data modules -->
+      <rect x="40" y="16" width="8" height="8" fill="#000" />
+      <rect x="52" y="28" width="8" height="8" fill="#000" />
+      <rect x="44" y="40" width="8" height="8" fill="#000" />
+      <rect x="56" y="44" width="8" height="8" fill="#000" />
+      <rect x="40" y="60" width="8" height="8" fill="#000" />
+      <rect x="52" y="64" width="8" height="8" fill="#000" />
+      <rect x="64" y="52" width="8" height="8" fill="#000" />
+      <rect x="28" y="52" width="8" height="8" fill="#000" />
+      <rect x="32" y="32" width="8" height="8" fill="#000" />
+      <rect x="60" y="32" width="8" height="8" fill="#000" />
+      <rect x="48" y="52" width="8" height="8" fill="#000" />
+      <rect x="36" y="68" width="8" height="8" fill="#000" />
+      <rect x="60" y="72" width="8" height="8" fill="#000" />
+      <rect x="72" y="56" width="8" height="8" fill="#000" />
+      <rect x="84" y="40" width="8" height="8" fill="#000" />
+      <rect x="24" y="40" width="8" height="8" fill="#000" />
+      <rect x="16" y="56" width="8" height="8" fill="#000" />
+    </g>
+  </a>
+  <rect x="170" y="0" width="390" height="144" fill="#ffffff" stroke="#000000" stroke-width="1" />
+  <text x="365" y="80" text-anchor="middle" font-family="system-ui,Arial" font-size="52" fill="#111" font-weight="600" letter-spacing="8">4 8 1 9 2 7</text>
+  <text x="365" y="118" text-anchor="middle" font-family="system-ui,Arial" font-size="20" fill="#222">tiger.com/tickr</text>
   <!-- Blue pulsing LED -->
-  <rect x="530" y="0" width="30" height="120" fill="#000000">
+  <rect x="530" y="0" width="30" height="144" fill="#000000">
     <animate attributeName="fill" values="#000000;#0a2d66;#1e6fff;#0a2d66;#000000" dur="6s" repeatCount="indefinite" keyTimes="0;0.25;0.5;0.75;1" />
   </rect>
-  <text x="545" y="60" text-anchor="middle" font-family="system-ui,Arial" font-size="10" fill="#cfe4ff" writing-mode="tb" glyph-orientation-vertical="0" font-weight="600">LED</text>
+  <text x="545" y="72" text-anchor="middle" font-family="system-ui,Arial" font-size="11" fill="#cfe4ff" writing-mode="tb" glyph-orientation-vertical="0" font-weight="600">LED</text>
 </svg>

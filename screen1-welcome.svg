@@ -1,11 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="560" height="120" viewBox="0 0 560 120">
-  <rect width="420" height="120" x="0" y="0" fill="#050505" />
-  <text x="210" y="44" text-anchor="middle" font-family="system-ui,Arial" font-size="34" fill="#ffffff" font-weight="700">TigerMeter</text>
-  <text x="210" y="74" text-anchor="middle" font-family="system-ui,Arial" font-size="18" fill="#ffffff" font-weight="500">Подключитесь к Wi‑Fi</text>
-  <text x="210" y="98" text-anchor="middle" font-family="system-ui,Arial" font-size="20" fill="#ffffff" font-weight="600">"TigerMeter-abc123"</text>
-  <!-- Blue pulsing LED area -->
-  <rect x="420" y="0" width="30" height="120" fill="#000000">
+<svg xmlns="http://www.w3.org/2000/svg" width="560" height="144" viewBox="0 0 560 144">
+  <rect width="530" height="144" x="0" y="0" fill="#050505" />
+  <text x="265" y="54" text-anchor="middle" font-family="system-ui,Arial" font-size="36" fill="#ffffff" font-weight="700">TigerMeter</text>
+  <text x="265" y="84" text-anchor="middle" font-family="system-ui,Arial" font-size="20" fill="#ffffff" font-weight="500">Подключитесь к Wi‑Fi</text>
+  <text x="265" y="112" text-anchor="middle" font-family="system-ui,Arial" font-size="22" fill="#ffffff" font-weight="600">"TigerMeter-abc123"</text>
+  <!-- Blue pulsing LED area (moved to x=530) -->
+  <rect x="530" y="0" width="30" height="144" fill="#000000">
     <animate attributeName="fill" values="#000000;#0a2d66;#1e6fff;#0a2d66;#000000" dur="6s" repeatCount="indefinite" keyTimes="0;0.25;0.5;0.75;1" />
   </rect>
-  <text x="435" y="60" text-anchor="middle" font-family="system-ui,Arial" font-size="10" fill="#cfe4ff" writing-mode="tb" glyph-orientation-vertical="0" font-weight="600">LED</text>
+  <text x="545" y="72" text-anchor="middle" font-family="system-ui,Arial" font-size="11" fill="#cfe4ff" writing-mode="tb" glyph-orientation-vertical="0" font-weight="600">LED</text>
 </svg>
