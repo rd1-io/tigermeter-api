@@ -14,7 +14,7 @@
 - (2) timestamp — время данных (`single.timestamp`).
 - (3) price — текущая цена (`currencySymbol` + `single.price`).
 - (4) portfolioValue + portfolioChangePercent — агрегированная стоимость + % изменения.
-- (5) ledColor / trend bar — динамическая полоса (green/red) или LED в других состояниях.
+- (5) ledColor / trend bar — динамическая полоса или LED (green/red/purple/blue/yellow/white).
 
 
 

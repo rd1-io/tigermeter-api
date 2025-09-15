@@ -3,9 +3,9 @@
   <text x="209" y="54" text-anchor="middle" font-family="system-ui,Arial" font-size="36" fill="#ffffff" font-weight="700">TigerMeter</text>
   <text x="209" y="84" text-anchor="middle" font-family="system-ui,Arial" font-size="20" fill="#ffffff" font-weight="500">Подключитесь к Wi‑Fi</text>
   <text x="209" y="112" text-anchor="middle" font-family="system-ui,Arial" font-size="22" fill="#ffffff" font-weight="600">"TigerMeter-abc123"</text>
-  <!-- Blue pulsing LED area (adjusted to x=418) -->
-  <rect x="418" y="0" width="30" height="144" fill="#000000">
+  <!-- Blue pulsing LED area (adjusted to x=412 for 20% wider) -->
+  <rect x="412" y="0" width="36" height="144" fill="#000000">
     <animate attributeName="fill" values="#000000;#0a2d66;#1e6fff;#0a2d66;#000000" dur="6s" repeatCount="indefinite" keyTimes="0;0.25;0.5;0.75;1" />
   </rect>
-  <text x="433" y="72" text-anchor="middle" font-family="system-ui,Arial" font-size="11" fill="#cfe4ff" writing-mode="tb" glyph-orientation-vertical="0" font-weight="600">LED</text>
+  <text x="430" y="72" text-anchor="middle" font-family="system-ui,Arial" font-size="11" fill="#cfe4ff" writing-mode="tb" glyph-orientation-vertical="0" font-weight="600">LED</text>
 </svg>
