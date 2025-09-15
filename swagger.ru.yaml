@@ -1,0 +1,646 @@
+openapi: 3.0.0
+info:
+  title: TigerMeter Cloud API
+  description: API для привязки (claim) устройств и управления инструкциями отображения (одиночная запись или плейлист).
+  version: 1.0.0
+  x-language: ru
+servers:
+  - url: https://api.tigermeter.cloud
+    description: Prod
+  - url: http://localhost:3000
+    description: Local
+security:
+  - bearerAuth: []
+tags:
+  - name: Portal
+    description: Аутентифицированные эндпоинты портала (JWT пользователя)
+  - name: Device
+    description: Эндпоинты устройства (секрет устройства или публичные)
+  - name: Admin
+    description: Административные эндпоинты (роль admin)
+paths:
+  /api/device-claims:
+    post:
+      tags: [Device]
+      summary: Запросить код привязки
+      description: Устройство запрашивает 6-значный код привязки (действует 5 минут). Защищено HMAC на стороне устройства.
+      operationId: issueClaimCode
+      security: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClaimCodeIssueRequest'
+      responses:
+        '201':
+          description: Код привязки выдан
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClaimCodeIssueResponse'
+        '500': { description: Внутренняя ошибка сервера }
+  /api/device-claims/{code}/attach:
+    post:
+      tags: [Portal]
+      summary: Привязать код устройства
+      description: |
+        Портал связывает ожидающий код привязки с текущим пользователем.
+        Секрет устройства НА ЭТОМ ЭТАПЕ НЕ ГЕНЕРИРУЕТСЯ И НЕ ВОЗВРАЩАЕТСЯ.
+        Он будет сгенерирован лениво при первом успешном опросе `/api/device-claims/{code}/poll` самим устройством.
+      operationId: attachClaimCode
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+          description: 6-значный код привязки
+      responses:
+        '200':
+          description: Код успешно привязан
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceAttachResponse'
+        '400': { description: Недействительный или просроченный код }
+        '401': { description: Не авторизован }
+        '403': { description: Запрещено }
+        '409': { description: Уже привязан }
+        '500': { description: Внутренняя ошибка сервера }
+  /api/device-claims/{code}/poll:
+    get:
+      tags: [Device]
+      summary: Опрос статуса кода привязки
+      description: |
+        Устройство опрашивает код чтобы получить секрет после привязки пользователем.
+        При первом переходе статуса в claimed секрет ГЕНЕРИРУЕТСЯ (ленивая генерация) и возвращается в ответе (одноразовая выдача).
+        После успешной выдачи повторные опросы должны возвращать 404 для предотвращения повторного раскрытия секрета.
+      operationId: pollClaimCode
+      security: []
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Привязано; секрет возвращён (одноразовый)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClaimPollClaimed'
+        '202': { description: Ожидание }
+        '404': { description: Не найдено }
+        '410': { description: Истёк срок действия }
+        '500': { description: Внутренняя ошибка сервера }
+  /api/devices:
+    get:
+      tags: [Portal]
+      summary: Список моих устройств
+      operationId: listMyDevices
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Устройства
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DeviceSummary'
+        '401': { description: Не авторизован }
+  /api/devices/{id}:
+    get:
+      tags: [Portal]
+      summary: Детали устройства
+      operationId: getDevice
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Подробности устройства
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceDetail'
+        '401': { description: Не авторизован }
+        '403': { description: Запрещено }
+        '404': { description: Не найдено }
+  /api/devices/{id}/revoke:
+    post:
+      tags: [Portal]
+      summary: Отвязать (revoke) устройство
+      operationId: revokeDevice
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200': { description: Устройство отвязано }
+        '401': { description: Не авторизован }
+        '403': { description: Запрещено }
+        '404': { description: Не найдено }
+  /api/devices/{id}/display:
+    put:
+      tags: [Portal]
+      summary: Установить инструкцию отображения (single или playlist)
+      operationId: setDisplayInstruction
+      description: Заменяет текущую инструкцию отображения. Устройство должно переключиться при изменении хеша.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DisplayInstruction'
+            examples:
+              single:
+                $ref: '#/components/examples/InstructionSingleExample'
+              playlist:
+                $ref: '#/components/examples/InstructionPlaylistExample'
+      responses:
+        '200': { description: Принято }
+        '400': { description: Неверный запрос }
+        '401': { description: Не авторизован }
+        '403': { description: Запрещено }
+        '404': { description: Не найдено }
+  /api/devices/{id}/heartbeat:
+    post:
+      tags: [Device]
+      summary: Хартбит
+      description: Возвращает ok или новую инструкцию отображения если она изменилась.
+      operationId: heartbeat
+      security:
+        - deviceSecretAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceHeartbeat'
+      responses:
+        '200':
+          description: Результат хартбита
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/HeartbeatOk'
+                  - $ref: '#/components/schemas/HeartbeatWithInstruction'
+        '401': { description: Недействительный секрет }
+        '404': { description: Не найдено }
+  /api/devices/{id}/display/hash:
+    get:
+      tags: [Device]
+      summary: Получить текущий хеш инструкции
+      operationId: getDisplayHash
+      security:
+        - deviceSecretAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Текущий хеш
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  hash: { type: string, description: Хеш текущей инструкции }
+        '401': { description: Недействительный секрет }
+        '404': { description: Не найдено }
+  /api/devices/{id}/display/full:
+    get:
+      tags: [Device]
+      summary: Получить полную инструкцию отображения
+      operationId: getDisplayInstruction
+      security:
+        - deviceSecretAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: ifHash
+          in: query
+          schema:
+            type: string
+          description: Если совпадает с текущим хешем - 304
+      responses:
+        '200':
+          description: Инструкция отображения
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DisplayInstruction'
+              examples:
+                currentSingle:
+                  $ref: '#/components/examples/InstructionSingleExample'
+                currentPlaylist:
+                  $ref: '#/components/examples/InstructionPlaylistExample'
+        '304': { description: Не изменилось }
+        '401': { description: Недействительный секрет }
+        '404': { description: Не найдено }
+  /api/devices/{id}/secret/refresh:
+    post:
+      tags: [Device]
+      summary: Обновить секрет устройства
+      operationId: refreshSecret
+      security:
+        - deviceSecretAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Новый секрет выдан
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClaimPollClaimed'
+        '401': { description: Недействительный секрет }
+        '404': { description: Не найдено }
+  /api/admin/devices:
+    get:
+      tags: [Admin]
+      summary: "Админ: список устройств"
+      operationId: adminListDevices
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: userId
+          in: query
+          schema:
+            type: string
+          description: Фильтр по пользователю
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [awaiting_claim, active, revoked]
+          description: Фильтр по статусу
+        - name: lastSeenBefore
+          in: query
+          schema:
+            type: string
+            format: date-time
+          description: Последний онлайн до
+        - name: lastSeenAfter
+          in: query
+          schema:
+            type: string
+            format: date-time
+          description: Последний онлайн после
+      responses:
+        '200':
+          description: Список устройств
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DeviceAdmin'
+        '401': { description: Не авторизован }
+        '403': { description: Запрещено }
+  /api/admin/devices/{id}/revoke:
+    post:
+      tags: [Admin]
+      summary: "Админ: принудительно отвязать устройство"
+      operationId: adminRevoke
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200': { description: Отвязано }
+        '401': { description: Не авторизован }
+        '403': { description: Запрещено }
+        '404': { description: Не найдено }
+  /api/admin/device-claims/{code}:
+    get:
+      tags: [Admin]
+      summary: "Админ: проверить код привязки"
+      operationId: adminGetClaim
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Информация о коде
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClaimCodeStatus'
+        '404': { description: Не найдено }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    deviceSecretAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: Device Secret
+      description: Секретный токен устройства
+  schemas:
+    DisplayInstruction:
+      description: Полиморфная инструкция отображения (single | playlist) по полю type.
+      oneOf:
+        - $ref: '#/components/schemas/DisplayInstructionSingle'
+        - $ref: '#/components/schemas/DisplayInstructionPlaylist'
+      discriminator:
+        propertyName: type
+        mapping:
+          single: '#/components/schemas/DisplayInstructionSingle'
+          playlist: '#/components/schemas/DisplayInstructionPlaylist'
+    DisplayInstructionBase:
+      type: object
+      required: [type, version, hash]
+      properties:
+        type:
+          type: string
+          enum: [single, playlist]
+          description: Тип инструкции
+        version:
+          type: integer
+          description: Монотонно растущая версия инструкции для устройства
+        hash:
+          type: string
+          description: Стабильный хеш JSON инструкции
+        extensions:
+          type: object
+          additionalProperties: true
+          description: Зарезервировано для будущих расширений
+    DisplayInstructionSingle:
+      allOf:
+        - $ref: '#/components/schemas/DisplayInstructionBase'
+        - type: object
+          required: [single]
+          properties:
+            type:
+              type: string
+              enum: [single]
+              description: Тип = single
+            single:
+              $ref: '#/components/schemas/DisplaySingle'
+    DisplayInstructionPlaylist:
+      allOf:
+        - $ref: '#/components/schemas/DisplayInstructionBase'
+        - type: object
+          required: [playlist]
+          properties:
+            type:
+              type: string
+              enum: [playlist]
+              description: Тип = playlist
+            playlist:
+              $ref: '#/components/schemas/DisplayPlaylist'
+    DisplaySingle:
+      type: object
+      required: [name, price, currencySymbol, timestamp]
+      description: Одна ценовая/портфельная запись для отображения.
+      properties:
+        name: { type: string, description: Название актива или метки }
+        price: { type: number, format: double, description: Текущая цена }
+        currencySymbol: { type: string, description: Символ валюты например $ }
+        timestamp: { type: string, format: date-time, description: Временная метка данных }
+        ledColor: { type: string, enum: [blue, green, red, yellow, purple], description: Цвет светодиода }
+        beep: { type: boolean, description: Однократный звуковой сигнал }
+        flashCount: { type: integer, minimum: 0, description: Количество вспышек }
+        ledBrightness: { type: string, enum: [off, low, mid, high], description: Яркость LED }
+        portfolioValue: { type: number, format: double, description: Текущая стоимость портфеля }
+        portfolioChangeAbsolute: { type: number, format: double, description: Абсолютное изменение портфеля }
+        portfolioChangePercent: { type: number, format: double, description: Процент изменения (5 = 5%) }
+        extensions:
+          type: object
+          additionalProperties: true
+          description: Дополнительные будущие поля
+    DisplayPlaylist:
+      type: object
+      required: [items, displaySeconds]
+      description: Плейлист из нескольких одиночных элементов.
+      properties:
+        items:
+          type: array
+          description: Список элементов
+          items:
+            $ref: '#/components/schemas/DisplaySingle'
+        displaySeconds: { type: integer, minimum: 1, description: Секунд отображается каждый элемент }
+        extensions:
+          type: object
+          additionalProperties: true
+          description: Дополнительные будущие поля
+    DeviceSummary:
+      type: object
+      description: Краткая информация об устройстве.
+      properties:
+        id: { type: string, description: Идентификатор устройства }
+        name: { type: string, description: Пользовательское имя }
+        status: { type: string, enum: [awaiting_claim, active, revoked], description: Статус устройства }
+        lastSeen: { type: string, format: date-time, nullable: true, description: Последний хартбит }
+    DeviceDetail:
+      allOf:
+        - $ref: '#/components/schemas/DeviceSummary'
+        - type: object
+          description: Детализированная информация устройства.
+          properties:
+            mac: { type: string, description: MAC адрес }
+            userId: { type: string, nullable: true, description: Пользователь-владелец }
+            currentDisplayType: { type: string, enum: [single, playlist], nullable: true, description: Тип текущей инструкции }
+            battery: { type: integer, nullable: true, description: Заряд батареи (проценты) }
+            led: { type: string, enum: [off, low, middle, high], nullable: true, description: Текущая яркость LED }
+            secretExpiresAt: { type: string, format: date-time, nullable: true, description: Истечение текущего секрета }
+            displayHash: { type: string, description: Текущий хеш инструкции }
+    DeviceAdmin:
+      allOf:
+        - $ref: '#/components/schemas/DeviceDetail'
+        - type: object
+          description: Административные поля.
+          properties:
+            deviceSecretHash: { type: string, description: Хеш секрета }
+            createdAt: { type: string, format: date-time, description: Когда создано }
+    DeviceHeartbeat:
+      type: object
+      description: Данные хартбита устройства.
+      properties:
+        battery: { type: integer, description: Заряд батареи }
+        rssi: { type: integer, description: Уровень сигнала }
+        ip: { type: string, description: IP адрес устройства }
+        firmwareVersion: { type: string, description: Версия прошивки }
+        uptimeSeconds: { type: integer, description: Аптайм в секундах }
+        displayHash: { type: string, description: Хеш который устройство считает актуальным }
+    HeartbeatOk:
+      type: object
+      description: Ответ когда изменений нет.
+      properties:
+        ok:
+          type: boolean
+          example: true
+          description: Инструкций к обновлению нет
+    HeartbeatWithInstruction:
+      type: object
+      description: Ответ с новой инструкцией отображения.
+      properties:
+        instruction:
+          $ref: '#/components/schemas/DisplayInstruction'
+        displayHash: { type: string, description: Новый хеш инструкции }
+    ClaimCodeIssueRequest:
+      type: object
+      required: [mac, firmwareVersion]
+      description: Запрос на выдачу кода привязки.
+      properties:
+        mac: { type: string, description: MAC адрес устройства }
+        firmwareVersion: { type: string, description: Версия прошивки }
+        ip: { type: string, description: IP адрес (опционально) }
+        hmac: { type: string, description: HMAC подпись против подмены }
+    ClaimCodeIssueResponse:
+      type: object
+      description: Ответ с кодом привязки.
+      properties:
+        code: { type: string, description: 6-значный код }
+        expiresAt: { type: string, format: date-time, description: Время истечения }
+    ClaimCodeStatus:
+      type: object
+      description: Статус кода привязки.
+      properties:
+        code: { type: string, description: Код }
+        status: { type: string, enum: [pending, claimed, expired], description: Текущий статус }
+        deviceId: { type: string, description: Идентификатор устройства (если привязано) }
+        mac: { type: string, description: MAC адрес }
+        expiresAt: { type: string, format: date-time, description: Истечение }
+    DeviceAttachResponse:
+      type: object
+      description: Результат привязки кода.
+      properties:
+        deviceId: { type: string, description: Идентификатор устройства }
+        message: { type: string, description: Сообщение }
+    ClaimPollClaimed:
+      type: object
+      description: Одноразовый ответ при успешной привязке. Содержит секрет устройства, который генерируется лениво в момент первого успешного опроса. Повторные опросы после получения секрета возвращают 404.
+      properties:
+        deviceId: { type: string, description: Идентификатор устройства }
+        deviceSecret: { type: string, description: Новый секрет устройства (plaintext; показывается только один раз) }
+        displayHash: { type: string, description: Текущий хеш инструкции (может быть пустым) }
+        expiresAt: { type: string, format: date-time, description: Истечение секрета }
+  examples:
+    InstructionSingleExample:
+      summary: Одиночная инструкция
+      value:
+        type: single
+        version: 7
+        hash: "ab12cd34ef56..."
+        single:
+          name: BTC
+          price: 63250.45
+          currencySymbol: $
+          timestamp: 2025-09-14T09:30:00Z
+          ledColor: green
+          flashCount: 0
+          ledBrightness: mid
+          beep: true
+          portfolioValue: 125000.75
+          portfolioChangeAbsolute: 1520.10
+          portfolioChangePercent: 1.23
+          extensions:
+            note: "Расширение для будущих полей"
+    InstructionPlaylistExample:
+      summary: Плейлист из двух элементов
+      value:
+        type: playlist
+        version: 12
+        hash: "ff88aa11bb22..."
+        playlist:
+          items:
+            - name: BTC
+              price: 63250.45
+              currencySymbol: $
+              timestamp: 2025-09-14T09:30:00Z
+              ledColor: green
+              ledBrightness: high
+              portfolioValue: 125000.75
+              portfolioChangeAbsolute: 1520.10
+              portfolioChangePercent: 1.23
+              flashCount: 0
+              extensions:
+                source: "feedA"
+            - name: ETH
+              price: 3250.10
+              currencySymbol: $
+              timestamp: 2025-09-14T09:30:05Z
+              ledColor: blue
+              ledBrightness: mid
+              portfolioValue: 125000.75
+              portfolioChangeAbsolute: 1520.10
+              portfolioChangePercent: 1.23
+              flashCount: 1
+              beep: false
+              extensions:
+                source: "feedB"
+          displaySeconds: 5
+          extensions:
+            rotation: "standard"
+    HeartbeatInstructionSingleExample:
+      summary: Хартбит с новой single инструкцией
+      value:
+        instruction:
+          type: single
+          version: 8
+          hash: "99ccaa77..."
+          single:
+            name: AAPL
+            price: 221.34
+            currencySymbol: $
+            timestamp: 2025-09-14T09:32:10Z
+            ledColor: yellow
+            flashCount: 1
+            ledBrightness: low
+            beep: false
+            portfolioValue: 45890.12
+            portfolioChangeAbsolute: -210.44
+            portfolioChangePercent: -0.46
+            extensions:
+              sector: "Tech"
+        displayHash: "99ccaa77..."
