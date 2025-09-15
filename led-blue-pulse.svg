@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="30" height="120" viewBox="0 0 30 120">
+  <!-- Blue pulsing LED: black -> deep blue -> bright cyan-ish -> deep blue -> black -->
+  <rect width="30" height="120" fill="#000000">
+    <animate attributeName="fill"
+             values="#000000;#0a2d66;#1e6fff;#0a2d66;#000000"
+             dur="6s"
+             repeatCount="indefinite"
+             keyTimes="0;0.25;0.5;0.75;1"
+             calcMode="linear" />
+  </rect>
+  <text x="15" y="60" font-size="10" font-family="system-ui,Arial" fill="#cfe4ff" font-weight="600" text-anchor="middle" writing-mode="tb" glyph-orientation-vertical="0">LED</text>
+</svg>

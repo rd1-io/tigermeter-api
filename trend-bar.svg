@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="30" height="120" viewBox="0 0 30 120">
+  <!-- Animated vertical bar that alternates bright green/red every 2s -->
+  <defs>
+    <!-- Slight glow filter for brightness perception (optional) -->
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="2" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+  </defs>
+  <rect id="bar" x="0" y="0" width="30" height="120" fill="#18d851" filter="url(#glow)">
+    <animate attributeName="fill"
+             values="#18d851;#ff3b30;#18d851"
+             dur="4s"
+             repeatCount="indefinite" />
+  </rect>
+  <text x="15" y="60" font-size="10" font-family="system-ui,Arial" fill="#042b10" font-weight="600" text-anchor="middle" writing-mode="tb" glyph-orientation-vertical="0">TREND</text>
+</svg>
