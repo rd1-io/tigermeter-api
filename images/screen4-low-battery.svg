@@ -16,6 +16,6 @@
   <rect x="153" y="0" width="259" height="144" fill="#f0f0f0" stroke="#000" stroke-width="1"/>
   <text x="282.5" y="56" text-anchor="middle" font-family="system-ui,Arial" font-size="26" fill="#111" font-weight="700">НИЗКИЙ ЗАРЯД</text>
   <text x="282.5" y="102" text-anchor="middle" font-family="system-ui,Arial" font-size="16" fill="#111" font-weight="600">ПОДКЛЮЧИТЕ ПИТАНИЕ</text>
-  <!-- Status bar (red) -->
-  <rect x="412" y="0" width="36" height="144" fill="#000000"/>
+  <!-- LED status bar (low battery - red) -->
+  <rect x="412" y="0" width="36" height="144" fill="#ff3b30"/>
 </svg>

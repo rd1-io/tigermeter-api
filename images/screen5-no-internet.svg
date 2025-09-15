@@ -15,6 +15,6 @@
   <text x="282.5" y="36" text-anchor="middle" font-family="system-ui,Arial" font-size="16" fill="#111">9:45 15 Сен 2025</text>
   <text x="282.5" y="86" text-anchor="middle" font-family="system-ui,Arial" font-size="52" fill="#111" font-weight="600">$116,435</text>
   <text x="282.5" y="116" text-anchor="middle" font-family="system-ui,Arial" font-size="18" fill="#111" font-weight="600">НЕТ СЕТИ (ПОВТОР…)</text>
-  <!-- Status bar (yellow) -->
-  <rect x="412" y="0" width="36" height="144" fill="#000000"/>
+  <!-- LED status bar (no network - yellow) -->
+  <rect x="412" y="0" width="36" height="144" fill="#ffcc00"/>
 </svg>
