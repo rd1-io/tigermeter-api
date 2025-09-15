@@ -1,13 +1,12 @@
 
+### Экран 3: Основное отображение (базовый)
+![Экран 3](./images/screen3-main.svg)
 
 ### Экран 1: Приветствие / Wi‑Fi Setup
 ![Экран 1](./images/screen1-welcome.svg)
 
 ### Экран 2: Код привязки (Claim)
 ![Экран 2](./images/screen2-claim.svg)
-
-### Экран 3: Основное отображение
-![Экран 3](./images/screen3-main.svg)
 
 ### Экран 4: Низкий заряд батареи
 ![Экран 4](./images/screen4-low-battery.svg)
