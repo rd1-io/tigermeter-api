@@ -16,6 +16,13 @@
 ![Экран 4](./images/screen5-no-internet.svg)
 
 
+## Документация
+Дополнительно к этому README доступны структурированные файлы:
+- `docs/overview.md` — обзор, иерархия источников истины, быстрый старт
+- `docs/claim-flow.md` — детальный flow привязки и одноразовой выдачи секрета
+- `docs/errors.md` — каталог типовых ошибок и обработка на клиенте
+
+
 
 - (1) name — тикер / идентификатор актива (`single.name`).
 - (2) timestamp — время данных (`single.timestamp`).
@@ -276,6 +283,130 @@ HMAC_SHA256(device_hmac_key, mac || firmwareVersion || timestampRoundedToMinute)
 - Отображение состояния онлайн / офлайн (`lastSeen` > threshold → offline).
 - Показ заряда батареи и сигнала.
 - Диагностика при support (MAC, fwVersion, RSSI).
+
+
+### Локальный запуск API (Node/Fastify) и примеры curl
+
+- **Старт локально**:
+```bash
+make setup
+make dev
+```
+- **Health**:
+```bash
+curl -s http://127.0.0.1:3001/healthz
+```
+
+- **Переменные окружения для примеров**:
+```bash
+export BASE=http://127.0.0.1:3001
+export JWT_SECRET=change-me-dev
+# Сгенерировать user JWT (role=user)
+export USER_TOKEN=$(node -e "import('jose').then(async ({SignJWT})=>{const k=new TextEncoder().encode(process.env.JWT_SECRET);const t=await new SignJWT({sub:'user1',role:'user'}).setProtectedHeader({alg:'HS256'}).sign(k);console.log(t);})")
+# Сгенерировать admin JWT (role=admin)
+export ADMIN_TOKEN=$(node -e "import('jose').then(async ({SignJWT})=>{const k=new TextEncoder().encode(process.env.JWT_SECRET);const t=await new SignJWT({sub:'admin1',role:'admin'}).setProtectedHeader({alg:'HS256'}).sign(k);console.log(t);})")
+```
+
+- **1) Device Claim: запрос кода**:
+```bash
+CODE=$(curl -s "$BASE/api/device-claims" \
+  -H 'content-type: application/json' \
+  -d '{"mac":"AA:BB:CC:DD:EE:FF","firmwareVersion":"1.0.0"}' | jq -r .code)
+echo "CODE=$CODE"
+```
+
+- **2) User Attach: привязать код к пользователю (JWT)**:
+```bash
+curl -s "$BASE/api/device-claims/$CODE/attach" \
+  -H "authorization: Bearer $USER_TOKEN" \
+  -X POST
+```
+
+- **3) Poll: устройство получает секрет (одноразово)**:
+```bash
+CLAIM=$(curl -s "$BASE/api/device-claims/$CODE/poll")
+echo "$CLAIM" | jq .
+DID=$(echo "$CLAIM" | jq -r .deviceId)
+DEVSECRET=$(echo "$CLAIM" | jq -r .deviceSecret)
+echo "DID=$DID"
+echo "DEVSECRET=$DEVSECRET"
+```
+
+- **4) Device Heartbeat (Bearer: секрет устройства)**:
+```bash
+curl -s "$BASE/api/devices/$DID/heartbeat" \
+  -H "authorization: Bearer $DEVSECRET" \
+  -H 'content-type: application/json' \
+  -d '{"battery":95,"rssi":-55,"displayHash":""}' | jq .
+```
+
+- **5) Portal: установить инструкцию отображения**:
+```bash
+curl -s "$BASE/api/devices/$DID/display" \
+  -H "authorization: Bearer $USER_TOKEN" \
+  -H 'content-type: application/json' \
+  -X PUT \
+  -d '{
+    "type":"single",
+    "version":1,
+    "hash":"sha256:draft",
+    "single":{
+      "name":"BTC",
+      "price":63250.45,
+      "currencySymbol":"$",
+      "timestamp":"2025-09-14T09:30:00Z"
+    }
+  }' | jq .
+```
+
+- **6) Device: получить текущий хеш**:
+```bash
+curl -s "$BASE/api/devices/$DID/display/hash" \
+  -H "authorization: Bearer $DEVSECRET" | jq .
+```
+
+- **7) Device: получить полную инструкцию (304 если не изменилась)**:
+```bash
+HASH=$(curl -s "$BASE/api/devices/$DID/display/hash" -H "authorization: Bearer $DEVSECRET" | jq -r .hash)
+# Попытка получить полную с ifHash (может вернуть 304)
+curl -i "$BASE/api/devices/$DID/display/full?ifHash=$HASH" \
+  -H "authorization: Bearer $DEVSECRET"
+```
+
+- **8) Device: обновить секрет (refresh)**:
+```bash
+REFRESH=$(curl -s "$BASE/api/devices/$DID/secret/refresh" -H "authorization: Bearer $DEVSECRET" -X POST)
+echo "$REFRESH" | jq .
+NEWSECRET=$(echo "$REFRESH" | jq -r .deviceSecret)
+```
+
+- **9) Portal: список/детали/отвязка устройства**:
+```bash
+curl -s "$BASE/api/devices" -H "authorization: Bearer $USER_TOKEN" | jq .
+curl -s "$BASE/api/devices/$DID" -H "authorization: Bearer $USER_TOKEN" | jq .
+curl -s "$BASE/api/devices/$DID/revoke" -H "authorization: Bearer $USER_TOKEN" -X POST | jq .
+```
+
+- **10) Admin: список устройств / принудительный revoke / проверка кода**:
+```bash
+curl -s "$BASE/api/admin/devices" -H "authorization: Bearer $ADMIN_TOKEN" | jq .
+curl -s "$BASE/api/admin/devices/$DID/revoke" -H "authorization: Bearer $ADMIN_TOKEN" -X POST | jq .
+curl -s "$BASE/api/admin/device-claims/$CODE" -H "authorization: Bearer $ADMIN_TOKEN" | jq .
+```
+
+Примечания:
+- Хеш инструкции вычисляется на бэкенде (канонический JSON → SHA-256), поле `hash` в теле запроса может быть любым/черновым.
+- Для простоты примеров используется SQLite (`node-api/dev.db`) и секрет JWT по умолчанию `change-me-dev` (см. `make setup`). В проде замените секрет и СУБД.
+
+
+### Postman коллекция (альтернатива curl)
+
+- Импортируйте файлы из директории `postman/`:
+  - `postman/TigerMeter.collection.json`
+  - `postman/TigerMeter.local.postman_environment.json`
+- Выберите окружение "TigerMeter Local" и нажмите "Auth / Generate User Token", затем "Auth / Generate Admin Token" — это заполнит переменные `userToken` и `adminToken`.
+- Выполняйте запросы по порядку: Issue Claim → Attach → Poll → Heartbeat → Set Display → Get Hash/Full → Refresh → Portal/Admin.
+- Переменные (`claimCode`, `deviceId`, `deviceSecret`, `displayHash`) будут сохраняться автоматически между запросами.
 
 
 

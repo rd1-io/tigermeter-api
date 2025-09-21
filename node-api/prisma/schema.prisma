@@ -1,0 +1,65 @@
+// Prisma schema for TigerMeter Node API
+// Device and DeviceClaim tables
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Device {
+  id                      String   @id @default(uuid())
+  mac                     String   @unique
+  userId                  String?
+  status                  String   @default("awaiting_claim")
+
+  // Provisioning
+  hmacKey                 String?
+
+  // Telemetry
+  lastSeen                DateTime?
+  battery                 Int?
+  rssi                    Int?
+  ip                      String?
+  firmwareVersion         String?
+
+  // Display state
+  currentDisplayType      String?
+  displayHash             String?
+  displayVersion          Int      @default(0)
+  displayInstructionJson  String?
+  ledBrightness           String?
+
+  // Secrets
+  currentSecretHash       String?
+  currentSecretExpiresAt  DateTime?
+  previousSecretHash      String?
+  previousSecretExpiresAt DateTime?
+
+  // Timestamps
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  claims                  DeviceClaim[]
+}
+
+model DeviceClaim {
+  code           String   @id
+  deviceId       String
+  device         Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  mac            String
+  firmwareVersion String?
+  ip             String?
+  status         String   @default("pending")
+  userId         String?
+  secretIssued   Boolean  @default(false)
+  expiresAt      DateTime
+  createdAt      DateTime @default(now())
+
+  @@index([status])
+  @@index([mac])
+}

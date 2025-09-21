@@ -77,6 +77,7 @@ paths:
         Устройство опрашивает код чтобы получить секрет после привязки пользователем.
         При первом переходе статуса в claimed секрет ГЕНЕРИРУЕТСЯ (ленивая генерация) и возвращается в ответе (одноразовая выдача).
         После успешной выдачи повторные опросы должны возвращать 404 для предотвращения повторного раскрытия секрета.
+        Эндпоинт подлежит rate limiting.
       operationId: pollClaimCode
       security: []
       parameters:
@@ -92,7 +93,16 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ClaimPollClaimed'
-        '202': { description: Ожидание }
+        '202':
+          description: Ожидание (код ещё не привязан)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [pending]
         '404': { description: Не найдено }
         '410': { description: Истёк срок действия }
         '500': { description: Внутренняя ошибка сервера }
@@ -150,7 +160,14 @@ paths:
           schema:
             type: string
       responses:
-        '200': { description: Устройство отвязано }
+        '200':
+          description: Устройство отвязано
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: revoked }
         '401': { description: Не авторизован }
         '403': { description: Запрещено }
         '404': { description: Не найдено }
@@ -179,7 +196,14 @@ paths:
               playlist:
                 $ref: '#/components/examples/InstructionPlaylistExample'
       responses:
-        '200': { description: Принято }
+        '200':
+          description: Принято; возвращает текущий хеш
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  displayHash: { type: string }
         '400': { description: Неверный запрос }
         '401': { description: Не авторизован }
         '403': { description: Запрещено }

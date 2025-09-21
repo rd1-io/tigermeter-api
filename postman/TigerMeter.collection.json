@@ -1,0 +1,150 @@
+{
+  "info": {
+    "_postman_id": "9e7a4b8d-1111-2222-3333-444444444444",
+    "name": "TigerMeter Cloud API (Local)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    { "name": "Health", "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/healthz" } },
+    {
+      "name": "Helper / Generate HMAC Variables",
+      "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/healthz", "description": "Generates computedHmac & ts using format hmac = HMAC_SHA256(hmacKey, mac:ts)." },
+      "event": [ {
+        "listen": "prerequest",
+        "script": { "type": "text/javascript", "exec": [
+          "const mac = (pm.environment.get('mac')||'').toLowerCase();",
+          "const key = pm.environment.get('hmacKey');",
+          "if(mac && key){ const ts = Math.floor(Date.now()/1000); const msg = `${mac}:${ts}`; const hmac = CryptoJS.HmacSHA256(msg, key).toString(CryptoJS.enc.Hex); pm.environment.set('computedHmac', hmac); pm.environment.set('ts', ts); console.log('HMAC msg', msg); } else { console.warn('mac or hmacKey missing'); }"
+        ] }
+      } ]
+    },
+    {
+      "name": "Device / Issue Claim Code",
+      "request": {
+        "method": "POST",
+        "header": [ { "key": "Content-Type", "value": "application/json" } ],
+        "url": "{{baseUrl}}/api/device-claims",
+        "description": "Rate limit ~20/min/IP. Returns 201 with code & expiresAt."
+      },
+      "event": [ {
+        "listen": "prerequest",
+        "script": { "type": "text/javascript", "exec": [
+          "if(!pm.environment.get('computedHmac')) {",
+          "  // Auto-generate if helper not run",
+          "  const mac = (pm.environment.get('mac')||'').toLowerCase();",
+          "  const key = pm.environment.get('hmacKey');",
+          "  if(mac && key){ const ts = Math.floor(Date.now()/1000); const msg = `${mac}:${ts}`; const hmac = CryptoJS.HmacSHA256(msg, key).toString(CryptoJS.enc.Hex); pm.environment.set('computedHmac', hmac); pm.environment.set('ts', ts); }",
+          "}",
+          "const body = { mac: pm.environment.get('mac'), firmwareVersion: pm.environment.get('firmwareVersion'), ts: pm.environment.get('ts'), hmac: pm.environment.get('computedHmac') };",
+          "pm.request.body.raw = JSON.stringify(body, null, 2);"
+        ] }
+      },{
+        "listen": "test",
+        "script": { "type": "text/javascript", "exec": [
+          "if(pm.response.code===201){ const json = pm.response.json(); pm.environment.set('claimCode', json.code); }"
+        ] }
+      } ]
+    },
+    { "name": "Portal / Attach Claim Code", "request": { "method": "POST", "header": [ { "key": "Authorization", "value": "Bearer {{userToken}}" } ], "url": "{{baseUrl}}/api/device-claims/{{claimCode}}/attach", "description": "Returns deviceId when successful." } },
+    {
+      "name": "Device / Poll Claim Code",
+      "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/api/device-claims/{{claimCode}}/poll", "description": "Rate limit ~60/min. 202 while pending; 200 returns secret; 404 after secret issued; 410 expired." },
+      "event": [ { "listen": "test", "script": { "type": "text/javascript", "exec": [
+        "const code = pm.response.code; try { const data = pm.response.json(); if(code===200 && data.deviceSecret){ pm.environment.set('deviceSecret', data.deviceSecret); pm.environment.set('deviceId', data.deviceId); pm.environment.set('displayHash', data.displayHash || ''); } } catch(e){}"
+      ] } } ]
+    },
+    { "name": "Device / Poll Claim Code (Pending Example)", "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/api/device-claims/{{claimCode}}/poll" } },
+    {
+      "name": "Device / Heartbeat",
+      "request": {
+        "method": "POST",
+        "header": [ { "key": "Authorization", "value": "Bearer {{deviceSecret}}" }, { "key": "Content-Type", "value": "application/json" } ],
+        "url": "{{baseUrl}}/api/devices/{{deviceId}}/heartbeat"
+      },
+      "event": [ { "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
+        "const body = { battery: 95, rssi: -55, displayHash: pm.environment.get('displayHash') || '' };",
+        "pm.request.body.raw = JSON.stringify(body, null, 2);"
+      ] } } ],
+      "body": { "mode": "raw", "raw": "{}" }
+    },
+    {
+      "name": "Portal / Set Display Instruction",
+      "request": {
+        "method": "PUT",
+        "header": [ { "key": "Authorization", "value": "Bearer {{userToken}}" }, { "key": "Content-Type", "value": "application/json" } ],
+        "url": "{{baseUrl}}/api/devices/{{deviceId}}/display"
+      },
+      "event": [ {
+        "listen": "prerequest",
+        "script": { "type": "text/javascript", "exec": [
+          "const instr = { type: 'single', version: 1, single: { name: 'BTC', price: 63250.45, currencySymbol: '$', timestamp: '2025-09-14T09:30:00Z', ledBrightness: 'mid' } };",
+          "const sorted = Object.keys(instr).sort();",
+          "const json = JSON.stringify(instr, sorted);",
+          "const hash = CryptoJS.SHA256(json).toString(CryptoJS.enc.Hex);",
+          "instr.hash = 'sha256:' + hash;",
+          "pm.environment.set('displayHash', instr.hash);",
+          "pm.request.body.raw = JSON.stringify(instr, null, 2);"
+        ] }
+      }, { "listen": "test", "script": { "type": "text/javascript", "exec": [
+        "if(pm.response.code===200){ const j=pm.response.json(); if(j.displayHash) pm.environment.set('displayHash', j.displayHash); }"
+      ] } } ],
+      "body": { "mode": "raw", "raw": "{}" }
+    },
+    {
+      "name": "Portal / Set Display Instruction (Playlist)",
+      "request": {
+        "method": "PUT",
+        "header": [ { "key": "Authorization", "value": "Bearer {{userToken}}" }, { "key": "Content-Type", "value": "application/json" } ],
+        "url": "{{baseUrl}}/api/devices/{{deviceId}}/display"
+      },
+      "event": [ { "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
+        "const instr = { type: 'playlist', version: 1, playlist: { displaySeconds: 5, items: [ { name: 'BTC', price: 63250.45, currencySymbol: '$', timestamp: '2025-09-14T09:30:00Z', ledBrightness: 'high' }, { name: 'ETH', price: 3250.10, currencySymbol: '$', timestamp: '2025-09-14T09:30:05Z', ledBrightness: 'low' } ] } };",
+        "const sorted = Object.keys(instr).sort();",
+        "const json = JSON.stringify(instr, sorted);",
+        "const hash = CryptoJS.SHA256(json).toString(CryptoJS.enc.Hex);",
+        "instr.hash = 'sha256:' + hash;",
+        "pm.request.body.raw = JSON.stringify(instr, null, 2);"
+      ] } }, { "listen": "test", "script": { "type": "text/javascript", "exec": [
+        "if(pm.response.code===200){ const j=pm.response.json(); if(j.displayHash) pm.environment.set('displayHash', j.displayHash); }"
+      ] } } ],
+      "body": { "mode": "raw", "raw": "{}" }
+    },
+    { "name": "Device / Get Display Hash", "request": { "method": "GET", "header": [ { "key": "Authorization", "value": "Bearer {{deviceSecret}}" } ], "url": "{{baseUrl}}/api/devices/{{deviceId}}/display/hash" } },
+    { "name": "Device / Get Display Full", "request": { "method": "GET", "header": [ { "key": "Authorization", "value": "Bearer {{deviceSecret}}" } ], "url": "{{baseUrl}}/api/devices/{{deviceId}}/display/full?ifHash={{displayHash}}" } },
+    {
+      "name": "Device / Refresh Secret",
+      "request": { "method": "POST", "header": [ { "key": "Authorization", "value": "Bearer {{deviceSecret}}" } ], "url": "{{baseUrl}}/api/devices/{{deviceId}}/secret/refresh" },
+      "event": [ { "listen": "test", "script": { "type": "text/javascript", "exec": [
+        "if(pm.response.code===200){ const j=pm.response.json(); if(j.deviceSecret){ pm.environment.set('deviceSecret', j.deviceSecret); pm.environment.set('displayHash', j.displayHash || ''); } }"
+      ] } } ]
+    },
+    { "name": "Portal / List My Devices", "request": { "method": "GET", "header": [ { "key": "Authorization", "value": "Bearer {{userToken}}" } ], "url": "{{baseUrl}}/api/devices" } },
+    { "name": "Portal / Get Device", "request": { "method": "GET", "header": [ { "key": "Authorization", "value": "Bearer {{userToken}}" } ], "url": "{{baseUrl}}/api/devices/{{deviceId}}" } },
+    { "name": "Portal / Revoke Device", "request": { "method": "POST", "header": [ { "key": "Authorization", "value": "Bearer {{userToken}}" } ], "url": "{{baseUrl}}/api/devices/{{deviceId}}/revoke" } },
+    { "name": "Admin / List Devices", "request": { "method": "GET", "header": [ { "key": "Authorization", "value": "Bearer {{adminToken}}" } ], "url": "{{baseUrl}}/api/admin/devices" } },
+    { "name": "Admin / List Devices (By User)", "request": { "method": "GET", "header": [ { "key": "Authorization", "value": "Bearer {{adminToken}}" } ], "url": "{{baseUrl}}/api/admin/devices?userId={{userId}}" } },
+    { "name": "Admin / List Devices (Active)", "request": { "method": "GET", "header": [ { "key": "Authorization", "value": "Bearer {{adminToken}}" } ], "url": "{{baseUrl}}/api/admin/devices?status=active" } },
+    { "name": "Admin / List Devices (Seen Before)", "request": { "method": "GET", "header": [ { "key": "Authorization", "value": "Bearer {{adminToken}}" } ], "url": "{{baseUrl}}/api/admin/devices?lastSeenBefore=2025-09-20T00:00:00Z" } },
+    { "name": "Admin / Revoke Device", "request": { "method": "POST", "header": [ { "key": "Authorization", "value": "Bearer {{adminToken}}" } ], "url": "{{baseUrl}}/api/admin/devices/{{deviceId}}/revoke" } },
+    { "name": "Admin / Inspect Claim Code", "request": { "method": "GET", "header": [ { "key": "Authorization", "value": "Bearer {{adminToken}}" } ], "url": "{{baseUrl}}/api/admin/device-claims/{{claimCode}}" } }
+    ,
+    { "name": "Helper / Reset Claim Vars", "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/healthz", "description": "Clears ts/computedHmac/claimCode so you can manually paste a body." },
+      "event": [ { "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
+        "['ts','computedHmac','claimCode'].forEach(v=>pm.environment.unset(v));",
+        "console.log('Cleared claim-related env vars');"
+      ] } } ]
+    },
+    {
+      "name": "Device / Issue Claim Code (Manual)",
+      "request": {
+        "method": "POST",
+        "header": [ { "key": "Content-Type", "value": "application/json" } ],
+        "url": "{{baseUrl}}/api/device-claims",
+        "description": "Manual entry: paste mac, firmwareVersion, ts, hmac yourself. Pre-request script disabled." },
+      "body": { "mode": "raw", "raw": "{\n  \"mac\": \"aa:bb:cc:dd:ee:ff\",\n  \"firmwareVersion\": \"1.0.0-demo\",\n  \"ts\": 1695200000,\n  \"hmac\": \"<paste_hmac_here>\"\n}" },
+      "event": [ { "listen": "test", "script": { "type": "text/javascript", "exec": [
+        "if(pm.response.code===201){ const json = pm.response.json(); pm.environment.set('claimCode', json.code); }"
+      ] } } ]
+    }
+  ]
+}
