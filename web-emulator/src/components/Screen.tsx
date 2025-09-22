@@ -20,6 +20,7 @@ interface ScreenProps {
   deviceSecret?: string | null;
   displayInstruction?: DisplayInstruction | null;
   scale?: number;
+  variant?: "flow" | "display";
 }
 
 export const Screen: React.FC<ScreenProps> = ({
@@ -30,6 +31,7 @@ export const Screen: React.FC<ScreenProps> = ({
   deviceSecret,
   displayInstruction,
   scale = 2, // Default 2x scale for better visibility
+  variant = "flow",
 }) => {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -122,33 +124,125 @@ export const Screen: React.FC<ScreenProps> = ({
     case "heartbeat_active":
       if (displayInstruction?.type === "single") {
         const single = displayInstruction.single;
-        content = (
-          <div className="flex flex-col items-center justify-center h-full text-center gap-2">
-            <div className="text-[13px] font-semibold tracking-wide">
-              {single.name.toUpperCase()}
-            </div>
-            <div className="text-[28px] font-bold tabular-nums">
-              {single.currencySymbol}
-              {single.price.toFixed(2)}
-            </div>
-            {single.portfolioValue && (
-              <div className="text-[10px] opacity-70">
-                Portfolio: {single.currencySymbol}
-                {single.portfolioValue.toFixed(2)}
-                {single.portfolioChangePercent !== undefined && (
-                  <span className="ml-1">
-                    {single.portfolioChangePercent > 0 ? "+" : ""}
-                    {single.portfolioChangePercent.toFixed(1)}%
-                  </span>
-                )}
+        if (variant === "display") {
+          const dt = new Date(single.timestamp);
+          const dateTimeStr = dt
+            .toLocaleString(undefined, {
+              hour12: false,
+              year: "numeric",
+              month: "short",
+              day: "2-digit",
+              hour: "2-digit",
+              minute: "2-digit",
+            })
+            .replace(",", "");
+          const asset = single.name.split("/")[0].toUpperCase();
+          // Dynamic price formatting
+          const rawPrice = single.price;
+          const decimals = rawPrice >= 1 ? 2 : 4;
+          let formatted = rawPrice.toFixed(decimals);
+          if (decimals > 0) {
+            formatted = formatted
+              .replace(/\.0+$/, "")
+              .replace(/(\.[0-9]*?)0+$/, "$1");
+          }
+          const priceStr = `${single.currencySymbol}${formatted}`;
+          // Adaptive font sizing thresholds based on character length
+          let priceFontSize = 42; // base
+          if (priceStr.length > 10) priceFontSize = 38;
+          if (priceStr.length > 12) priceFontSize = 34;
+          if (priceStr.length > 14) priceFontSize = 30;
+          content = (
+            <div
+              className="absolute inset-0 flex"
+              style={{
+                fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+              }}
+            >
+              {/* Left square strip 168x168 */}
+              <div
+                style={{
+                  width: 100,
+                  height: 168,
+                  background: "#121212",
+                  color: "#fafafa",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <div
+                  className="font-extrabold tracking-tight"
+                  style={{ fontSize: 40 }}
+                >
+                  {asset}
+                </div>
               </div>
-            )}
-            <div className="text-[8px] opacity-50">
-              {new Date(single.timestamp).toLocaleTimeString()}
+              {/* Right content area */}
+              <div
+                className="flex flex-col"
+                style={{ width: 384 - 100 - 0, padding: "8px 14px 8px 14px" }}
+              >
+                <div className="text-center text-[12px] font-medium leading-none mb-3 tracking-tight">
+                  {dateTimeStr}
+                </div>
+                <div className="flex-1 flex items-center justify-center overflow-hidden">
+                  <div className="text-center max-w-full">
+                    <div
+                      className="font-black leading-none tracking-tight tabular-nums whitespace-nowrap"
+                      style={{
+                        letterSpacing: "-1px",
+                        fontSize: priceFontSize,
+                        transform: "translateZ(0)",
+                      }}
+                    >
+                      {priceStr}
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-2 text-center text-[13px] font-semibold tracking-tight leading-none">
+                  {single.portfolioValue !== undefined &&
+                  single.portfolioChangePercent !== undefined ? (
+                    <>
+                      1 day {single.portfolioChangePercent > 0 ? "+" : ""}
+                      {single.portfolioChangePercent.toFixed(2)}%
+                    </>
+                  ) : (
+                    <>&nbsp;</>
+                  )}
+                </div>
+              </div>
             </div>
-            {/* Removed in-display LED dot */}
-          </div>
-        );
+          );
+        } else {
+          content = (
+            <div className="flex flex-col items-center justify-center h-full text-center gap-2">
+              <div className="text-[13px] font-semibold tracking-wide">
+                {single.name.toUpperCase()}
+              </div>
+              <div className="text-[28px] font-bold tabular-nums">
+                {single.currencySymbol}
+                {single.price.toFixed(2)}
+              </div>
+              {single.portfolioValue && (
+                <div className="text-[10px] opacity-70">
+                  Portfolio: {single.currencySymbol}
+                  {single.portfolioValue.toFixed(2)}
+                  {single.portfolioChangePercent !== undefined && (
+                    <span className="ml-1">
+                      {single.portfolioChangePercent > 0 ? "+" : ""}
+                      {single.portfolioChangePercent.toFixed(1)}%
+                    </span>
+                  )}
+                </div>
+              )}
+              <div className="text-[8px] opacity-50">
+                {new Date(single.timestamp).toLocaleTimeString()}
+              </div>
+              {/* Removed in-display LED dot */}
+            </div>
+          );
+        }
       } else if (displayInstruction?.type === "playlist") {
         // For simplicity, show first item for now
         const firstItem = displayInstruction.playlist.items[0];
@@ -228,9 +322,11 @@ export const Screen: React.FC<ScreenProps> = ({
             }}
           >
             {content}
-            <div className="absolute bottom-1 right-2 text-[9px] opacity-40 tabular-nums">
-              {now.toLocaleTimeString()}
-            </div>
+            {variant !== "display" && (
+              <div className="absolute bottom-1 right-2 text-[9px] opacity-40 tabular-nums">
+                {now.toLocaleTimeString()}
+              </div>
+            )}
           </div>
           {/* LED bar right side vertical */}
           {(() => {

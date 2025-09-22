@@ -214,7 +214,8 @@ export const App: React.FC = () => {
     };
   }, [wifiOn, mac]);
 
-  const [displayModeInstruction, setDisplayModeInstruction] = useState<DisplayInstruction | null>(null);
+  const [displayModeInstruction, setDisplayModeInstruction] =
+    useState<DisplayInstruction | null>(null);
   const [screenScale, setScreenScale] = useState(2);
 
   return (
@@ -224,7 +225,7 @@ export const App: React.FC = () => {
           <h1 className="text-lg font-semibold tracking-tight">
             TigerMeter Web Emulator
           </h1>
-            <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4">
             <div className="flex items-center gap-1 bg-neutral-100 rounded px-1 py-0.5 border">
               <button
                 className={`text-xs px-2 py-0.5 rounded transition-colors ${
@@ -252,236 +253,249 @@ export const App: React.FC = () => {
         </div>
       </header>
       <main className="flex-1 mx-auto w-full max-w-6xl px-6 py-6 flex flex-col gap-8 md:flex-row">
-  {mode === 'flow' && (
-  <div className="w-80 flex-shrink-0 flex flex-col gap-6 order-2 md:order-1">
-          <section className="bg-white rounded-md border p-4 flex flex-col gap-4 shadow-sm">
-            <div className="flex items-center justify-between">
-              <MacInput value={mac} onChange={setMac} disabled={wifiOn} />
-              <div className="flex flex-col items-end gap-1">
-                <div className="text-[10px] font-medium uppercase tracking-wide">WiFi</div>
-                <WifiToggle value={wifiOn} onChange={setWifiOn} />
-              </div>
-            </div>
-            <div className="flex flex-col gap-1">
-              <div className="text-xs font-medium">Provision Device (dev)</div>
-              <div className="text-[10px] text-neutral-500">
-                Firmware: {firmware}
-              </div>
-              <button
-                type="button"
-                disabled={
-                  mac.length !== 17 || provisionStatus === "provisioning"
-                }
-                onClick={async () => {
-                  setProvisionStatus("provisioning");
-                  try {
-                    const r = await apiClient.provisionDevice(mac, firmware);
-                    if (r.status === 201) {
-                      setProvisionStatus("created");
-                    } else if (r.status === 409) {
-                      setProvisionStatus("exists");
-                    } else if (r.status === 400) {
-                      setProvisionStatus("invalid");
-                    } else {
-                      setProvisionStatus("err:" + r.status);
-                    }
-                  } catch (e: any) {
-                    setProvisionStatus("error");
-                  }
-                }}
-                className="inline-flex items-center justify-center bg-neutral-800 text-white text-xs px-3 py-1 rounded disabled:opacity-40 disabled:cursor-not-allowed hover:bg-black transition-colors"
-              >
-                Provision
-              </button>
-              {provisionStatus && (
-                <div className="text-[10px] text-neutral-600">
-                  {provisionStatus}
+        {mode === "flow" && (
+          <div className="w-80 flex-shrink-0 flex flex-col gap-6 order-2 md:order-1">
+            <section className="bg-white rounded-md border p-4 flex flex-col gap-4 shadow-sm">
+              <div className="flex items-center justify-between">
+                <MacInput value={mac} onChange={setMac} disabled={wifiOn} />
+                <div className="flex flex-col items-end gap-1">
+                  <div className="text-[10px] font-medium uppercase tracking-wide">
+                    WiFi
+                  </div>
+                  <WifiToggle value={wifiOn} onChange={setWifiOn} />
                 </div>
-              )}
-            </div>
-            {claimCode && screenState === "waiting_for_attach" && (
-              <div className="flex flex-col gap-1 border-t pt-3">
+              </div>
+              <div className="flex flex-col gap-1">
                 <div className="text-xs font-medium">
-                  Portal Simulation (dev)
+                  Provision Device (dev)
                 </div>
                 <div className="text-[10px] text-neutral-500">
-                  Auto-attach claim code for testing
+                  Firmware: {firmware}
                 </div>
                 <button
                   type="button"
+                  disabled={
+                    mac.length !== 17 || provisionStatus === "provisioning"
+                  }
                   onClick={async () => {
+                    setProvisionStatus("provisioning");
                     try {
-                      // Create a test JWT token for portal simulation
-                      const testToken = await createTestUserToken(
-                        "test-emulator-user-123"
-                      );
-
-                      // Use the API client with proper JWT
-                      const response = await apiClient.attachClaim(
-                        claimCode,
-                        testToken
-                      );
-
-                      if (response.ok) {
-                        console.log("Portal attach simulation successful");
-                        // Attachment successful, polling should detect this shortly
+                      const r = await apiClient.provisionDevice(mac, firmware);
+                      if (r.status === 201) {
+                        setProvisionStatus("created");
+                      } else if (r.status === 409) {
+                        setProvisionStatus("exists");
+                      } else if (r.status === 400) {
+                        setProvisionStatus("invalid");
                       } else {
-                        const errorData = await response
-                          .json()
-                          .catch(() => null);
-                        console.warn(
-                          "Portal attach simulation failed:",
-                          response.status,
-                          errorData
-                        );
+                        setProvisionStatus("err:" + r.status);
                       }
-                    } catch (e) {
-                      console.warn("Portal attach simulation error:", e);
+                    } catch (e: any) {
+                      setProvisionStatus("error");
                     }
                   }}
-                  className="inline-flex items-center justify-center bg-blue-800 text-white text-xs px-3 py-1 rounded hover:bg-blue-900 transition-colors"
+                  className="inline-flex items-center justify-center bg-neutral-800 text-white text-xs px-3 py-1 rounded disabled:opacity-40 disabled:cursor-not-allowed hover:bg-black transition-colors"
                 >
-                  Simulate Portal Attach
+                  Provision
                 </button>
-                <div className="text-[10px] text-neutral-500">
-                  Uses test JWT token for authentication
-                </div>
+                {provisionStatus && (
+                  <div className="text-[10px] text-neutral-600">
+                    {provisionStatus}
+                  </div>
+                )}
               </div>
-            )}
-            {screenState === "heartbeat_active" && (
-              <div className="flex flex-col gap-1 border-t pt-3">
-                <div className="text-xs font-medium">Display Test (dev)</div>
-                <div className="text-[10px] text-neutral-500">
-                  Mock display instructions for testing
-                </div>
-                <div className="flex gap-2">
+              {claimCode && screenState === "waiting_for_attach" && (
+                <div className="flex flex-col gap-1 border-t pt-3">
+                  <div className="text-xs font-medium">
+                    Portal Simulation (dev)
+                  </div>
+                  <div className="text-[10px] text-neutral-500">
+                    Auto-attach claim code for testing
+                  </div>
                   <button
                     type="button"
-                    onClick={() => {
-                      const mockInstruction: DisplayInstruction = {
-                        type: "single",
-                        version: 1,
-                        hash: "mock-hash-1",
-                        single: {
-                          name: "BTC/USD",
-                          price: 45250.5,
-                          currencySymbol: "$",
-                          timestamp: new Date().toISOString(),
-                          ledColor: "green",
-                          ledBrightness: "high",
-                          portfolioValue: 125000,
-                          portfolioChangePercent: 2.5,
-                        },
-                      };
-                      setDisplayInstruction(mockInstruction);
-                      setDisplayHash(mockInstruction.hash);
+                    onClick={async () => {
+                      try {
+                        // Create a test JWT token for portal simulation
+                        const testToken = await createTestUserToken(
+                          "test-emulator-user-123"
+                        );
+
+                        // Use the API client with proper JWT
+                        const response = await apiClient.attachClaim(
+                          claimCode,
+                          testToken
+                        );
+
+                        if (response.ok) {
+                          console.log("Portal attach simulation successful");
+                          // Attachment successful, polling should detect this shortly
+                        } else {
+                          const errorData = await response
+                            .json()
+                            .catch(() => null);
+                          console.warn(
+                            "Portal attach simulation failed:",
+                            response.status,
+                            errorData
+                          );
+                        }
+                      } catch (e) {
+                        console.warn("Portal attach simulation error:", e);
+                      }
                     }}
-                    className="inline-flex items-center justify-center bg-green-800 text-white text-[10px] px-2 py-1 rounded hover:bg-green-900 transition-colors"
+                    className="inline-flex items-center justify-center bg-blue-800 text-white text-xs px-3 py-1 rounded hover:bg-blue-900 transition-colors"
                   >
-                    BTC Up
+                    Simulate Portal Attach
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const mockInstruction: DisplayInstruction = {
-                        type: "single",
-                        version: 2,
-                        hash: "mock-hash-2",
-                        single: {
-                          name: "ETH/USD",
-                          price: 2850.25,
-                          currencySymbol: "$",
-                          timestamp: new Date().toISOString(),
-                          ledColor: "red",
-                          ledBrightness: "mid",
-                          portfolioValue: 118500,
-                          portfolioChangePercent: -1.8,
-                        },
-                      };
-                      setDisplayInstruction(mockInstruction);
-                      setDisplayHash(mockInstruction.hash);
-                    }}
-                    className="inline-flex items-center justify-center bg-red-800 text-white text-[10px] px-2 py-1 rounded hover:bg-red-900 transition-colors"
-                  >
-                    ETH Down
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setDisplayInstruction(null);
-                      setDisplayHash("empty");
-                    }}
-                    className="inline-flex items-center justify-center bg-gray-600 text-white text-[10px] px-2 py-1 rounded hover:bg-gray-700 transition-colors"
-                  >
-                    Clear
-                  </button>
+                  <div className="text-[10px] text-neutral-500">
+                    Uses test JWT token for authentication
+                  </div>
                 </div>
+              )}
+              {screenState === "heartbeat_active" && (
+                <div className="flex flex-col gap-1 border-t pt-3">
+                  <div className="text-xs font-medium">Display Test (dev)</div>
+                  <div className="text-[10px] text-neutral-500">
+                    Mock display instructions for testing
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const mockInstruction: DisplayInstruction = {
+                          type: "single",
+                          version: 1,
+                          hash: "mock-hash-1",
+                          single: {
+                            name: "BTC/USD",
+                            price: 45250.5,
+                            currencySymbol: "$",
+                            timestamp: new Date().toISOString(),
+                            ledColor: "green",
+                            ledBrightness: "high",
+                            portfolioValue: 125000,
+                            portfolioChangePercent: 2.5,
+                          },
+                        };
+                        setDisplayInstruction(mockInstruction);
+                        setDisplayHash(mockInstruction.hash);
+                      }}
+                      className="inline-flex items-center justify-center bg-green-800 text-white text-[10px] px-2 py-1 rounded hover:bg-green-900 transition-colors"
+                    >
+                      BTC Up
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const mockInstruction: DisplayInstruction = {
+                          type: "single",
+                          version: 2,
+                          hash: "mock-hash-2",
+                          single: {
+                            name: "ETH/USD",
+                            price: 2850.25,
+                            currencySymbol: "$",
+                            timestamp: new Date().toISOString(),
+                            ledColor: "red",
+                            ledBrightness: "mid",
+                            portfolioValue: 118500,
+                            portfolioChangePercent: -1.8,
+                          },
+                        };
+                        setDisplayInstruction(mockInstruction);
+                        setDisplayHash(mockInstruction.hash);
+                      }}
+                      className="inline-flex items-center justify-center bg-red-800 text-white text-[10px] px-2 py-1 rounded hover:bg-red-900 transition-colors"
+                    >
+                      ETH Down
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDisplayInstruction(null);
+                        setDisplayHash("empty");
+                      }}
+                      className="inline-flex items-center justify-center bg-gray-600 text-white text-[10px] px-2 py-1 rounded hover:bg-gray-700 transition-colors"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
+              )}
+              <div className="text-xs text-neutral-600 leading-relaxed">
+                <p>
+                  Enter a MAC, provision the device, then enable WiFi (toggle in
+                  header) to start claim flow.
+                </p>
+                <p className="mt-1">
+                  Next steps: poll, secret issuance, heartbeat, display
+                  rendering.
+                </p>
               </div>
-            )}
-            <div className="text-xs text-neutral-600 leading-relaxed">
-              <p>
-                Enter a MAC, provision the device, then enable WiFi (toggle in
-                header) to start claim flow.
-              </p>
-              <p className="mt-1">
-                Next steps: poll, secret issuance, heartbeat, display rendering.
-              </p>
-            </div>
-            <div className="text-xs font-mono space-y-1">
-              <div>
-                Screen: <span className="font-semibold">{screenState}</span>
-              </div>
-              {claimCode && (
+              <div className="text-xs font-mono space-y-1">
                 <div>
-                  Code:{" "}
-                  <span className="font-semibold tracking-widest">
-                    {claimCode}
-                  </span>
-                  {claimExpiresAt && (
-                    <span className="ml-1 text-neutral-500">
-                      exp {new Date(claimExpiresAt).toLocaleTimeString()}
+                  Screen: <span className="font-semibold">{screenState}</span>
+                </div>
+                {claimCode && (
+                  <div>
+                    Code:{" "}
+                    <span className="font-semibold tracking-widest">
+                      {claimCode}
                     </span>
-                  )}
-                </div>
-              )}
-              {deviceId && (
-                <div>
-                  Device ID: <span className="font-semibold">{deviceId}</span>
-                </div>
-              )}
-              {deviceSecret && (
-                <div className="break-all">
-                  Secret:{" "}
-                  <span className="font-mono text-[10px]">
-                    {deviceSecret.substring(0, 20)}...
-                  </span>
-                </div>
-              )}
-              {error && <div className="text-red-600">{error}</div>}
-            </div>
-          </section>
-          <section className="bg-white rounded-md border p-4 shadow-sm">
-            <h2 className="text-sm font-semibold mb-2">Roadmap</h2>
-            <ol className="list-decimal list-inside text-xs space-y-1 text-neutral-700">
-              <li>Poll + lazy secret issuance</li>
-              <li>Persist emulator state (localStorage)</li>
-              <li>Heartbeat loop + display hash compare</li>
-              <li>Render instruction (single/playlist)</li>
-              <li>Secret refresh + revoke handling</li>
-              <li>Network conditions simulation (latency, offline)</li>
-            </ol>
-          </section>
-        </div>
+                    {claimExpiresAt && (
+                      <span className="ml-1 text-neutral-500">
+                        exp {new Date(claimExpiresAt).toLocaleTimeString()}
+                      </span>
+                    )}
+                  </div>
+                )}
+                {deviceId && (
+                  <div>
+                    Device ID: <span className="font-semibold">{deviceId}</span>
+                  </div>
+                )}
+                {deviceSecret && (
+                  <div className="break-all">
+                    Secret:{" "}
+                    <span className="font-mono text-[10px]">
+                      {deviceSecret.substring(0, 20)}...
+                    </span>
+                  </div>
+                )}
+                {error && <div className="text-red-600">{error}</div>}
+              </div>
+            </section>
+            <section className="bg-white rounded-md border p-4 shadow-sm">
+              <h2 className="text-sm font-semibold mb-2">Roadmap</h2>
+              <ol className="list-decimal list-inside text-xs space-y-1 text-neutral-700">
+                <li>Poll + lazy secret issuance</li>
+                <li>Persist emulator state (localStorage)</li>
+                <li>Heartbeat loop + display hash compare</li>
+                <li>Render instruction (single/playlist)</li>
+                <li>Secret refresh + revoke handling</li>
+                <li>Network conditions simulation (latency, offline)</li>
+              </ol>
+            </section>
+          </div>
         )}
-        {mode === 'display' && (
+        {mode === "display" && (
           <div className="w-80 flex-shrink-0 flex flex-col gap-6 order-2 md:order-1">
             <section className="bg-white rounded-md border p-4 flex flex-col gap-4 shadow-sm">
               <div className="flex items-center justify-between">
                 <h2 className="text-sm font-semibold">Display Editor</h2>
                 <div className="flex items-center gap-2">
                   <label className="text-[10px] font-medium">Scale</label>
-                  <input type="range" min={1} max={4} value={screenScale} onChange={e => setScreenScale(parseInt(e.target.value))} />
-                  <div className="text-[10px] w-6 text-right">{screenScale}x</div>
+                  <input
+                    type="range"
+                    min={1}
+                    max={4}
+                    value={screenScale}
+                    onChange={(e) => setScreenScale(parseInt(e.target.value))}
+                  />
+                  <div className="text-[10px] w-6 text-right">
+                    {screenScale}x
+                  </div>
                 </div>
               </div>
               <DisplayEditor
@@ -491,25 +505,40 @@ export const App: React.FC = () => {
               />
             </section>
             <section className="bg-white rounded-md border p-4 shadow-sm text-[11px] text-neutral-600">
-              <div>Mode: Live single-instruction editing. Playlist coming later.</div>
+              <div>
+                Mode: Live single-instruction editing. Playlist coming later.
+              </div>
             </section>
           </div>
         )}
         <div className="flex flex-col items-start md:items-center justify-start gap-4 order-1 md:order-2">
           {/** total width: display 384 + led 8 + margin 4 */}
-          <div className="inline-block" style={{ width: (384 + 8 + 4) * (mode==='display'?screenScale:2), height: 168 * (mode==='display'?screenScale:2) + 40 }}>
+          <div
+            className="inline-block"
+            style={{
+              width: (384 + 8 + 4) * (mode === "display" ? screenScale : 2),
+              height: 168 * (mode === "display" ? screenScale : 2) + 40,
+            }}
+          >
             <Screen
-              state={mode === 'flow' ? screenState : 'heartbeat_active'}
+              state={mode === "flow" ? screenState : "heartbeat_active"}
               claimCode={claimCode}
               mac={mac}
               wifiOn={wifiOn}
               deviceId={deviceId}
               deviceSecret={deviceSecret}
-              displayInstruction={mode === 'flow' ? displayInstruction : displayModeInstruction}
-              scale={mode === 'display' ? screenScale : 2}
+              displayInstruction={
+                mode === "flow" ? displayInstruction : displayModeInstruction
+              }
+              scale={mode === "display" ? screenScale : 2}
+              variant={mode === "display" ? "display" : "flow"}
             />
           </div>
-          <div style={{ width: (384 + 8 + 4) * (mode==='display'?screenScale:2) }}>
+          <div
+            style={{
+              width: (384 + 8 + 4) * (mode === "display" ? screenScale : 2),
+            }}
+          >
             <LogPanel />
           </div>
         </div>
