@@ -1,0 +1,46 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body { font-feature-settings: "tnum" on, "lnum" on; }
+
+/* E-paper pixelated display styles */
+.epaper-screen {
+  /* Disable anti-aliasing and smooth rendering */
+  image-rendering: -moz-crisp-edges;
+  image-rendering: -webkit-crisp-edges; 
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  
+  /* Font rendering optimizations for pixelated look */
+  -webkit-font-smoothing: none;
+  -moz-osx-font-smoothing: unset;
+  font-smooth: never;
+  
+  /* Sharp pixel boundaries */
+  transform-style: flat;
+  backface-visibility: hidden;
+  
+  /* Slight letter spacing for better pixel separation */
+  letter-spacing: 0.5px;
+}
+
+/* Pixelated scaling wrapper */
+.epaper-screen-scaled {
+  image-rendering: -moz-crisp-edges;
+  image-rendering: -webkit-crisp-edges; 
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  
+  /* Sharp scaling without smoothing */
+  transform-origin: top left;
+}
+
+@keyframes ledFlashGrey {
+  0% { filter: none; }
+  49% { filter: none; }
+  50% { filter: grayscale(1) brightness(0.85); }
+  100% { filter: grayscale(1) brightness(0.85); }
+}
+
+.led-flash { will-change: filter; animation-timing-function: steps(2,end); }

@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { addSeconds } from 'date-fns';
 import { config } from '../config.js';
-import { generateDeviceSecret, hashPassword } from '../utils/crypto.js';
+import { generateDeviceSecret, hashPassword, normalizeMac, verifyClaimHmac } from '../utils/crypto.js';
 
 // Helper to generate a 6-digit code with leading zeros preserved
 const generateCode = () => String(Math.floor(Math.random() * 1_000_000)).padStart(6, '0');
@@ -18,20 +18,34 @@ export default async function deviceClaimsRoutes(app: FastifyInstance) {
     },
   }, async (request, reply) => {
     const body = (request.body as any) || {};
-    // TODO: verify HMAC if/when hmacKey strategy defined
-    const mac = body.mac as string | undefined;
-    if (!mac) return reply.code(400).send({ message: 'mac required' });
+    const rawMac = body.mac as string | undefined;
+    if (!rawMac) return reply.code(400).send({ message: 'mac required' });
+    const mac = normalizeMac(rawMac);
+    if (!mac) {
+      return reply.code(400).send({ message: 'invalid mac format' });
+    }
     const firmwareVersion = body.firmwareVersion as string | undefined;
+    const hmac = body.hmac as string | undefined;
+    const timestamp = body.timestamp as number | undefined;
     const ip = body.ip as string | undefined;
+
+    // Verify HMAC to prove device ownership
+    if (!hmac || !timestamp) {
+      return reply.code(400).send({ message: 'hmac and timestamp required' });
+    }
+    if (!verifyClaimHmac(mac, hmac, firmwareVersion, timestamp)) {
+      return reply.code(401).send({ message: 'invalid hmac' });
+    }
+
+    // Device must already exist and be in awaiting_claim state
+  const device = await app.prisma.device.findFirst({ where: { mac } });
+    if (!device) return reply.code(404).send({ message: 'device not found' });
+    if (device.status !== 'awaiting_claim') {
+      return reply.code(409).send({ message: 'device not in awaiting_claim' });
+    }
 
     const code = generateCode();
     const expiresAt = addSeconds(new Date(), config.claimCodeTtlSeconds);
-
-    // Create device if not exists (awaiting_claim)
-    let device = await app.prisma.device.findFirst({ where: { mac } });
-    if (!device) {
-      device = await app.prisma.device.create({ data: { mac, status: 'awaiting_claim', firmwareVersion, ip } });
-    }
 
     await app.prisma.deviceClaim.create({
       data: {

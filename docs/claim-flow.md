@@ -3,6 +3,7 @@
 This document expands the provisioning pipeline for a TigerMeter device.
 
 ## Sequence (High Resolution)
+> NOTE: Начиная с текущей версии, устройство должно быть заранее создано в БД со статусом `awaiting_claim` (pre‑provision) — запрос `POST /api/device-claims` больше НЕ создаёт запись автоматически. Непредусмотренный / неизвестный MAC теперь возвращает 404, а устройство в другом статусе (например `active` или `revoked`) — 409.
 1. Device requests claim code: `POST /api/device-claims` (rate‑limited: 20/min/IP, HMAC required unless disabled)
 2. User attaches code: `POST /api/device-claims/{code}/attach` (JWT user)
 3. Device polls: `GET /api/device-claims/{code}/poll` (60/min/IP) until:

@@ -42,3 +42,4 @@ declare module 'fastify' {
   }
 }
 
+

@@ -1,0 +1,29 @@
+{
+    "version": 1,
+    "author": "Syed Abid Ali Abdi",
+    "editor": "wokwi",
+    "parts": [
+      {
+        "type": "wokwi-esp32-devkit-v1",
+        "id": "esp",
+        "top": 119.82,
+        "left": -6.03,
+        "rotate": 90,
+        "attrs": {}
+      },
+      { "type": "board-epaper-2in9", "id": "epd1", "top": -21.26, "left": -116.95, "attrs": {} }
+    ],
+    "connections": [
+      [ "esp:TX0", "$serialMonitor:RX", "", [] ],
+      [ "esp:RX0", "$serialMonitor:TX", "", [] ],
+      [ "epd1:CS", "esp:D26", "gold", [ "h-29.3", "v255.34", "h193.05" ] ],
+      [ "epd1:DC", "esp:D27", "green", [ "h-20.25", "v255.9", "h172.57" ] ],
+      [ "epd1:RST", "esp:D14", "gray", [ "h-12.72", "v260.98", "h156.75" ] ],
+      [ "esp:D13", "epd1:BUSY", "green", [ "v4.7", "h-170.38", "v-250.94" ] ],
+      [ "epd1:VCC", "esp:VIN", "red", [ "h-45.12", "v73.49", "h133.39" ] ],
+      [ "epd1:GND", "esp:GND.2", "black", [ "h-60.95", "v54.1", "h166.54" ] ],
+      [ "epd1:DIN", "esp:D32", "green", [ "h-49.64", "v217.08", "h275.81" ] ],
+      [ "epd1:CLK", "esp:D33", "green", [ "h-52.66", "v242.51", "h226.83" ] ]
+    ],
+    "dependencies": {}
+  }

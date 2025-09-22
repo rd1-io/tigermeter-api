@@ -38,6 +38,29 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ClaimCodeIssueResponse'
+        '404': { description: Устройство не найдено или не предварительно зарегистрировано (awaiting_claim) }
+        '409': { description: Устройство не в статусе awaiting_claim }
+        '500': { description: Внутренняя ошибка сервера }
+  /api/devices/provision:
+    post:
+      tags: [Device]
+      summary: Предварительная регистрация устройства (dev)
+      description: Публичный dev-эндпоинт для эмулятора. Создаёт устройство в статусе awaiting_claim. В проде должен быть защищён.
+      operationId: provisionDevice
+      security: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mac, firmwareVersion]
+              properties:
+                mac: { type: string, example: 'AA:BB:CC:DD:EE:FF' }
+                firmwareVersion: { type: string, example: 'dev-firmware' }
+      responses:
+        '201': { description: Устройство создано }
+        '400': { description: Неверный формат MAC / отсутствие полей }
+        '409': { description: Уже существует }
         '500': { description: Внутренняя ошибка сервера }
   /api/device-claims/{code}/attach:
     post:
