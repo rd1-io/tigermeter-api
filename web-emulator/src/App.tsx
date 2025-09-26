@@ -267,7 +267,7 @@ export const App: React.FC = () => {
               </div>
               <div className="flex flex-col gap-1">
                 <div className="text-xs font-medium">
-                  Provision Device (dev)
+                  Добавить устройство (dev)
                 </div>
                 <div className="text-[10px] text-neutral-500">
                   Firmware: {firmware}
@@ -296,7 +296,7 @@ export const App: React.FC = () => {
                   }}
                   className="inline-flex items-center justify-center bg-neutral-800 text-white text-xs px-3 py-1 rounded disabled:opacity-40 disabled:cursor-not-allowed hover:bg-black transition-colors"
                 >
-                  Provision
+                  Добавить
                 </button>
                 {provisionStatus && (
                   <div className="text-[10px] text-neutral-600">
@@ -307,10 +307,10 @@ export const App: React.FC = () => {
               {claimCode && screenState === "waiting_for_attach" && (
                 <div className="flex flex-col gap-1 border-t pt-3">
                   <div className="text-xs font-medium">
-                    Portal Simulation (dev)
+                    Симуляция портала (dev)
                   </div>
                   <div className="text-[10px] text-neutral-500">
-                    Auto-attach claim code for testing
+                    Авто-привязка кода для тестирования
                   </div>
                   <button
                     type="button"
@@ -346,16 +346,16 @@ export const App: React.FC = () => {
                     }}
                     className="inline-flex items-center justify-center bg-blue-800 text-white text-xs px-3 py-1 rounded hover:bg-blue-900 transition-colors"
                   >
-                    Simulate Portal Attach
+                    Симулировать привязку в портале
                   </button>
                   <div className="text-[10px] text-neutral-500">
-                    Uses test JWT token for authentication
+                    Использует тестовый JWT токен для аутентификации
                   </div>
                 </div>
               )}
               {screenState === "heartbeat_active" && (
                 <div className="flex flex-col gap-1 border-t pt-3">
-                  <div className="text-xs font-medium">Display Test (dev)</div>
+                  <div className="text-xs font-medium">Тест дисплея (dev)</div>
                   <div className="text-[10px] text-neutral-500">
                     Mock display instructions for testing
                   </div>
@@ -418,19 +418,18 @@ export const App: React.FC = () => {
                       }}
                       className="inline-flex items-center justify-center bg-gray-600 text-white text-[10px] px-2 py-1 rounded hover:bg-gray-700 transition-colors"
                     >
-                      Clear
+                      Сброс
                     </button>
                   </div>
                 </div>
               )}
               <div className="text-xs text-neutral-600 leading-relaxed">
                 <p>
-                  Enter a MAC, provision the device, then enable WiFi (toggle in
-                  header) to start claim flow.
+                  Введите MAC, добавьте устройство, затем включите WiFi, чтобы
+                  начать привязку.
                 </p>
                 <p className="mt-1">
-                  Next steps: poll, secret issuance, heartbeat, display
-                  rendering.
+                  Далее: опрос, выдача секрета, heartbeat, отрисовка дисплея.
                 </p>
               </div>
               <div className="text-xs font-mono space-y-1">
@@ -466,26 +465,15 @@ export const App: React.FC = () => {
                 {error && <div className="text-red-600">{error}</div>}
               </div>
             </section>
-            <section className="bg-white rounded-md border p-4 shadow-sm">
-              <h2 className="text-sm font-semibold mb-2">Roadmap</h2>
-              <ol className="list-decimal list-inside text-xs space-y-1 text-neutral-700">
-                <li>Poll + lazy secret issuance</li>
-                <li>Persist emulator state (localStorage)</li>
-                <li>Heartbeat loop + display hash compare</li>
-                <li>Render instruction (single/playlist)</li>
-                <li>Secret refresh + revoke handling</li>
-                <li>Network conditions simulation (latency, offline)</li>
-              </ol>
-            </section>
+            <section className="bg-white rounded-md border p-4 shadow-sm"></section>
           </div>
         )}
         {mode === "display" && (
           <div className="w-80 flex-shrink-0 flex flex-col gap-6 order-2 md:order-1">
             <section className="bg-white rounded-md border p-4 flex flex-col gap-4 shadow-sm">
               <div className="flex items-center justify-between">
-                <h2 className="text-sm font-semibold">Display Editor</h2>
                 <div className="flex items-center gap-2">
-                  <label className="text-[10px] font-medium">Scale</label>
+                  <label className="text-[10px] font-medium">Масштаб</label>
                   <input
                     type="range"
                     min={1}
@@ -503,11 +491,6 @@ export const App: React.FC = () => {
                 onChange={setDisplayModeInstruction}
                 onClear={() => setDisplayModeInstruction(null)}
               />
-            </section>
-            <section className="bg-white rounded-md border p-4 shadow-sm text-[11px] text-neutral-600">
-              <div>
-                Mode: Live single-instruction editing. Playlist coming later.
-              </div>
             </section>
           </div>
         )}

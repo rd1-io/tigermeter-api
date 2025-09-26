@@ -15,10 +15,14 @@ const buildServer = () => {
   app.register(prismaPlugin);
   app.register(fastifyCors, {
     origin: (origin: string | undefined, cb: (err: Error | null, allow?: boolean) => void) => {
-      // Allow undefined origin (curl, server-side) and localhost dev ports
       if (!origin) return cb(null, true);
-      const allowed = [/^http:\/\/localhost:\d+$/, /^http:\/\/127\.0\.0\.1:\d+$/];
-      if (allowed.some((r) => r.test(origin))) return cb(null, true);
+      const allowedLocal = [/^http:\/\/localhost:\\d+$/, /^http:\/\/127\\.0\\.0\\.1:\\d+$/];
+      if (allowedLocal.some((r) => r.test(origin))) return cb(null, true);
+      const envOrigins = (process.env.CORS_ALLOWED_ORIGINS || '')
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (envOrigins.includes(origin)) return cb(null, true);
       cb(new Error('CORS not allowed'), false);
     },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],

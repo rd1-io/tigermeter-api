@@ -9,12 +9,12 @@ interface DisplayEditorProps {
 
 const defaultSingle: DisplaySingle = {
   name: "BTC/USD",
-  price: 45000,
+  price: 112430.65,
   currencySymbol: "$",
   timestamp: new Date().toISOString(),
   ledColor: "green",
   ledBrightness: "high",
-  portfolioValue: 100000,
+  portfolioValue: 34567,
   portfolioChangePercent: 2.3,
 };
 

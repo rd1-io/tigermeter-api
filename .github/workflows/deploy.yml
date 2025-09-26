@@ -1,0 +1,72 @@
+name: Deploy
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          port: 22
+          script_stop: true
+          script: |
+            set -euo pipefail
+
+            # 1) Install Docker & docker compose plugin if missing
+            if ! command -v docker >/dev/null 2>&1; then
+              apt-get update
+              apt-get install -y ca-certificates curl gnupg
+              install -m 0755 -d /etc/apt/keyrings
+              . /etc/os-release
+              DISTRO=${ID}
+              CODENAME=${VERSION_CODENAME}
+              # Fallbacks in case of unexpected IDs
+              if [ "$DISTRO" != "ubuntu" ] && [ "$DISTRO" != "debian" ]; then DISTRO=ubuntu; fi
+              curl -fsSL https://download.docker.com/linux/${DISTRO}/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+              chmod a+r /etc/apt/keyrings/docker.gpg
+              echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/${DISTRO} ${CODENAME} stable" > /etc/apt/sources.list.d/docker.list
+              apt-get update
+              apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin git
+              systemctl enable --now docker
+            fi
+
+            # 2) Clone or update repo
+            mkdir -p /opt/tigermeter
+            if [ ! -d /opt/tigermeter/tiger-cloud-api/.git ]; then
+              git clone https://github.com/${{ github.repository }}.git /opt/tigermeter/tiger-cloud-api
+            fi
+            cd /opt/tigermeter/tiger-cloud-api
+            git fetch --all
+            git reset --hard origin/main
+
+            # 3) Write .env for compose
+            cat > .env <<EOF
+JWT_SECRET=${{ secrets.JWT_SECRET }}
+HMAC_KEY=${{ secrets.HMAC_KEY }}
+EOF
+
+            # 4) Ensure DNS is set: api.tigermeter.rd1.io and emulator.tigermeter.rd1.io -> ${HOSTNAME}
+            # 5) Start stack (Caddy will get TLS via Let's Encrypt automatically once DNS resolves)
+            docker compose pull || true
+            docker compose build --no-cache
+            docker compose up -d --remove-orphans
+
+            # 6) Prune old images
+            docker image prune -af || true
+
+
+
+
+
+

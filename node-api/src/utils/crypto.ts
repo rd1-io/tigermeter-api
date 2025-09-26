@@ -50,3 +50,7 @@ export const verifyClaimHmac = (mac: string, hmac: string, firmwareVersion?: str
 };
 
 
+
+
+
+

@@ -44,9 +44,9 @@ export const Screen: React.FC<ScreenProps> = ({
     case "welcome":
       content = (
         <div className="flex flex-col items-center justify-center h-full text-center gap-3">
-          <div className="text-[13px] font-semibold tracking-wide">HELLO</div>
+          <div className="text-[13px] font-semibold tracking-wide">ПРИВЕТ</div>
           <div className="text-[10px] opacity-70 max-w-[260px] leading-tight">
-            TigerMeter starting up…
+            TigerMeter запускается…
           </div>
         </div>
       );
@@ -55,12 +55,12 @@ export const Screen: React.FC<ScreenProps> = ({
       content = (
         <div className="flex flex-col items-center justify-center h-full text-center gap-3">
           <div className="text-[12px] font-semibold tracking-wide">
-            CONNECT TO WIFI
+            ПОДКЛЮЧИТЕСЬ К WIFI
           </div>
           <div className="text-[10px] opacity-70 max-w-[280px] leading-tight">
             {wifiOn
-              ? "WiFi connected. Provide MAC and provision device to begin claim."
-              : "Enable WiFi toggle in header to continue."}
+              ? "WiFi подключён. Укажите MAC и добавьте устройство, чтобы начать привязку."
+              : "Включите WiFi (переключатель вверху), чтобы продолжить."}
           </div>
         </div>
       );
@@ -69,9 +69,9 @@ export const Screen: React.FC<ScreenProps> = ({
       content = (
         <div className="flex flex-col items-center justify-center h-full text-center gap-2 animate-pulse">
           <div className="text-[11px] font-semibold tracking-wide">
-            REQUESTING CLAIM CODE…
+            ЗАПРОС КОДА ПРИВЯЗКИ…
           </div>
-          <div className="text-[10px] opacity-60">Contacting backend</div>
+          <div className="text-[10px] opacity-60">Связь с сервером</div>
         </div>
       );
       break;
@@ -79,13 +79,14 @@ export const Screen: React.FC<ScreenProps> = ({
       content = (
         <div className="flex flex-col items-center justify-center h-full text-center gap-3">
           <div className="text-[11px] font-semibold tracking-wide">
-            PAIR CODE
+            КОД ПРИВЯЗКИ
           </div>
           <div className="text-[30px] font-bold tracking-widest tabular-nums">
             {claimCode}
           </div>
           <div className="text-[9px] opacity-60 max-w-[260px] leading-tight">
-            Use this code in the portal to attach device. Expires soon.
+            Используйте этот код в портале для привязки устройства. Скоро
+            истечёт.
           </div>
         </div>
       );
@@ -94,13 +95,13 @@ export const Screen: React.FC<ScreenProps> = ({
       content = (
         <div className="flex flex-col items-center justify-center h-full text-center gap-3">
           <div className="text-[11px] font-semibold tracking-wide">
-            WAITING FOR ATTACH
+            ОЖИДАНИЕ ПРИВЯЗКИ
           </div>
           <div className="text-[20px] font-bold tracking-widest tabular-nums animate-pulse">
             {claimCode}
           </div>
           <div className="text-[9px] opacity-60 max-w-[260px] leading-tight">
-            Code issued. Polling for user attachment in portal...
+            Код выдан. Опрос портала на предмет привязки пользователя…
           </div>
         </div>
       );
@@ -109,14 +110,14 @@ export const Screen: React.FC<ScreenProps> = ({
       content = (
         <div className="flex flex-col items-center justify-center h-full text-center gap-2">
           <div className="text-[10px] font-semibold tracking-wide">
-            DEVICE READY
+            УСТРОЙСТВО ГОТОВО
           </div>
           <div className="text-[8px] opacity-70 mb-1">ID: {deviceId}</div>
           <div className="text-[7px] font-mono bg-gray-100 px-2 py-1 rounded max-w-[350px] break-all">
             {deviceSecret}
           </div>
           <div className="text-[8px] opacity-60 mt-1">
-            Secret received. Device active.
+            Секрет получен. Устройство активно.
           </div>
         </div>
       );
@@ -204,7 +205,7 @@ export const Screen: React.FC<ScreenProps> = ({
                   {single.portfolioValue !== undefined &&
                   single.portfolioChangePercent !== undefined ? (
                     <>
-                      1 day {single.portfolioChangePercent > 0 ? "+" : ""}
+                      1 день {single.portfolioChangePercent > 0 ? "+" : ""}
                       {single.portfolioChangePercent.toFixed(2)}%
                     </>
                   ) : (
@@ -226,7 +227,7 @@ export const Screen: React.FC<ScreenProps> = ({
               </div>
               {single.portfolioValue && (
                 <div className="text-[10px] opacity-70">
-                  Portfolio: {single.currencySymbol}
+                  Портфель: {single.currencySymbol}
                   {single.portfolioValue.toFixed(2)}
                   {single.portfolioChangePercent !== undefined && (
                     <span className="ml-1">
@@ -250,7 +251,7 @@ export const Screen: React.FC<ScreenProps> = ({
           content = (
             <div className="flex flex-col items-center justify-center h-full text-center gap-2">
               <div className="text-[9px] opacity-60">
-                PLAYLIST • {displayInstruction.playlist.items.length} items
+                ПЛЕЙЛИСТ • {displayInstruction.playlist.items.length} эл.
               </div>
               <div className="text-[11px] font-semibold tracking-wide">
                 {firstItem.name.toUpperCase()}
@@ -268,9 +269,9 @@ export const Screen: React.FC<ScreenProps> = ({
           content = (
             <div className="flex flex-col items-center justify-center h-full text-center gap-2">
               <div className="text-[11px] font-semibold tracking-wide">
-                PLAYLIST
+                ПЛЕЙЛИСТ
               </div>
-              <div className="text-[10px] opacity-70">Empty playlist</div>
+              <div className="text-[10px] opacity-70">Пустой плейлист</div>
             </div>
           );
         }
@@ -278,10 +279,12 @@ export const Screen: React.FC<ScreenProps> = ({
         content = (
           <div className="flex flex-col items-center justify-center h-full text-center gap-2">
             <div className="text-[11px] font-semibold tracking-wide">
-              DEVICE ACTIVE
+              УСТРОЙСТВО АКТИВНО
             </div>
-            <div className="text-[10px] opacity-70">No display instruction</div>
-            <div className="text-[8px] opacity-50">Heartbeat active</div>
+            <div className="text-[10px] opacity-70">
+              Нет инструкции отображения
+            </div>
+            <div className="text-[8px] opacity-50">Пульс активно</div>
           </div>
         );
       }
@@ -290,10 +293,10 @@ export const Screen: React.FC<ScreenProps> = ({
       content = (
         <div className="flex flex-col items-center justify-center h-full text-center gap-2">
           <div className="text-[12px] font-semibold tracking-wide text-red-700">
-            ERROR
+            ОШИБКА
           </div>
           <div className="text-[10px] opacity-70">
-            Check log panel for details
+            Проверьте панель логов для деталей
           </div>
         </div>
       );

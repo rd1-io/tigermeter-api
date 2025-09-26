@@ -31,7 +31,7 @@ export const MacInput: React.FC<MacInputProps> = ({
   return (
     <div className="flex flex-col gap-1">
       <label className="text-xs font-medium" htmlFor="mac">
-        MAC Address
+        MAC-адрес
       </label>
       <input
         id="mac"

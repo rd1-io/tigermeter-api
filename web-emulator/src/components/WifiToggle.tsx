@@ -13,7 +13,7 @@ export const WifiToggle: React.FC<WifiToggleProps> = ({
 }) => {
   return (
     <div className="flex flex-col gap-1 select-none">
-      <span className="text-xs font-medium">WiFi</span>
+  <span className="text-xs font-medium">WiFi</span>
       <button
         type="button"
         onClick={() => !disabled && onChange(!value)}
