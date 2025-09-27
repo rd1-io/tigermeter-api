@@ -9,10 +9,10 @@ jobs:
     runs-on: ubuntu-latest
     environment: prod
     steps:
-      - name: Checkout tiger-cloud-api
+      - name: Checkout tigermeter-api
         uses: actions/checkout@v4
         with:
-          repository: rd1-io/tiger-cloud-api
+          repository: rd1-io/tigermeter-api
           token: ${{ secrets.GH_PAT || github.token }}
           path: code
 
@@ -23,7 +23,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           password: ${{ secrets.SERVER_PASSWORD }}
           source: "code/*"
-          target: "/opt/tigermeter/tiger-cloud-api"
+          target: "/opt/tigermeter/tigermeter-api"
           rm: true
 
       - name: Deploy over SSH
@@ -56,8 +56,8 @@ jobs:
             fi
 
             # 2) Use uploaded repo
-            mkdir -p /opt/tigermeter/tiger-cloud-api
-            cd /opt/tigermeter/tiger-cloud-api
+            mkdir -p /opt/tigermeter/tigermeter-api
+            cd /opt/tigermeter/tigermeter-api
 
             # 3) Write .env for compose (use printf to avoid YAML/heredoc parsing issues)
             printf "JWT_SECRET=%s\nHMAC_KEY=%s\n" "${{ secrets.JWT_SECRET }}" "${{ secrets.HMAC_KEY }}" > .env
