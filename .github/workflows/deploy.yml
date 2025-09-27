@@ -71,9 +71,10 @@ jobs:
             echo "Search compose in top 2 levels:" && find . -maxdepth 2 -type f -name "docker-compose.yml" -print || true
             test -f docker-compose.yml || { echo "ERROR: docker-compose.yml not found in $(pwd)"; exit 90; }
             stat docker-compose.yml || true
-            docker compose pull || true
-            docker compose build --no-cache
-            docker compose up -d --remove-orphans
+            docker compose -f docker-compose.yml config >/dev/null
+            docker compose -f docker-compose.yml pull || true
+            docker compose -f docker-compose.yml build --no-cache
+            docker compose -f docker-compose.yml up -d --remove-orphans
 
             # 6) Prune old images
             docker image prune -af || true
