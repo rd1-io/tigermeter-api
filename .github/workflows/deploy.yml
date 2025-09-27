@@ -43,7 +43,7 @@ jobs:
             # 2) Clone or update repo
             mkdir -p /opt/tigermeter
             if [ ! -d /opt/tigermeter/tiger-cloud-api/.git ]; then
-              git clone https://github.com/${{ github.repository }}.git /opt/tigermeter/tiger-cloud-api
+              git clone https://github.com/rd1-io/tiger-cloud-api.git /opt/tigermeter/tiger-cloud-api
             fi
             cd /opt/tigermeter/tiger-cloud-api
             git fetch --all
