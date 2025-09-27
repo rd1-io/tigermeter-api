@@ -74,10 +74,10 @@ jobs:
             PROJECT_DIR="/opt/tigermeter/tigermeter-api"
             echo "Using compose in $(pwd): docker-compose.yml"
             ls -la docker-compose.yml || { echo "ERROR: compose file missing"; exit 91; }
-            docker compose config >/dev/null
-            docker compose pull || true
-            docker compose build --no-cache
-            docker compose up -d --remove-orphans
+            docker compose -f docker-compose.yml config >/dev/null
+            docker compose -f docker-compose.yml pull || true
+            docker compose -f docker-compose.yml build --no-cache
+            docker compose -f docker-compose.yml up -d --remove-orphans
 
             # 6) Prune old images
             docker image prune -af || true
