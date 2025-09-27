@@ -49,7 +49,7 @@ jobs:
               CODENAME=${VERSION_CODENAME:-${UBUNTU_CODENAME:-$(lsb_release -cs 2>/dev/null || echo noble)}}
               # Fallbacks in case of unexpected IDs
               if [ "$DISTRO" != "ubuntu" ] && [ "$DISTRO" != "debian" ]; then DISTRO=ubuntu; fi
-              curl -fsSL https://download.docker.com/linux/${DISTRO}/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+  curl -fsSL https://download.docker.com/linux/${DISTRO}/gpg | gpg --dearmor --batch --yes -o /etc/apt/keyrings/docker.gpg
               chmod a+r /etc/apt/keyrings/docker.gpg
               ARCH=$(dpkg --print-architecture)
               rm -f /etc/apt/sources.list.d/docker.list
@@ -75,7 +75,7 @@ jobs:
               DISTRO=${ID}
               CODENAME=${VERSION_CODENAME:-${UBUNTU_CODENAME:-$(lsb_release -cs 2>/dev/null || echo noble)}}
               if [ "$DISTRO" != "ubuntu" ] && [ "$DISTRO" != "debian" ]; then DISTRO=ubuntu; fi
-              curl -fsSL https://download.docker.com/linux/${DISTRO}/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+  curl -fsSL https://download.docker.com/linux/${DISTRO}/gpg | gpg --dearmor --batch --yes -o /etc/apt/keyrings/docker.gpg
               chmod a+r /etc/apt/keyrings/docker.gpg
               ARCH=$(dpkg --print-architecture)
               rm -f /etc/apt/sources.list.d/docker.list
