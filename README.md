@@ -23,7 +23,7 @@
 - `docs/errors.md` — каталог типовых ошибок и обработка на клиенте
 
 ### Web Emulator (Experimental)
-Папка `web-emulator/` содержит веб-эмулятор устройства (экран 384x168). Можно использовать для отладки API потоков (claim → poll → heartbeat) и визуальных инструкций отображения.
+Папка `web-emulator/` содержит веб-эмулятор устройства (экран 384x168). Можно использовать для отладки API flows (claim → poll → heartbeat) и визуальных инструкций отображения.
 
 Быстрый старт:
 ```bash
@@ -45,7 +45,7 @@ make emulator
 
 - [Этапы](#этапы)
 - [Ключевые принципы](#ключевые-принципы)
-  - [Диаграмма: Основной поток (Claim → Attach → Poll → Heartbeat)](#диаграмма-основной-поток-claim--attach--poll--heartbeat)
+  - [Диаграмма: Основной flow (Claim → Attach → Poll → Heartbeat)](#диаграмма-основной-flow-claim--attach--poll--heartbeat)
   - [Примечание по Revoke и Refresh](#примечание-по-revoke-и-refresh)
   - [1. Device Claim](#1-device-claim)
   - [2. User Attach](#2-user-attach)
@@ -85,7 +85,7 @@ make emulator
 - Ротация по запросу устройства с перекрытием (~5 мин) + автоматическое истечение (90 дней, refresh ≥ 75%).
 - Отзыв (revoke) немедленно инвалидирует текущий секрет; устройство возвращается к стадии claim.
 
-### Диаграмма: Основной поток (Claim → Attach → Poll → Heartbeat)
+### Диаграмма: Основной flow (Claim → Attach → Poll → Heartbeat)
 ```mermaid
 sequenceDiagram
     autonumber
