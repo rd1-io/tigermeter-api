@@ -12,6 +12,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Upload repo to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          source: "."
+          target: "/opt/tigermeter/tiger-cloud-api"
+          rm: true
+
       - name: Deploy over SSH
         uses: appleboy/ssh-action@v1.2.0
         with:
@@ -41,14 +51,9 @@ jobs:
               systemctl enable --now docker
             fi
 
-            # 2) Clone or update repo
-            mkdir -p /opt/tigermeter
-            if [ ! -d /opt/tigermeter/tiger-cloud-api/.git ]; then
-              git clone https://github.com/rd1-io/tiger-cloud-api.git /opt/tigermeter/tiger-cloud-api
-            fi
+            # 2) Use uploaded repo
+            mkdir -p /opt/tigermeter/tiger-cloud-api
             cd /opt/tigermeter/tiger-cloud-api
-            git fetch --all
-            git reset --hard origin/main
 
             # 3) Write .env for compose (use printf to avoid YAML/heredoc parsing issues)
             printf "JWT_SECRET=%s\nHMAC_KEY=%s\n" "${{ secrets.JWT_SECRET }}" "${{ secrets.HMAC_KEY }}" > .env
