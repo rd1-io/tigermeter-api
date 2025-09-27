@@ -69,11 +69,11 @@ jobs:
             echo "Docker versions:" && docker --version && (docker compose version || docker-compose --version || true)
             echo "Root listing:" && ls -la
             echo "Search compose in top 2 levels:" && find . -maxdepth 2 -type f -name "docker-compose.yml" -print || true
-            COMPOSE_PATH="/opt/tigermeter/tigermeter-api/docker-compose.yml"
-            test -f "$COMPOSE_PATH" || { echo "ERROR: compose file not found at $COMPOSE_PATH"; exit 90; }
-            docker compose -f "$COMPOSE_PATH" pull || true
-            docker compose -f "$COMPOSE_PATH" build --no-cache
-            docker compose -f "$COMPOSE_PATH" up -d --remove-orphans
+            test -f docker-compose.yml || { echo "ERROR: docker-compose.yml not found in $(pwd)"; exit 90; }
+            stat docker-compose.yml || true
+            docker compose pull || true
+            docker compose build --no-cache
+            docker compose up -d --remove-orphans
 
             # 6) Prune old images
             docker image prune -af || true
