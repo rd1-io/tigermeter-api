@@ -40,6 +40,7 @@ jobs:
 
             # 1) Install Docker & docker compose plugin if missing
             if ! command -v docker >/dev/null 2>&1; then
+              rm -f /etc/apt/sources.list.d/docker.list || true
               apt-get update
               apt-get install -y ca-certificates curl gnupg lsb-release
               install -m 0755 -d /etc/apt/keyrings
@@ -65,6 +66,7 @@ jobs:
               if command -v snap >/dev/null 2>&1; then
                 snap remove --purge docker || true
               fi
+              rm -f /etc/apt/sources.list.d/docker.list || true
               apt-get update
               apt-get remove -y docker docker.io docker-doc docker-compose podman-docker containerd runc || true
               apt-get install -y ca-certificates curl gnupg lsb-release
