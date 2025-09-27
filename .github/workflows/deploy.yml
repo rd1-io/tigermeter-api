@@ -9,12 +9,8 @@ jobs:
     runs-on: ubuntu-latest
     environment: prod
     steps:
-      - name: Checkout rd1-io/tiger-cloud-api
+      - name: Checkout
         uses: actions/checkout@v4
-        with:
-          repository: rd1-io/tiger-cloud-api
-          token: ${{ secrets.GH_PAT || github.token }}
-          path: code
 
       - name: Upload repo to server
         uses: appleboy/scp-action@v0.1.7
@@ -22,7 +18,7 @@ jobs:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           password: ${{ secrets.SERVER_PASSWORD }}
-          source: "code/*"
+          source: "."
           target: "/opt/tigermeter/tiger-cloud-api"
           rm: true
 
