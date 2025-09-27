@@ -72,11 +72,14 @@ jobs:
             test -f docker-compose.yml || { echo "ERROR: docker-compose.yml not found in $(pwd)"; exit 90; }
             stat docker-compose.yml || true
             PROJECT_DIR="/opt/tigermeter/tigermeter-api"
-            COMPOSE_FILE_PATH="$PROJECT_DIR/docker-compose.yml"
-            docker compose --project-directory "$PROJECT_DIR" -f "$COMPOSE_FILE_PATH" config >/dev/null
-            docker compose --project-directory "$PROJECT_DIR" -f "$COMPOSE_FILE_PATH" pull || true
-            docker compose --project-directory "$PROJECT_DIR" -f "$COMPOSE_FILE_PATH" build --no-cache
-            docker compose --project-directory "$PROJECT_DIR" -f "$COMPOSE_FILE_PATH" up -d --remove-orphans
+            TMP_COMPOSE=$(mktemp /tmp/tigermeter-compose-XXXX.yml)
+            cp "$PROJECT_DIR/docker-compose.yml" "$TMP_COMPOSE"
+            echo "Using temp compose: $TMP_COMPOSE"
+            docker compose --project-directory "$PROJECT_DIR" -f "$TMP_COMPOSE" config >/dev/null
+            docker compose --project-directory "$PROJECT_DIR" -f "$TMP_COMPOSE" pull || true
+            docker compose --project-directory "$PROJECT_DIR" -f "$TMP_COMPOSE" build --no-cache
+            docker compose --project-directory "$PROJECT_DIR" -f "$TMP_COMPOSE" up -d --remove-orphans
+            rm -f "$TMP_COMPOSE"
 
             # 6) Prune old images
             docker image prune -af || true
