@@ -17,7 +17,6 @@ jobs:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
-          password: ${{ secrets.SERVER_PASSWORD }}
           port: 22
           script_stop: true
           script: |
@@ -50,11 +49,8 @@ jobs:
             git fetch --all
             git reset --hard origin/main
 
-            # 3) Write .env for compose
-            cat > .env <<EOF
-JWT_SECRET=${{ secrets.JWT_SECRET }}
-HMAC_KEY=${{ secrets.HMAC_KEY }}
-EOF
+            # 3) Write .env for compose (use printf to avoid YAML/heredoc parsing issues)
+            printf "JWT_SECRET=%s\nHMAC_KEY=%s\n" "${{ secrets.JWT_SECRET }}" "${{ secrets.HMAC_KEY }}" > .env
 
             # 4) Ensure DNS is set: api.tigermeter.rd1.io and emulator.tigermeter.rd1.io -> ${HOSTNAME}
             # 5) Start stack (Caddy will get TLS via Let's Encrypt automatically once DNS resolves)
