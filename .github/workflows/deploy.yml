@@ -64,9 +64,14 @@ jobs:
 
             # 4) Ensure DNS is set: api.tigermeter.rd1.io and emulator.tigermeter.rd1.io -> ${HOSTNAME}
             # 5) Start stack (Caddy will get TLS via Let's Encrypt automatically once DNS resolves)
-            docker compose pull || true
-            docker compose build --no-cache
-            docker compose up -d --remove-orphans
+            echo "Working dir:" && pwd
+            echo "Docker versions:" && docker --version && (docker compose version || docker-compose --version || true)
+            echo "Root listing:" && ls -la
+            echo "Search compose in top 2 levels:" && find . -maxdepth 2 -type f -name "docker-compose.yml" -print || true
+            test -f docker-compose.yml || { echo "ERROR: docker-compose.yml not found in $(pwd)"; exit 90; }
+            docker compose -f docker-compose.yml pull || true
+            docker compose -f docker-compose.yml build --no-cache
+            docker compose -f docker-compose.yml up -d --remove-orphans
 
             # 6) Prune old images
             docker image prune -af || true
