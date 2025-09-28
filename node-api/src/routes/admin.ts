@@ -11,7 +11,7 @@ export default async function adminRoutes(app: FastifyInstance) {
     if (lastSeenBefore) where.lastSeen = { lt: new Date(lastSeenBefore) };
     if (lastSeenAfter) where.lastSeen = { ...(where.lastSeen ?? {}), gt: new Date(lastSeenAfter) };
     const devices = await app.prisma.device.findMany({ where });
-    return devices.map((d) => ({
+    return devices.map((d: any) => ({
       id: d.id,
       mac: d.mac,
       userId: d.userId,

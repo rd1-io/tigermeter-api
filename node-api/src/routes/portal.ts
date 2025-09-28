@@ -33,7 +33,7 @@ export default async function portalRoutes(app: FastifyInstance) {
     const user = await app.requireUser(request);
     const userId = user.sub ?? user.userId ?? 'user';
     const devices = await app.prisma.device.findMany({ where: { userId } });
-    return devices.map((d) => ({ id: d.id, name: null, status: d.status, lastSeen: d.lastSeen }));
+    return devices.map((d: any) => ({ id: d.id, name: null, status: d.status, lastSeen: d.lastSeen }));
   });
 
   app.get('/devices/:id', async (request, reply) => {

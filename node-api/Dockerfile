@@ -15,9 +15,13 @@ RUN npm config set fetch-retries 5 \
   && npm install --no-audit --no-fund --progress=false
 
 # Copy source and build
+# Generate Prisma client before TypeScript build to satisfy type imports
+COPY prisma ./prisma
+RUN npx prisma generate
+
+# Copy source and build
 COPY . ./
 RUN npm run build \
-  && npx prisma generate \
   && npm prune --omit=dev
 
 
