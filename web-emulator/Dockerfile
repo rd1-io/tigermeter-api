@@ -8,7 +8,7 @@ COPY postcss.config.js tailwind.config.js ./
 RUN npm config set fund=false \
   && npm config set audit=false \
   && npm config set update-notifier=false \
-  && npm ci --no-audit --no-fund --progress=false
+  && npm install --no-audit --no-fund --progress=false
 
 COPY . ./
 ARG VITE_API_BASE_URL
