@@ -1,10 +1,8 @@
-version: "3.9"
-
 services:
   api:
     build:
-      context: .
-      dockerfile: node-api/Dockerfile
+      context: node-api
+      dockerfile: Dockerfile
     image: tigermeter/api:latest
     environment:
       NODE_ENV: production
@@ -20,8 +18,8 @@ services:
 
   emulator:
     build:
-      context: .
-      dockerfile: web-emulator/Dockerfile
+      context: web-emulator
+      dockerfile: Dockerfile
       args:
         VITE_API_BASE_URL: https://api.tigermeter.rd1.io/api
         VITE_HMAC_KEY: ${HMAC_KEY}
