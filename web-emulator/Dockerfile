@@ -4,8 +4,13 @@ WORKDIR /app/web-emulator
 
 COPY package*.json tsconfig.json vite.config.ts ./
 COPY postcss.config.js tailwind.config.js ./
-# Work around intermittent npm 10 "Exit handler never called" bug on CI
-RUN npm i -g npm@9
+# Work around intermittent npm 10 bug and transient DNS failures on CI
+RUN npm config set fetch-retries 5 \
+  && npm config set fetch-retry-maxtimeout 60000 \
+  && npm config set fetch-retry-mintimeout 20000 \
+  && for i in 1 2 3 4 5; do \
+       npm i -g npm@9 && break || { echo "npm@9 install failed, retry $i"; sleep $((i*5)); }; \
+     done
 # Improve npm reliability in CI containers
 RUN npm config set fund=false \
   && npm config set audit=false \
