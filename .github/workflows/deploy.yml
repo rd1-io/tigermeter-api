@@ -63,6 +63,31 @@ jobs:
           rm: true
           strip_components: 1
 
+      - name: Remote diagnostics (pre-deploy)
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          port: 22
+          script_stop: false
+          request_pty: true
+          command_timeout: 2m
+          script: |
+            echo "=== remote diagnostics ==="
+            set || true
+            uname -a || true
+            id || true
+            echo "shell: ${SHELL:-unknown}" || true
+            which bash || true
+            which docker || true
+            docker --version || true
+            (docker compose version || docker-compose --version) || true
+            cd /opt/tigermeter/tigermeter-api 2>/dev/null || true
+            pwd || true
+            ls -la || true
+            stat docker-compose.yml || true
+
       - name: Deploy over SSH
         uses: appleboy/ssh-action@v1.2.0
         with:
@@ -71,9 +96,11 @@ jobs:
           password: ${{ secrets.SERVER_PASSWORD }}
           port: 22
           script_stop: true
+          request_pty: true
           script: |
             set -eu
             set -o pipefail 2>/dev/null || true
+            set -x
             GHCR_TOK="${{ secrets.GHCR_TOKEN || secrets.GH_PAT || '' }}"
             GHCR_USR="${{ secrets.GHCR_USER || github.actor }}"
 
