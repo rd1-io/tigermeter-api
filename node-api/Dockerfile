@@ -12,7 +12,7 @@ COPY package*.json tsconfig.json prisma ./
 RUN npm config set fund=false \
   && npm config set audit=false \
   && npm config set update-notifier=false \
-  && npm ci --no-audit --no-fund --progress=false
+  && npm install --no-audit --no-fund --progress=false
 
 # Copy source and build
 COPY . ./

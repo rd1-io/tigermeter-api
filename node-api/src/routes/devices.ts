@@ -16,10 +16,10 @@ const HeartbeatSchema = z.object({
 export default async function deviceRoutes(app: FastifyInstance) {
   // Simple device-secret authorization
   app.decorate('requireDevice', async (id: string, authorization?: string) => {
-    if (!authorization?.startsWith('Bearer ')) throw app.httpErrors.unauthorized('Missing device secret');
+    if (!authorization?.startsWith('Bearer ')) throw (app as any).httpErrors.unauthorized('Missing device secret');
     const token = authorization.slice('Bearer '.length);
     const device = await app.prisma.device.findUnique({ where: { id } });
-    if (!device) throw app.httpErrors.notFound('Device not found');
+    if (!device) throw (app as any).httpErrors.notFound('Device not found');
     // Verify against current or previous hash within expiry
     const now = new Date();
     const ok = await (await import('bcrypt')).compare(token, device.currentSecretHash ?? '')
@@ -30,7 +30,7 @@ export default async function deviceRoutes(app: FastifyInstance) {
       .then(Boolean);
     const validCurrent = ok && !!device.currentSecretExpiresAt && device.currentSecretExpiresAt > now;
     const validPrev = okPrev && !!device.previousSecretExpiresAt && device.previousSecretExpiresAt > now;
-    if (!validCurrent && !validPrev) throw app.httpErrors.unauthorized('Invalid or expired secret');
+    if (!validCurrent && !validPrev) throw (app as any).httpErrors.unauthorized('Invalid or expired secret');
     return device;
   });
 
@@ -97,6 +97,12 @@ export default async function deviceRoutes(app: FastifyInstance) {
 
     return { deviceId: device.id, deviceSecret: plaintext, displayHash: device.displayHash ?? '', expiresAt };
   });
+}
+
+declare module 'fastify' {
+  interface FastifyInstance {
+    requireDevice(id: string, authorization?: string): Promise<any>;
+  }
 }
 
 
