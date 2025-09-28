@@ -49,7 +49,9 @@ class LogStore {
   subscribe(fn: Listener) {
     this.listeners.add(fn);
     fn(this.entries);
-    return () => this.listeners.delete(fn);
+    return () => {
+      this.listeners.delete(fn);
+    };
   }
 
   private emit() {

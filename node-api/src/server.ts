@@ -1,5 +1,6 @@
 import Fastify from 'fastify';
 import fastifyCors from '@fastify/cors';
+import sensible from '@fastify/sensible';
 import prismaPlugin from './plugins/prisma.js';
 import rateLimitPlugin from './plugins/rate-limit.js';
 import authPlugin from './plugins/auth.js';
@@ -13,7 +14,9 @@ const buildServer = () => {
   const app = Fastify({ logger: true });
 
   app.register(prismaPlugin);
-  app.register(fastifyCors, {
+  app.register(sensible);
+  // Cast cors plugin to any to avoid strict generic mismatch across versions
+  app.register(fastifyCors as any, {
     origin: (origin: string | undefined, cb: (err: Error | null, allow?: boolean) => void) => {
       if (!origin) return cb(null, true);
       const allowedLocal = [/^http:\/\/localhost:\\d+$/, /^http:\/\/127\\.0\\.0\\.1:\\d+$/];

@@ -19,15 +19,15 @@ export const generateDeviceSecret = (): string => {
   return `${config.deviceSecretPrefix}${raw}`;
 };
 
-export const signJwt = async (payload: object): Promise<string> => {
+export const signJwt = async (payload: jose.JWTPayload): Promise<string> => {
   const key = new TextEncoder().encode(config.jwtSecret);
   return new jose.SignJWT(payload).setProtectedHeader({ alg: 'HS256' }).sign(key);
 };
 
-export const verifyJwt = async (token: string): Promise<Record<string, any>> => {
+export const verifyJwt = async (token: string): Promise<jose.JWTPayload> => {
   const key = new TextEncoder().encode(config.jwtSecret);
   const { payload } = await jose.jwtVerify(token, key);
-  return payload as Record<string, any>;
+  return payload;
 };
 
 export const normalizeMac = (raw: string): string | null => {
