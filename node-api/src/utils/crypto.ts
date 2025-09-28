@@ -1,6 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual, createHmac } from 'crypto';
 import * as jose from 'jose';
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 import { config } from '../config.js';
 
 export const canonicalJson = (obj: unknown): string => JSON.stringify(obj, Object.keys(obj as object).sort(), 0).replace(/\s+/g, '');

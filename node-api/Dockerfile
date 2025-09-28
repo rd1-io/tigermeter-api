@@ -4,9 +4,6 @@
 FROM node:20-alpine AS builder
 WORKDIR /app/node-api
 
-# System deps for native modules (e.g., bcrypt) and node-gyp toolchain
-RUN apk add --no-cache python3 make g++ libc6-compat
-
 # Install dependencies
 COPY package*.json tsconfig.json prisma ./
 RUN npm config set fund=false \
