@@ -3,7 +3,7 @@ services:
     build:
       context: node-api
       dockerfile: Dockerfile
-    image: tigermeter/api:latest
+    image: ${API_IMAGE:-ghcr.io/rd1-io/tigermeter-api:latest}
     environment:
       NODE_ENV: production
       PORT: 3001
@@ -23,7 +23,7 @@ services:
       args:
         VITE_API_BASE_URL: https://api.tigermeter.rd1.io/api
         VITE_HMAC_KEY: ${HMAC_KEY}
-    image: tigermeter/emulator:latest
+    image: ${EMULATOR_IMAGE:-ghcr.io/rd1-io/tigermeter-emulator:latest}
     networks:
       - web
 

@@ -7,6 +7,9 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     environment: prod
     steps:
       - name: Checkout tigermeter-api
@@ -15,6 +18,39 @@ jobs:
           repository: rd1-io/tigermeter-api
           token: ${{ secrets.GH_PAT || github.token }}
           path: code
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build & push API image
+        uses: docker/build-push-action@v5
+        with:
+          context: code/node-api
+          file: code/node-api/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/rd1-io/tigermeter-api:${{ github.sha }}
+            ghcr.io/rd1-io/tigermeter-api:latest
+
+      - name: Build & push Emulator image
+        uses: docker/build-push-action@v5
+        with:
+          context: code/web-emulator
+          file: code/web-emulator/Dockerfile
+          push: true
+          build-args: |
+            VITE_API_BASE_URL=https://api.tigermeter.rd1.io/api
+            VITE_HMAC_KEY=${{ secrets.HMAC_KEY }}
+          tags: |
+            ghcr.io/rd1-io/tigermeter-emulator:${{ github.sha }}
+            ghcr.io/rd1-io/tigermeter-emulator:latest
 
       - name: Upload repo to server
         uses: appleboy/scp-action@v0.1.7
@@ -35,6 +71,8 @@ jobs:
           password: ${{ secrets.SERVER_PASSWORD }}
           port: 22
           script_stop: true
+          envs: GITHUB_SHA,GHCR_TOKEN,GHCR_USER
+          envs_format: export
           script: |
             set -euo pipefail
 
@@ -85,12 +123,24 @@ jobs:
               systemctl enable --now docker
             fi
 
-            # 2) Use uploaded repo
+            # 2) GHCR login (optional if images are public)
+            if [ -n "${GHCR_TOKEN:-}" ] && [ -n "${GHCR_USER:-}" ]; then
+              echo "Logging into GHCR as $GHCR_USER"
+              echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin || true
+            else
+              echo "Skipping GHCR login; pulling public images"
+            fi
+
+            # 3) Use uploaded repo
             mkdir -p /opt/tigermeter/tigermeter-api
             cd /opt/tigermeter/tigermeter-api
 
-            # 3) Write .env for compose (use printf to avoid YAML/heredoc parsing issues)
-            printf "JWT_SECRET=%s\nHMAC_KEY=%s\n" "${{ secrets.JWT_SECRET }}" "${{ secrets.HMAC_KEY }}" > .env
+            # 4) Write .env for compose (use printf to avoid YAML/heredoc parsing issues)
+            printf "JWT_SECRET=%s\nHMAC_KEY=%s\nAPI_IMAGE=%s\nEMULATOR_IMAGE=%s\n" \
+              "${{ secrets.JWT_SECRET }}" \
+              "${{ secrets.HMAC_KEY }}" \
+              "ghcr.io/rd1-io/tigermeter-api:${GITHUB_SHA}" \
+              "ghcr.io/rd1-io/tigermeter-emulator:${GITHUB_SHA}" > .env
 
             # 4) Ensure DNS is set: api.tigermeter.rd1.io and emulator.tigermeter.rd1.io -> ${HOSTNAME}
             # 5) Start stack (Caddy will get TLS via Let's Encrypt automatically once DNS resolves)
@@ -110,11 +160,11 @@ jobs:
             ls -la "$COMPOSE_FILE" || { echo "ERROR: compose file missing"; exit 91; }
             $COMPOSE_CMD -f "$COMPOSE_FILE" config >/dev/null
             $COMPOSE_CMD -f "$COMPOSE_FILE" pull || true
-            $COMPOSE_CMD -f "$COMPOSE_FILE" build --no-cache
             $COMPOSE_CMD -f "$COMPOSE_FILE" up -d --remove-orphans
 
-            # 6) Prune old images
-            docker image prune -af || true
+        env:
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN || secrets.GH_PAT || '' }}
+          GHCR_USER: ${{ secrets.GHCR_USER || github.actor }}
 
 
 
