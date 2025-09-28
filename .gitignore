@@ -26,3 +26,6 @@ yarn-error.log*
 .env.development.local
 .env.test.local
 .env.production.local
+
+# Local database artifacts (not used; avoid committing large binary data)
+database/
