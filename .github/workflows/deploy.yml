@@ -152,7 +152,9 @@ jobs:
             fi
 
             # 2) GHCR login (optional if images are public)
-            if [ -n "$GHCR_TOK" ] && [ -n "$GHCR_USR" ]; then
+            DO_GHCR_LOGIN=0
+            { [ -n "$GHCR_TOK" ] && [ -n "$GHCR_USR" ]; } && DO_GHCR_LOGIN=1 || true
+            if [ "$DO_GHCR_LOGIN" -eq 1 ]; then
               echo "Logging into GHCR as $GHCR_USR"
               echo "$GHCR_TOK" | docker login ghcr.io -u "$GHCR_USR" --password-stdin || true
             else
