@@ -72,7 +72,8 @@ jobs:
           port: 22
           script_stop: true
           script: |
-            set -euo pipefail
+            set -eu
+            set -o pipefail 2>/dev/null || true
             GHCR_TOK="${{ secrets.GHCR_TOKEN || secrets.GH_PAT || '' }}"
             GHCR_USR="${{ secrets.GHCR_USER || github.actor }}"
 
