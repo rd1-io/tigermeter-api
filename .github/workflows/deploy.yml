@@ -71,10 +71,10 @@ jobs:
           password: ${{ secrets.SERVER_PASSWORD }}
           port: 22
           script_stop: true
-          envs: GITHUB_SHA,GHCR_TOKEN,GHCR_USER
-          envs_format: export
           script: |
             set -euo pipefail
+            GHCR_TOK="${{ secrets.GHCR_TOKEN || secrets.GH_PAT || '' }}"
+            GHCR_USR="${{ secrets.GHCR_USER || github.actor }}"
 
             # 1) Install Docker & docker compose plugin if missing
             if ! command -v docker >/dev/null 2>&1; then
@@ -124,9 +124,9 @@ jobs:
             fi
 
             # 2) GHCR login (optional if images are public)
-            if [ -n "${GHCR_TOKEN:-}" ] && [ -n "${GHCR_USER:-}" ]; then
-              echo "Logging into GHCR as $GHCR_USER"
-              echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin || true
+            if [ -n "$GHCR_TOK" ] && [ -n "$GHCR_USR" ]; then
+              echo "Logging into GHCR as $GHCR_USR"
+              echo "$GHCR_TOK" | docker login ghcr.io -u "$GHCR_USR" --password-stdin || true
             else
               echo "Skipping GHCR login; pulling public images"
             fi
@@ -139,8 +139,8 @@ jobs:
             printf "JWT_SECRET=%s\nHMAC_KEY=%s\nAPI_IMAGE=%s\nEMULATOR_IMAGE=%s\n" \
               "${{ secrets.JWT_SECRET }}" \
               "${{ secrets.HMAC_KEY }}" \
-              "ghcr.io/rd1-io/tigermeter-api:${GITHUB_SHA}" \
-              "ghcr.io/rd1-io/tigermeter-emulator:${GITHUB_SHA}" > .env
+              "ghcr.io/rd1-io/tigermeter-api:${{ github.sha }}" \
+              "ghcr.io/rd1-io/tigermeter-emulator:${{ github.sha }}" > .env
 
             # 4) Ensure DNS is set: api.tigermeter.rd1.io and emulator.tigermeter.rd1.io -> ${HOSTNAME}
             # 5) Start stack (Caddy will get TLS via Let's Encrypt automatically once DNS resolves)
