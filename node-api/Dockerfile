@@ -6,7 +6,10 @@ WORKDIR /app/node-api
 
 # Install dependencies
 COPY package*.json tsconfig.json prisma ./
-RUN npm config set fund=false \
+RUN npm config set fetch-retries 5 \
+  && npm config set fetch-retry-maxtimeout 60000 \
+  && npm config set fetch-retry-mintimeout 20000 \
+  && npm config set fund=false \
   && npm config set audit=false \
   && npm config set update-notifier=false \
   && npm install --no-audit --no-fund --progress=false
