@@ -33,7 +33,7 @@ ENV NODE_ENV=production
 COPY --from=builder /app/node-api/package*.json ./
 COPY --from=builder /app/node-api/node_modules ./node_modules
 COPY --from=builder /app/node-api/dist ./dist
-COPY --from=builder /app/node-api/generated ./generated
+# Prisma client now in node_modules (@prisma/client); no separate generated dir
 COPY --from=builder /app/node-api/prisma ./prisma
 
 EXPOSE 3001
