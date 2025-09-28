@@ -114,7 +114,7 @@ jobs:
               DISTRO=${ID}
               CODENAME=${VERSION_CODENAME:-${UBUNTU_CODENAME:-$(lsb_release -cs 2>/dev/null || echo noble)}}
               # Fallbacks in case of unexpected IDs
-              if [ "$DISTRO" != "ubuntu" ] && [ "$DISTRO" != "debian" ]; then DISTRO=ubuntu; fi
+              case "$DISTRO" in ubuntu|debian) : ;; *) DISTRO=ubuntu ;; esac
               curl -fsSL https://download.docker.com/linux/${DISTRO}/gpg | gpg --dearmor --batch --yes -o /etc/apt/keyrings/docker.gpg
               chmod a+r /etc/apt/keyrings/docker.gpg
               ARCH=$(dpkg --print-architecture)
@@ -127,28 +127,32 @@ jobs:
 
             # 1b) If Docker is from snap, replace it with the official apt packages
             DOCKER_BIN="$(command -v docker || true)"
-            if [ -n "$DOCKER_BIN" ] && echo "$DOCKER_BIN" | grep -q "/snap/"; then
-              echo "Detected snap Docker at $DOCKER_BIN; replacing with apt-managed Docker."
-              if command -v snap >/dev/null 2>&1; then
-                snap remove --purge docker || true
-              fi
-              rm -f /etc/apt/sources.list.d/docker.list || true
-              apt-get update
-              apt-get remove -y docker docker.io docker-doc docker-compose podman-docker containerd runc || true
-              apt-get install -y ca-certificates curl gnupg lsb-release
-              install -m 0755 -d /etc/apt/keyrings || true
-              . /etc/os-release
-              DISTRO=${ID}
-              CODENAME=${VERSION_CODENAME:-${UBUNTU_CODENAME:-$(lsb_release -cs 2>/dev/null || echo noble)}}
-              if [ "$DISTRO" != "ubuntu" ] && [ "$DISTRO" != "debian" ]; then DISTRO=ubuntu; fi
-              curl -fsSL https://download.docker.com/linux/${DISTRO}/gpg | gpg --dearmor --batch --yes -o /etc/apt/keyrings/docker.gpg
-              chmod a+r /etc/apt/keyrings/docker.gpg
-              ARCH=$(dpkg --print-architecture)
-              rm -f /etc/apt/sources.list.d/docker.list
-              printf 'deb [arch=%s signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/%s %s stable\n' "$ARCH" "$DISTRO" "$CODENAME" | tee /etc/apt/sources.list.d/docker.list >/dev/null
-              apt-get update || { echo "APT update failed. docker.list:"; nl -ba /etc/apt/sources.list.d/docker.list; echo "os-release:"; cat /etc/os-release; exit 97; }
-              apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-              systemctl enable --now docker
+            if [ -n "$DOCKER_BIN" ]; then
+              case "$DOCKER_BIN" in
+                */snap/*)
+                  echo "Detected snap Docker at $DOCKER_BIN; replacing with apt-managed Docker."
+                  if command -v snap >/dev/null 2>&1; then
+                    snap remove --purge docker || true
+                  fi
+                  rm -f /etc/apt/sources.list.d/docker.list || true
+                  apt-get update
+                  apt-get remove -y docker docker.io docker-doc docker-compose podman-docker containerd runc || true
+                  apt-get install -y ca-certificates curl gnupg lsb-release
+                  install -m 0755 -d /etc/apt/keyrings || true
+                  . /etc/os-release
+                  DISTRO=${ID}
+                  CODENAME=${VERSION_CODENAME:-${UBUNTU_CODENAME:-$(lsb_release -cs 2>/dev/null || echo noble)}}
+                  case "$DISTRO" in ubuntu|debian) : ;; *) DISTRO=ubuntu ;; esac
+                  curl -fsSL https://download.docker.com/linux/${DISTRO}/gpg | gpg --dearmor --batch --yes -o /etc/apt/keyrings/docker.gpg
+                  chmod a+r /etc/apt/keyrings/docker.gpg
+                  ARCH=$(dpkg --print-architecture)
+                  rm -f /etc/apt/sources.list.d/docker.list
+                  printf 'deb [arch=%s signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/%s %s stable\n' "$ARCH" "$DISTRO" "$CODENAME" | tee /etc/apt/sources.list.d/docker.list >/dev/null
+                  apt-get update || { echo "APT update failed. docker.list:"; nl -ba /etc/apt/sources.list.d/docker.list; echo "os-release:"; cat /etc/os-release; exit 97; }
+                  apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+                  systemctl enable --now docker
+                  ;;
+              esac
             fi
 
             # 2) GHCR login (optional if images are public)
