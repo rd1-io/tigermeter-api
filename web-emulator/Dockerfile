@@ -4,7 +4,11 @@ WORKDIR /app/web-emulator
 
 COPY package*.json tsconfig.json vite.config.ts ./
 COPY postcss.config.js tailwind.config.js ./
-RUN npm ci
+# Improve npm reliability in CI containers
+RUN npm config set fund=false \
+  && npm config set audit=false \
+  && npm config set update-notifier=false \
+  && npm ci --no-audit --no-fund --progress=false
 
 COPY . ./
 ARG VITE_API_BASE_URL
