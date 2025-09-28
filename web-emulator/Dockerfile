@@ -4,6 +4,8 @@ WORKDIR /app/web-emulator
 
 COPY package*.json tsconfig.json vite.config.ts ./
 COPY postcss.config.js tailwind.config.js ./
+# Work around intermittent npm 10 "Exit handler never called" bug on CI
+RUN npm i -g npm@9
 # Improve npm reliability in CI containers
 RUN npm config set fund=false \
   && npm config set audit=false \
