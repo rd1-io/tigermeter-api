@@ -192,6 +192,23 @@ jobs:
             $COMPOSE_CMD -f "$COMPOSE_FILE" pull || true
             $COMPOSE_CMD -f "$COMPOSE_FILE" up -d --remove-orphans
 
+      - name: Post-deploy diagnostics
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          port: 22
+          script_stop: false
+          request_pty: true
+          command_timeout: 2m
+          script: |
+            echo "=== docker ps ===" && docker ps || true
+            echo "=== compose ps ===" && docker compose -f /opt/tigermeter/tigermeter-api/docker-compose.yml ps || true
+            echo "=== caddy logs (tail) ===" && docker logs $(docker ps -qf name=caddy) --tail=200 || true
+            echo "=== listening ports 80/443 ===" && (ss -ltnp | egrep ":[(]?(80|443)\>" || true)
+            echo "=== local curl http://localhost ===" && curl -I --max-time 10 http://localhost || true
+
         env:
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN || secrets.GH_PAT || '' }}
           GHCR_USER: ${{ secrets.GHCR_USER || github.actor }}
