@@ -3,7 +3,7 @@ api.tigermeter.rd1.io {
   reverse_proxy api:3001
 }
 
-emulator.tigermeter.rd1.io {
+emulator-tigermeter.rd1.io {
   encode gzip
   reverse_proxy emulator:80
 }

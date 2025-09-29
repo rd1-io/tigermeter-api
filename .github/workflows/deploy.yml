@@ -172,7 +172,7 @@ jobs:
               "ghcr.io/rd1-io/tigermeter-api:${{ github.sha }}" \
               "ghcr.io/rd1-io/tigermeter-emulator:${{ github.sha }}" > .env
 
-            # 4) Ensure DNS is set: api.tigermeter.rd1.io and emulator.tigermeter.rd1.io -> ${HOSTNAME}
+            # 4) Ensure DNS is set: api.tigermeter.rd1.io and emulator-tigermeter.rd1.io -> ${HOSTNAME}
             # 5) Start stack (Caddy will get TLS via Let's Encrypt automatically once DNS resolves)
             echo "Working dir:" && pwd
             echo "Docker versions:" && docker --version && (docker compose version || docker-compose --version || true)

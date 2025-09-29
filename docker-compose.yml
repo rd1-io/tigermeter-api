@@ -10,7 +10,7 @@ services:
       DATABASE_URL: file:/data/api.sqlite
       JWT_SECRET: ${JWT_SECRET}
       HMAC_KEY: ${HMAC_KEY}
-      CORS_ALLOWED_ORIGINS: https://emulator.tigermeter.rd1.io
+      CORS_ALLOWED_ORIGINS: https://emulator-tigermeter.rd1.io
     volumes:
       - api-data:/data
     networks:
