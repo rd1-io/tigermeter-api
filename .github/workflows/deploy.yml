@@ -1,0 +1,168 @@
+name: Deploy
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    environment: prod
+    steps:
+      - name: Checkout tigermeter-api
+        uses: actions/checkout@v4
+        with:
+          repository: rd1-io/tigermeter-api
+          token: ${{ secrets.GH_PAT || github.token }}
+          path: code
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build & push API image
+        uses: docker/build-push-action@v5
+        with:
+          context: code/node-api
+          file: code/node-api/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/rd1-io/tigermeter-api:${{ github.sha }}
+            ghcr.io/rd1-io/tigermeter-api:latest
+
+      - name: Build & push Emulator image
+        uses: docker/build-push-action@v5
+        with:
+          context: code/web-emulator
+          file: code/web-emulator/Dockerfile
+          push: true
+          build-args: |
+            VITE_API_BASE_URL=https://api.tigermeter.rd1.io/api
+            VITE_HMAC_KEY=${{ secrets.HMAC_KEY }}
+          tags: |
+            ghcr.io/rd1-io/tigermeter-emulator:${{ github.sha }}
+            ghcr.io/rd1-io/tigermeter-emulator:latest
+
+      - name: Upload repo to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          source: "code/*"
+          target: "/opt/tigermeter/tigermeter-api"
+          rm: true
+          strip_components: 1
+
+      - name: Remote diagnostics (pre-deploy)
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          port: 22
+          script_stop: false
+          request_pty: true
+          command_timeout: 2m
+          script: |
+            echo "=== remote diagnostics ==="
+            set || true
+            uname -a || true
+            id || true
+            which docker || true
+            docker --version || true
+            (docker compose version || docker-compose --version) || true
+            cd /opt/tigermeter/tigermeter-api 2>/dev/null || true
+            pwd || true
+            ls -la || true
+            stat docker-compose.yml || true
+
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          port: 22
+          script_stop: true
+          request_pty: true
+          script: |
+            set -eu
+            set -o pipefail 2>/dev/null || true
+            set -x
+            GHCR_TOK="${{ secrets.GHCR_TOKEN || secrets.GH_PAT || '' }}"
+            GHCR_USR="${{ secrets.GHCR_USER || github.actor }}"
+
+            # 1) Install Docker & compose if missing
+            if ! command -v docker >/dev/null 2>&1; then
+              rm -f /etc/apt/sources.list.d/docker.list || true
+              apt-get update
+              apt-get install -y ca-certificates curl gnupg lsb-release
+              install -m 0755 -d /etc/apt/keyrings
+              . /etc/os-release
+              DISTRO=${ID}
+              CODENAME=${VERSION_CODENAME:-${UBUNTU_CODENAME:-$(lsb_release -cs 2>/dev/null || echo noble)}}
+              case "$DISTRO" in ubuntu|debian) : ;; *) DISTRO=ubuntu ;; esac
+              curl -fsSL https://download.docker.com/linux/${DISTRO}/gpg | gpg --dearmor --batch --yes -o /etc/apt/keyrings/docker.gpg
+              chmod a+r /etc/apt/keyrings/docker.gpg
+              ARCH=$(dpkg --print-architecture)
+              printf 'deb [arch=%s signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/%s %s stable\n' "$ARCH" "$DISTRO" "$CODENAME" | tee /etc/apt/sources.list.d/docker.list >/dev/null
+              apt-get update || { echo "APT update failed"; exit 97; }
+              apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin git
+              systemctl enable --now docker
+            fi
+
+            # 2) GHCR login (optional if images are public)
+            case "${GHCR_TOK}:${GHCR_USR}" in
+              :*|*:) echo "Skipping GHCR login; pulling public images" ;;
+              *) echo "Logging into GHCR as $GHCR_USR" ; echo "$GHCR_TOK" | docker login ghcr.io -u "$GHCR_USR" --password-stdin || true ;;
+            esac
+
+            # 3) Use uploaded repo
+            mkdir -p /opt/tigermeter/tigermeter-api
+            cd /opt/tigermeter/tigermeter-api
+
+            # 4) Write .env for compose
+            printf "JWT_SECRET=%s\nHMAC_KEY=%s\nAPI_IMAGE=%s\nEMULATOR_IMAGE=%s\n" \
+              "${{ secrets.JWT_SECRET }}" \
+              "${{ secrets.HMAC_KEY }}" \
+              "ghcr.io/rd1-io/tigermeter-api:${{ github.sha }}" \
+              "ghcr.io/rd1-io/tigermeter-emulator:${{ github.sha }}" > .env
+
+            # 5) Start stack
+            test -f docker-compose.yml || { echo "ERROR: docker-compose.yml not found in $(pwd)"; exit 90; }
+            /usr/bin/docker compose -f docker-compose.yml pull || true
+            /usr/bin/docker compose -f docker-compose.yml up -d --remove-orphans
+
+      - name: Post-deploy diagnostics
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          port: 22
+          script_stop: false
+          request_pty: true
+          command_timeout: 2m
+          script: |
+            echo "=== docker ps ===" && docker ps || true
+            echo "=== compose ps ===" && docker compose -f /opt/tigermeter/tigermeter-api/docker-compose.yml ps || true
+            echo "=== caddy logs (tail) ===" && docker logs $(docker ps -qf name=caddy) --tail=200 || true
+            echo "=== listening ports 80/443 ===" && (ss -ltnp | egrep ":[(]?(80|443)\>" || true)
+            echo "=== local curl http://localhost ===" && curl -sI --max-time 10 http://localhost || true
+
+
