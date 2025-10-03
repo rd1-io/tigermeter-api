@@ -2,7 +2,19 @@ SHELL := /bin/bash
 NODE_API := node-api
 PORT ?= 3001
 
-.PHONY: help setup dev start build stop studio migrate db-reset db-push generate health clean fw-dev emulator fw fw-build fw-upload
+# --- Release settings (override via env or make vars) ---
+SERVER_HOST ?= 89.169.47.121
+SERVER_USER ?= root
+# Use a writable temp dir to avoid read-only FS issues. Override if desired.
+REMOTE_DIR ?= /tmp/tigermeter/tigermeter-api
+REMOTE_PLATFORM ?= linux/amd64
+API_TAG ?= tigermeter-api:release
+EMU_TAG ?= tigermeter-emulator:release
+VITE_API_BASE_URL ?= https://api.tigermeter.rd1.io/api
+JWT_SECRET ?= change-me
+HMAC_KEY ?= dev
+
+.PHONY: help setup dev start build stop studio migrate db-reset db-push generate health clean fw-dev emulator fw fw-build fw-upload release
 
 help:
 	@echo "Available targets:"
@@ -24,6 +36,7 @@ help:
 	@echo "  fw         - Build and upload firmware (usage: make fw [FW_ENV=esp32dev] [UPLOAD_PORT=/dev/cu.*])"
 	@echo "  fw-build   - Build firmware only (usage: make fw-build [FW_ENV=esp32dev])"
 	@echo "  fw-upload  - Upload firmware only (usage: make fw-upload [FW_ENV=esp32dev] [UPLOAD_PORT=/dev/cu.*])"
+	@echo "  release    - Build images locally and deploy to server (defaults: JWT_SECRET=$(JWT_SECRET), HMAC_KEY=$(HMAC_KEY))"
 
 setup:
 	cd $(NODE_API) && \
@@ -97,6 +110,44 @@ fw:
 	fi; \
 	EXTRA=""; if [ -n "$(UPLOAD_PORT)" ]; then EXTRA="--upload-port $(UPLOAD_PORT)"; fi; \
 	pio run -e $(FW_ENV) -t upload $$EXTRA
+
+# --- Release: build local images, upload, load & start on remote ---
+release:
+	@echo "Using JWT_SECRET=$(JWT_SECRET) HMAC_KEY=$(HMAC_KEY)"
+	@echo "==> Committing and pushing local changes (if any)"
+		@set -e; \
+		if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then \
+		  git add -A; \
+		  git reset -- tigermeter-images.tar >/dev/null 2>&1 || true; \
+		  if git diff --cached --quiet; then \
+		    echo "No local changes to commit."; \
+		  else \
+		    ts=$$(date -u +"%Y-%m-%dT%H:%M:%SZ"); \
+		    n=$$(git diff --cached --name-only | wc -l | tr -d " \t"); \
+		    summary=$$(git diff --cached --name-status | awk '{print $$1}' | sed -E 's/ //g' | sort | uniq -c | awk '{print $$2 ":" $$1}' | paste -sd ', ' -); \
+		    msg="chore(release): deploy $$n file(s) @ $$ts [$$summary]"; \
+		    echo "Commit: $$msg"; \
+		    git commit -m "$$msg"; \
+		    git push; \
+		  fi; \
+		else \
+		  echo "Not a git repository; skipping commit."; \
+		fi
+	@echo "==> Building API image: $(API_TAG)"
+	docker build --platform=$(REMOTE_PLATFORM) -t "$(API_TAG)" -f node-api/Dockerfile node-api
+	@echo "==> Building Emulator image: $(EMU_TAG)"
+	docker build --platform=$(REMOTE_PLATFORM) -t "$(EMU_TAG)" -f web-emulator/Dockerfile \
+		--build-arg VITE_API_BASE_URL="$(VITE_API_BASE_URL)" \
+		--build-arg VITE_HMAC_KEY="$(HMAC_KEY)" \
+		web-emulator
+	@echo "==> Saving images to tar"
+	docker save -o tigermeter-images.tar "$(API_TAG)" "$(EMU_TAG)"
+	@echo "==> Creating remote dir $(REMOTE_DIR)"
+	ssh -o StrictHostKeyChecking=no $(SERVER_USER)@$(SERVER_HOST) "mkdir -p '$(REMOTE_DIR)' || true"
+	@echo "==> Uploading bundle and compose files"
+	scp -o StrictHostKeyChecking=no tigermeter-images.tar docker-compose.yml Caddyfile $(SERVER_USER)@$(SERVER_HOST):$(REMOTE_DIR)/
+	@echo "==> Loading images and starting stack on remote"
+	ssh -o StrictHostKeyChecking=no $(SERVER_USER)@$(SERVER_HOST) "set -euo pipefail; mkdir -p '$(REMOTE_DIR)'; cd '$(REMOTE_DIR)'; if ! command -v docker >/dev/null 2>&1; then echo 'Docker not found. Installing...'; curl -fsSL https://get.docker.com | sh; systemctl enable --now docker; fi; docker load -i tigermeter-images.tar; printf '%s\n' 'JWT_SECRET=$(JWT_SECRET)' 'HMAC_KEY=$(HMAC_KEY)' 'API_IMAGE=$(API_TAG)' 'EMULATOR_IMAGE=$(EMU_TAG)' > .env; docker compose -f docker-compose.yml up -d --remove-orphans; echo '=== docker ps ==='; docker ps"
 
 fw-build:
 	@cd $(FW_DIR) && \

@@ -9,7 +9,7 @@ import { DisplayInstruction } from "./types/display";
 import { createTestUserToken } from "./utils/jwt";
 
 export const App: React.FC = () => {
-  const [mode, setMode] = useState<"flow" | "display">("flow");
+  const [mode, setMode] = useState<"flow" | "display">("display");
   const [mac, setMac] = useState("");
   const [wifiOn, setWifiOn] = useState(false);
   const [screenState, setScreenState] = useState<ScreenState>("welcome");
@@ -368,7 +368,7 @@ export const App: React.FC = () => {
                           version: 1,
                           hash: "mock-hash-1",
                           single: {
-                            name: "BTC/USD",
+                            name: "BTC",
                             price: 45250.5,
                             currencySymbol: "$",
                             timestamp: new Date().toISOString(),
@@ -499,7 +499,7 @@ export const App: React.FC = () => {
           <div
             className="inline-block"
             style={{
-              width: (384 + 8 + 4) * (mode === "display" ? screenScale : 2),
+              width: (384 + 38 + 4) * (mode === "display" ? screenScale : 2),
               height: 168 * (mode === "display" ? screenScale : 2) + 40,
             }}
           >
@@ -519,7 +519,7 @@ export const App: React.FC = () => {
           </div>
           <div
             style={{
-              width: (384 + 8 + 4) * (mode === "display" ? screenScale : 2),
+              width: (384 + 38 + 4) * (mode === "display" ? screenScale : 2),
             }}
           >
             <LogPanel />

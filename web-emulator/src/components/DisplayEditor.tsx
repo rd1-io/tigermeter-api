@@ -8,7 +8,7 @@ interface DisplayEditorProps {
 }
 
 const defaultSingle: DisplaySingle = {
-  name: "BTC/USD",
+  name: "BTC",
   price: 112430.65,
   currencySymbol: "$",
   timestamp: new Date().toISOString(),
@@ -16,6 +16,16 @@ const defaultSingle: DisplaySingle = {
   ledBrightness: "high",
   portfolioValue: 34567,
   portfolioChangePercent: 2.3,
+  extensions: {
+    leftBarWidth: 100,
+    assetFontSize: 40,
+    dateFontSize: 12,
+    priceFontSize: 42,
+    bottomFontSize: 13,
+    periodLabel: "1 день",
+    widthMm: 67.58,
+    heightMm: 29.57,
+  },
 };
 
 export const DisplayEditor: React.FC<DisplayEditorProps> = ({
@@ -67,6 +77,13 @@ export const DisplayEditor: React.FC<DisplayEditorProps> = ({
     value: DisplaySingle[K]
   ) => {
     setSingle((s) => ({ ...s, [key]: value }));
+  };
+
+  const updateExt = (key: string, value: any) => {
+    setSingle((s) => ({
+      ...s,
+      extensions: { ...(s.extensions || {}), [key]: value },
+    }));
   };
 
   return (
@@ -217,6 +234,88 @@ export const DisplayEditor: React.FC<DisplayEditorProps> = ({
           >
             Clear
           </button>
+        </div>
+      </div>
+      {/* Display tuning */}
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className="block text-[10px] font-medium mb-1">Left Bar Width</label>
+          <input
+            type="number"
+            value={(single.extensions as any)?.leftBarWidth ?? 100}
+            onChange={(e) =>
+              updateExt(
+                "leftBarWidth",
+                e.target.value === "" ? undefined : parseInt(e.target.value) || 0
+              )
+            }
+            className="w-full border px-2 py-1 rounded text-xs"
+          />
+        </div>
+        <div>
+          <label className="block text-[10px] font-medium mb-1">Asset Font</label>
+          <input
+            type="number"
+            value={(single.extensions as any)?.assetFontSize ?? 40}
+            onChange={(e) =>
+              updateExt(
+                "assetFontSize",
+                e.target.value === "" ? undefined : parseInt(e.target.value) || 0
+              )
+            }
+            className="w-full border px-2 py-1 rounded text-xs"
+          />
+        </div>
+        <div>
+          <label className="block text-[10px] font-medium mb-1">Date Font</label>
+          <input
+            type="number"
+            value={(single.extensions as any)?.dateFontSize ?? 12}
+            onChange={(e) =>
+              updateExt(
+                "dateFontSize",
+                e.target.value === "" ? undefined : parseInt(e.target.value) || 0
+              )
+            }
+            className="w-full border px-2 py-1 rounded text-xs"
+          />
+        </div>
+        <div>
+          <label className="block text-[10px] font-medium mb-1">Price Font</label>
+          <input
+            type="number"
+            value={(single.extensions as any)?.priceFontSize ?? 42}
+            onChange={(e) =>
+              updateExt(
+                "priceFontSize",
+                e.target.value === "" ? undefined : parseInt(e.target.value) || 0
+              )
+            }
+            className="w-full border px-2 py-1 rounded text-xs"
+          />
+        </div>
+        <div>
+          <label className="block text-[10px] font-medium mb-1">Bottom Font</label>
+          <input
+            type="number"
+            value={(single.extensions as any)?.bottomFontSize ?? 13}
+            onChange={(e) =>
+              updateExt(
+                "bottomFontSize",
+                e.target.value === "" ? undefined : parseInt(e.target.value) || 0
+              )
+            }
+            className="w-full border px-2 py-1 rounded text-xs"
+          />
+        </div>
+        <div className="col-span-2">
+          <label className="block text-[10px] font-medium mb-1">Period Label</label>
+          <input
+            type="text"
+            value={(single.extensions as any)?.periodLabel ?? "1 день"}
+            onChange={(e) => updateExt("periodLabel", e.target.value)}
+            className="w-full border px-2 py-1 rounded text-xs"
+          />
         </div>
       </div>
       <div className="text-[10px] text-neutral-500">

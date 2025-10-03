@@ -127,16 +127,22 @@ export const Screen: React.FC<ScreenProps> = ({
         const single = displayInstruction.single;
         if (variant === "display") {
           const dt = new Date(single.timestamp);
-          const dateTimeStr = dt
-            .toLocaleString(undefined, {
-              hour12: false,
-              year: "numeric",
-              month: "short",
-              day: "2-digit",
-              hour: "2-digit",
-              minute: "2-digit",
-            })
-            .replace(",", "");
+          const locale = "ru-RU";
+          const dateStrRaw = new Intl.DateTimeFormat(locale, {
+            day: "numeric",
+            month: "long",
+          }).format(dt);
+          const [dayPart, monthPart] = dateStrRaw.split(" ");
+          const monthCap = monthPart
+            ? monthPart.charAt(0).toUpperCase() + monthPart.slice(1)
+            : "";
+          const dateStr = `${dayPart || ""} ${monthCap}`.trim();
+          const timeStr = new Intl.DateTimeFormat(locale, {
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: false,
+          }).format(dt);
+          const dateTimeStr = `${dateStr}, ${timeStr}`;
           const asset = single.name.split("/")[0].toUpperCase();
           // Dynamic price formatting
           const rawPrice = single.price;
@@ -149,10 +155,16 @@ export const Screen: React.FC<ScreenProps> = ({
           }
           const priceStr = `${single.currencySymbol}${formatted}`;
           // Adaptive font sizing thresholds based on character length
-          let priceFontSize = 42; // base
+          const priceFontSizeOverride = single.extensions?.priceFontSize as
+            | number
+            | undefined;
+          let priceFontSize = priceFontSizeOverride ?? 42; // base
           if (priceStr.length > 10) priceFontSize = 38;
           if (priceStr.length > 12) priceFontSize = 34;
           if (priceStr.length > 14) priceFontSize = 30;
+          if (priceFontSizeOverride !== undefined) {
+            priceFontSize = priceFontSizeOverride;
+          }
           content = (
             <div
               className="absolute inset-0 flex"
@@ -163,7 +175,9 @@ export const Screen: React.FC<ScreenProps> = ({
               {/* Left square strip 168x168 */}
               <div
                 style={{
-                  width: 100,
+                  width:
+                    (single.extensions?.leftBarWidth as number | undefined) ??
+                    100,
                   height: 168,
                   background: "#121212",
                   color: "#fafafa",
@@ -174,7 +188,11 @@ export const Screen: React.FC<ScreenProps> = ({
               >
                 <div
                   className="font-extrabold tracking-tight"
-                  style={{ fontSize: 40 }}
+                  style={{
+                    fontSize:
+                      (single.extensions?.assetFontSize as number | undefined) ??
+                      40,
+                  }}
                 >
                   {asset}
                 </div>
@@ -182,9 +200,23 @@ export const Screen: React.FC<ScreenProps> = ({
               {/* Right content area */}
               <div
                 className="flex flex-col"
-                style={{ width: 384 - 100 - 0, padding: "8px 14px 8px 14px" }}
+                style={{
+                  width:
+                    384 -
+                    (((single.extensions?.leftBarWidth as number | undefined) ??
+                      100) as number) -
+                    0,
+                  padding: "8px 14px 8px 14px",
+                }}
               >
-                <div className="text-center text-[12px] font-medium leading-none mb-3 tracking-tight">
+                <div
+                  className="text-center font-medium leading-none mb-3 tracking-tight"
+                  style={{
+                    fontSize:
+                      (single.extensions?.dateFontSize as number | undefined) ??
+                      12,
+                  }}
+                >
                   {dateTimeStr}
                 </div>
                 <div className="flex-1 flex items-center justify-center overflow-hidden">
@@ -201,16 +233,58 @@ export const Screen: React.FC<ScreenProps> = ({
                     </div>
                   </div>
                 </div>
-                <div className="mt-2 text-center text-[13px] font-semibold tracking-tight leading-none">
-                  {single.portfolioValue !== undefined &&
-                  single.portfolioChangePercent !== undefined ? (
-                    <>
-                      1 день {single.portfolioChangePercent > 0 ? "+" : ""}
-                      {single.portfolioChangePercent.toFixed(2)}%
-                    </>
-                  ) : (
-                    <>&nbsp;</>
-                  )}
+                <div
+                  className="mt-2 text-center font-semibold tracking-tight leading-none"
+                  style={{
+                    fontSize:
+                      (single.extensions?.bottomFontSize as number | undefined) ??
+                      13,
+                  }}
+                >
+                  {(() => {
+                    const periodLabel =
+                      (single.extensions?.periodLabel as string) || "1 день";
+                    const hasPercent =
+                      single.portfolioChangePercent !== undefined &&
+                      single.portfolioChangePercent !== null;
+                    const hasAbs =
+                      single.portfolioChangeAbsolute !== undefined &&
+                      single.portfolioChangeAbsolute !== null;
+                    if (!hasPercent && !hasAbs) return <>&nbsp;</>;
+
+                    const percentPart = hasPercent ? (
+                      <>
+                        {periodLabel} {single.portfolioChangePercent! > 0 ? "+" : ""}
+                        {single.portfolioChangePercent!.toFixed(2)}%
+                      </>
+                    ) : (
+                      <>{periodLabel}</>
+                    );
+
+                    const absVal = single.portfolioChangeAbsolute as number | undefined;
+                    let absPart: React.ReactNode = null;
+                    if (hasAbs && typeof absVal === "number") {
+                      const sign = absVal >= 0 ? "+" : "-";
+                      const absNum = Math.abs(absVal);
+                      const absStr = Number.isInteger(absNum)
+                        ? String(absNum)
+                        : absNum.toFixed(2).replace(/\.0+$/, "").replace(/(\.[0-9]*?)0+$/, "$1");
+                      absPart = (
+                        <>
+                          {" "}({sign}
+                          {single.currencySymbol}
+                          {absStr})
+                        </>
+                      );
+                    }
+
+                    return (
+                      <>
+                        {percentPart}
+                        {absPart}
+                      </>
+                    );
+                  })()}
                 </div>
               </div>
             </div>
@@ -358,10 +432,11 @@ export const Screen: React.FC<ScreenProps> = ({
             const flash = active && flashCount && flashCount > 0;
             return (
               <div
-                className={`ml-1 h-[168px] w-8 rounded-sm border border-neutral-400 relative overflow-hidden flex flex-col ${
+                className={`ml-1 h-[168px] rounded-sm border border-neutral-400 relative overflow-hidden flex flex-col ${
                   flash ? "led-flash" : ""
                 }`}
                 style={{
+                  width: 38,
                   background: active ? colorMap[ledColor!] : "#d4d4d4",
                   opacity: active ? brightnessOpacity[ledBrightness!] : 0.3,
                   boxShadow: active
@@ -391,7 +466,19 @@ export const Screen: React.FC<ScreenProps> = ({
           left: 0,
         }}
       >
-        384x168 + LED {scale > 1 && `(${scale}x)`}
+        {(() => {
+          // Defaults: 384x168 pixels, active area 67.58mm x 29.57mm
+          let widthMm = 67.58;
+          let heightMm = 29.57;
+          if (displayInstruction?.type === "single") {
+            const ext = displayInstruction.single.extensions || {};
+            const w = (ext as any).widthMm;
+            const h = (ext as any).heightMm;
+            if (typeof w === "number" && w > 0) widthMm = w;
+            if (typeof h === "number" && h > 0) heightMm = h;
+          }
+          return `384x168 + LED ${scale > 1 ? `(${scale}x)` : ""} • ${widthMm.toFixed(2)}×${heightMm.toFixed(2)} mm`;
+        })()}
       </div>
     </div>
   );
