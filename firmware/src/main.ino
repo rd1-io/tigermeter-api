@@ -10,6 +10,7 @@ const int CURRENT_FIRMWARE_VERSION = 2;
 #include <ArduinoJson.h> // Include the necessary header file for DynamicJsonDocument
 #include "utility/FirmwareUpdate.h"
 #include "utility/LedColorsAndNoises.h"
+#include <WiFi.h>
 
 // Constants
 const int RECT_WIDTH = 90;
@@ -38,8 +39,48 @@ void led_Green();
 void led_Yellow();
 void updateFirmware();
 
+// Demo helpers
+void renderDemoHeader(UBYTE *BlackImage);
+void scanAndRenderTopWifi(UBYTE *BlackImage);
+void runDemoIteration(UBYTE *BlackImage, int iteration);
+
 void setup()
 {
+#ifdef DEMO_MODE
+    Debug("Starting TigerMeter (DEMO)...\r\n");
+
+    // Initialize pins and buzzer
+    initializePins();
+    led_Purple();
+    playBuzzerPositive();
+
+    // Initialize e-paper display
+    initializeEPaper();
+
+    // Allocate memory for the image
+    UBYTE *BlackImage;
+    UWORD Imagesize = ((EPD_2IN9_V2_WIDTH % 8 == 0) ? (EPD_2IN9_V2_WIDTH / 8) : (EPD_2IN9_V2_WIDTH / 8 + 1)) * EPD_2IN9_V2_HEIGHT;
+    if ((BlackImage = (UBYTE *)malloc(Imagesize)) == NULL)
+    {
+        Debug("Failed to apply for black memory...\r\n");
+        while (1)
+            ;
+    }
+
+    // Render demo header once
+    renderDemoHeader(BlackImage);
+    EPD_2IN9_V2_Display(BlackImage);
+
+    // Prepare WiFi scanning
+    WiFi.mode(WIFI_STA);
+    WiFi.disconnect(true);
+
+    int iteration = 0;
+    while (1)
+    {
+        runDemoIteration(BlackImage, iteration++);
+    }
+#else
 
     Debug("Starting TigerMeter...\r\n");
 
@@ -93,6 +134,7 @@ void setup()
             DEV_Delay_ms(UPDATE_INTERVAL_MS);
         }
     }
+#endif
 }
 
 void loop()
@@ -297,3 +339,85 @@ void initNTPTime()
     }
     Serial.println("Time initialized");
 }
+
+#ifdef DEMO_MODE
+void renderDemoHeader(UBYTE *BlackImage)
+{
+    // Prepare canvas and draw left black bar with DEMO text
+    Paint_NewImage(BlackImage, EPD_2IN9_V2_WIDTH, EPD_2IN9_V2_HEIGHT, 270, WHITE);
+    Paint_SelectImage(BlackImage);
+    Paint_Clear(WHITE);
+    drawRectangleAndText("DEMO");
+}
+
+void runDemoIteration(UBYTE *BlackImage, int iteration)
+{
+    // Cycle LEDs
+    led_Purple(); DEV_Delay_ms(200);
+    led_Red();    DEV_Delay_ms(200);
+    led_Green();  DEV_Delay_ms(200);
+    led_Yellow(); DEV_Delay_ms(200);
+    led_Blue();   DEV_Delay_ms(200);
+
+    // Short positive beep
+    playBuzzerPositive();
+
+    // Scan and render WiFi
+    scanAndRenderTopWifi(BlackImage);
+
+    // Small pause before next loop
+    DEV_Delay_ms(2000);
+}
+
+void scanAndRenderTopWifi(UBYTE *BlackImage)
+{
+    // Perform WiFi scan
+    int n = WiFi.scanNetworks();
+
+    // Determine top 3 by RSSI
+    int topIdx[3] = {-1, -1, -1};
+    int topRssi[3] = {-1000, -1000, -1000};
+    for (int i = 0; i < n; i++)
+    {
+        int rssi = WiFi.RSSI(i);
+        if (rssi > topRssi[0])
+        {
+            topRssi[2] = topRssi[1]; topIdx[2] = topIdx[1];
+            topRssi[1] = topRssi[0]; topIdx[1] = topIdx[0];
+            topRssi[0] = rssi;       topIdx[0] = i;
+        }
+        else if (rssi > topRssi[1])
+        {
+            topRssi[2] = topRssi[1]; topIdx[2] = topIdx[1];
+            topRssi[1] = rssi;       topIdx[1] = i;
+        }
+        else if (rssi > topRssi[2])
+        {
+            topRssi[2] = rssi;       topIdx[2] = i;
+        }
+    }
+
+    // Coordinates for list area (right side of the bar)
+    const sFONT *font = &Font16;
+    int x = DATE_TIME_X;
+    int yBase = 10;
+    int lineH = font->Height + 2;
+
+    // Clear list area (3 lines)
+    Paint_ClearWindows(x, yBase, EPD_2IN9_V2_HEIGHT, yBase + lineH * 3, WHITE);
+
+    // Draw up to 3 entries
+    for (int k = 0; k < 3; k++)
+    {
+        if (topIdx[k] < 0) continue;
+        String ssid = WiFi.SSID(topIdx[k]);
+        int rssi = topRssi[k];
+        char line[64];
+        snprintf(line, sizeof(line), "%d) %.20s (%ddBm)", k + 1, ssid.c_str(), rssi);
+        Paint_DrawString_EN(x, yBase + k * lineH, line, (sFONT *)font, WHITE, BLACK);
+    }
+
+    // Partial refresh to update list
+    EPD_2IN9_V2_Display_Partial(BlackImage);
+}
+#endif

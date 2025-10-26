@@ -36,6 +36,9 @@ help:
 	@echo "  fw         - Build and upload firmware (usage: make fw [FW_ENV=esp32dev] [UPLOAD_PORT=/dev/cu.*])"
 	@echo "  fw-build   - Build firmware only (usage: make fw-build [FW_ENV=esp32dev])"
 	@echo "  fw-upload  - Upload firmware only (usage: make fw-upload [FW_ENV=esp32dev] [UPLOAD_PORT=/dev/cu.*])"
+	@echo "  demo       - Build+upload demo firmware (FW_ENV=esp32demo)"
+	@echo "  demo-build - Build demo firmware only (FW_ENV=esp32demo)"
+	@echo "  demo-upload- Upload demo firmware only (FW_ENV=esp32demo)"
 	@echo "  release    - Build images locally and deploy to server (defaults: JWT_SECRET=$(JWT_SECRET), HMAC_KEY=$(HMAC_KEY))"
 
 setup:
@@ -111,6 +114,9 @@ fw:
 	EXTRA=""; if [ -n "$(UPLOAD_PORT)" ]; then EXTRA="--upload-port $(UPLOAD_PORT)"; fi; \
 	pio run -e $(FW_ENV) -t upload $$EXTRA
 
+demo:
+	@FW_ENV=esp32demo $(MAKE) fw $(if $(UPLOAD_PORT),UPLOAD_PORT=$(UPLOAD_PORT),)
+
 # --- Release: build local images, upload, load & start on remote ---
 release:
 	@echo "Using JWT_SECRET=$(JWT_SECRET) HMAC_KEY=$(HMAC_KEY)"
@@ -156,6 +162,9 @@ fw-build:
 	fi; \
 	pio run -e $(FW_ENV)
 
+demo-build:
+	@FW_ENV=esp32demo $(MAKE) fw-build
+
 fw-upload:
 	@cd $(FW_DIR) && \
 	if ! command -v pio >/dev/null 2>&1; then \
@@ -163,3 +172,6 @@ fw-upload:
 	fi; \
 	EXTRA=""; if [ -n "$(UPLOAD_PORT)" ]; then EXTRA="--upload-port $(UPLOAD_PORT)"; fi; \
 	pio run -e $(FW_ENV) -t upload $$EXTRA
+
+demo-upload:
+	@FW_ENV=esp32demo $(MAKE) fw-upload $(if $(UPLOAD_PORT),UPLOAD_PORT=$(UPLOAD_PORT),)
