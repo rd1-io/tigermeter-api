@@ -43,6 +43,10 @@ void updateFirmware();
 void renderDemoHeader(UBYTE *BlackImage);
 void scanAndRenderTopWifi(UBYTE *BlackImage);
 void runDemoIteration(UBYTE *BlackImage, int iteration);
+void showHelloMessage(UBYTE *BlackImage);
+void showHardwareInfo(UBYTE *BlackImage);
+void renderUptime(UBYTE *BlackImage, int iteration);
+void ledBlinkTask(void *pvParameters);
 
 void setup()
 {
@@ -71,9 +75,16 @@ void setup()
     renderDemoHeader(BlackImage);
     EPD_2IN9_V2_Display(BlackImage);
 
-    // Prepare WiFi scanning
+    // Say hello, then show hardware info, then proceed to Wi‑Fi display loop
+    showHelloMessage(BlackImage);
+    showHardwareInfo(BlackImage);
+
+    // Prepare WiFi scanning (used for MAC only and potential scans)
     WiFi.mode(WIFI_STA);
     WiFi.disconnect(true);
+
+    // Start background LED blink task (runs independently)
+    xTaskCreatePinnedToCore(ledBlinkTask, "ledBlink", 2048, NULL, 1, NULL, 1);
 
     int iteration = 0;
     while (1)
@@ -352,21 +363,9 @@ void renderDemoHeader(UBYTE *BlackImage)
 
 void runDemoIteration(UBYTE *BlackImage, int iteration)
 {
-    // Cycle LEDs
-    led_Purple(); DEV_Delay_ms(200);
-    led_Red();    DEV_Delay_ms(200);
-    led_Green();  DEV_Delay_ms(200);
-    led_Yellow(); DEV_Delay_ms(200);
-    led_Blue();   DEV_Delay_ms(200);
-
-    // Short positive beep
-    playBuzzerPositive();
-
-    // Scan and render WiFi
-    scanAndRenderTopWifi(BlackImage);
-
-    // Small pause before next loop
-    DEV_Delay_ms(2000);
+    // Header stays static; only update the uptime region with partial refresh
+    renderUptime(BlackImage, iteration);
+    DEV_Delay_ms(1000);
 }
 
 void scanAndRenderTopWifi(UBYTE *BlackImage)
@@ -374,50 +373,146 @@ void scanAndRenderTopWifi(UBYTE *BlackImage)
     // Perform WiFi scan
     int n = WiFi.scanNetworks();
 
-    // Determine top 3 by RSSI
-    int topIdx[3] = {-1, -1, -1};
-    int topRssi[3] = {-1000, -1000, -1000};
+    // Pick strongest non-empty SSID
+    int bestIdx = -1;
+    int bestRssi = -1000;
     for (int i = 0; i < n; i++)
     {
+        String ssid = WiFi.SSID(i);
+        if (ssid.length() == 0) continue;
         int rssi = WiFi.RSSI(i);
-        if (rssi > topRssi[0])
+        if (rssi > bestRssi)
         {
-            topRssi[2] = topRssi[1]; topIdx[2] = topIdx[1];
-            topRssi[1] = topRssi[0]; topIdx[1] = topIdx[0];
-            topRssi[0] = rssi;       topIdx[0] = i;
-        }
-        else if (rssi > topRssi[1])
-        {
-            topRssi[2] = topRssi[1]; topIdx[2] = topIdx[1];
-            topRssi[1] = rssi;       topIdx[1] = i;
-        }
-        else if (rssi > topRssi[2])
-        {
-            topRssi[2] = rssi;       topIdx[2] = i;
+            bestRssi = rssi;
+            bestIdx = i;
         }
     }
 
-    // Coordinates for list area (right side of the bar)
+    // Coordinates for right area
+    const sFONT *font = &Font24;
+    int x1 = DATE_TIME_X;
+    int y1 = 40;
+
+    // Clear entire right area to avoid ghosting/overlap
+    Paint_ClearWindows(DATE_TIME_X, 0, EPD_2IN9_V2_WIDTH, EPD_2IN9_V2_HEIGHT, WHITE);
+
+    if (bestIdx >= 0)
+    {
+        String ssid = WiFi.SSID(bestIdx);
+        char line[48];
+        snprintf(line, sizeof(line), "%.22s", ssid.c_str());
+        Paint_DrawString_EN(x1, y1, line, (sFONT *)font, WHITE, BLACK);
+    }
+
+    // Full refresh to avoid ghosting/overlap
+    EPD_2IN9_V2_Display(BlackImage);
+}
+
+void showHelloMessage(UBYTE *BlackImage)
+{
+    const char *msg = "HELLO";
+    const sFONT *font = &Font32;
+
+    int textWidth = font->Width * (int)strlen(msg);
+    int areaWidth = EPD_2IN9_V2_WIDTH - DATE_TIME_X;
+    int x = DATE_TIME_X + (areaWidth - textWidth) / 2;
+    if (x < DATE_TIME_X) x = DATE_TIME_X;
+    int y = (EPD_2IN9_V2_HEIGHT - font->Height) / 2;
+    if (y < 0) y = 0;
+
+    // Clear right area and draw message
+    Paint_ClearWindows(DATE_TIME_X, 0, EPD_2IN9_V2_WIDTH, EPD_2IN9_V2_HEIGHT, WHITE);
+    Paint_DrawString_EN(x, y, msg, (sFONT *)font, WHITE, BLACK);
+    // Full refresh for a clean first screen
+    EPD_2IN9_V2_Display(BlackImage);
+    DEV_Delay_ms(1500);
+}
+
+void showHardwareInfo(UBYTE *BlackImage)
+{
+    // Gather hardware info
+    const char *chip = ESP.getChipModel();
+    int rev = ESP.getChipRevision();
+    int cores = ESP.getChipCores();
+    uint32_t cpu = getCpuFrequencyMhz();
+    uint32_t flash = ESP.getFlashChipSize();
+    String mac = WiFi.macAddress();
+
+    // Clear right area
+    Paint_ClearWindows(DATE_TIME_X, 0, EPD_2IN9_V2_WIDTH, EPD_2IN9_V2_HEIGHT, WHITE);
+
     const sFONT *font = &Font16;
     int x = DATE_TIME_X;
-    int yBase = 10;
-    int lineH = font->Height + 2;
+    int y = 10;
+    int lh = font->Height + 2;
 
-    // Clear list area (3 lines)
-    Paint_ClearWindows(x, yBase, EPD_2IN9_V2_HEIGHT, yBase + lineH * 3, WHITE);
+    char line[64];
+    snprintf(line, sizeof(line), "Chip: %s", chip);
+    Paint_DrawString_EN(x, y, line, (sFONT *)font, WHITE, BLACK);
+    y += lh;
 
-    // Draw up to 3 entries
-    for (int k = 0; k < 3; k++)
+    snprintf(line, sizeof(line), "Cores:%d Rev:%d CPU:%dMHz", cores, rev, (int)cpu);
+    Paint_DrawString_EN(x, y, line, (sFONT *)font, WHITE, BLACK);
+    y += lh;
+
+    snprintf(line, sizeof(line), "Flash:%uMB", (unsigned int)(flash / (1024 * 1024)));
+    Paint_DrawString_EN(x, y, line, (sFONT *)font, WHITE, BLACK);
+    y += lh;
+
+    snprintf(line, sizeof(line), "MAC:%s", mac.c_str());
+    Paint_DrawString_EN(x, y, line, (sFONT *)font, WHITE, BLACK);
+
+    // Full refresh to ensure clean rendering of info
+    EPD_2IN9_V2_Display(BlackImage);
+    DEV_Delay_ms(2000);
+}
+
+void renderUptime(UBYTE *BlackImage, int iteration)
+{
+    // Ensure header is present on first iteration
+    if (iteration == 0)
     {
-        if (topIdx[k] < 0) continue;
-        String ssid = WiFi.SSID(topIdx[k]);
-        int rssi = topRssi[k];
-        char line[64];
-        snprintf(line, sizeof(line), "%d) %.20s (%ddBm)", k + 1, ssid.c_str(), rssi);
-        Paint_DrawString_EN(x, yBase + k * lineH, line, (sFONT *)font, WHITE, BLACK);
+        renderDemoHeader(BlackImage);
+        EPD_2IN9_V2_Display(BlackImage);
     }
 
-    // Partial refresh to update list
+    // Compute uptime
+    unsigned long seconds = millis() / 1000UL;
+    unsigned int hh = (seconds / 3600UL) % 100U; // cap at 99 hours
+    unsigned int mm = (seconds / 60UL) % 60U;
+    unsigned int ss = seconds % 60U;
+
+    char timeStr[9];
+    snprintf(timeStr, sizeof(timeStr), "%02u:%02u:%02u", hh, mm, ss);
+
+    // Draw in big font centered in right area, using partial update
+    const sFONT *font = &Font40;
+    int textWidth = font->Width * 8; // 8 chars in HH:MM:SS
+    int areaX = DATE_TIME_X;
+    int areaY = 60;
+    int areaW = EPD_2IN9_V2_WIDTH - DATE_TIME_X;
+    int areaH = font->Height + 4;
+
+    int x = areaX + (areaW - textWidth) / 2;
+    if (x < areaX) x = areaX;
+    int y = areaY;
+
+    // Clear only the time area
+    Paint_ClearWindows(areaX, areaY, areaX + areaW, areaY + areaH, WHITE);
+    Paint_DrawString_EN(x, y, timeStr, (sFONT *)font, WHITE, BLACK);
     EPD_2IN9_V2_Display_Partial(BlackImage);
+}
+
+void ledBlinkTask(void *pvParameters)
+{
+    (void)pvParameters;
+    for (;;)
+    {
+        led_Purple(); vTaskDelay(pdMS_TO_TICKS(200));
+        led_Red();    vTaskDelay(pdMS_TO_TICKS(200));
+        led_Green();  vTaskDelay(pdMS_TO_TICKS(200));
+        led_Yellow(); vTaskDelay(pdMS_TO_TICKS(200));
+        led_Blue();   vTaskDelay(pdMS_TO_TICKS(200));
+    }
 }
 #endif
