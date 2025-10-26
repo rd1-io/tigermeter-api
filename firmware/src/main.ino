@@ -47,6 +47,7 @@ void showHelloMessage(UBYTE *BlackImage);
 void showHardwareInfo(UBYTE *BlackImage);
 void renderUptime(UBYTE *BlackImage, int iteration);
 void ledBlinkTask(void *pvParameters);
+void partialTestLoop(UBYTE *BlackImage);
 
 void setup()
 {
@@ -86,11 +87,16 @@ void setup()
     // Start background LED blink task (runs independently)
     xTaskCreatePinnedToCore(ledBlinkTask, "ledBlink", 2048, NULL, 1, NULL, 1);
 
+    // If PARTIAL_TEST defined, run the minimal partial update loop (digits only)
+#ifdef PARTIAL_TEST
+    partialTestLoop(BlackImage);
+#else
     int iteration = 0;
     while (1)
     {
         runDemoIteration(BlackImage, iteration++);
     }
+#endif
 #else
 
     Debug("Starting TigerMeter...\r\n");
@@ -472,8 +478,9 @@ void renderUptime(UBYTE *BlackImage, int iteration)
     // Ensure header is present on first iteration
     if (iteration == 0)
     {
+        // Establish clean baseline in both RAM buffers for partial updates
         renderDemoHeader(BlackImage);
-        EPD_2IN9_V2_Display(BlackImage);
+        EPD_2IN9_V2_Display_Base(BlackImage);
     }
 
     // Compute uptime
@@ -482,22 +489,39 @@ void renderUptime(UBYTE *BlackImage, int iteration)
     unsigned int mm = (seconds / 60UL) % 60U;
     unsigned int ss = seconds % 60U;
 
-    char timeStr[9];
-    snprintf(timeStr, sizeof(timeStr), "%02u:%02u:%02u", hh, mm, ss);
-
-    // Draw in big font centered in right area, using partial update
-    const sFONT *font = &Font40;
-    int textWidth = font->Width * 8; // 8 chars in HH:MM:SS
-    int areaX = DATE_TIME_X;
+    // Right-side drawing area (everything right to the left bar)
+    int areaX = RECT_WIDTH; // start just after the bar
+    int areaW = EPD_2IN9_V2_WIDTH - areaX;
     int areaY = 60;
-    int areaW = EPD_2IN9_V2_WIDTH - DATE_TIME_X;
-    int areaH = font->Height + 4;
 
+    // Prefer big font, but adapt string if width is limited
+    const sFONT *font = &Font40;
+    int charW = font->Width;
+    int maxChars = areaW / charW;
+
+    char timeStr[9];
+    if (maxChars >= 8)
+    {
+        snprintf(timeStr, sizeof(timeStr), "%02u:%02u:%02u", hh, mm, ss);
+    }
+    else if (maxChars >= 5)
+    {
+        snprintf(timeStr, sizeof(timeStr), "%02u:%02u", (hh * 60 + mm) % 100, ss); // MM:SS
+    }
+    else
+    {
+        font = &Font32; // fallback smaller font
+        charW = font->Width;
+        snprintf(timeStr, sizeof(timeStr), "%02u:%02u", mm, ss);
+    }
+
+    int textWidth = charW * (int)strlen(timeStr);
+    int areaH = font->Height + 4;
     int x = areaX + (areaW - textWidth) / 2;
     if (x < areaX) x = areaX;
     int y = areaY;
 
-    // Clear only the time area
+    // Clear only the time area; keep other pixels intact for stable partial updates
     Paint_ClearWindows(areaX, areaY, areaX + areaW, areaY + areaH, WHITE);
     Paint_DrawString_EN(x, y, timeStr, (sFONT *)font, WHITE, BLACK);
     EPD_2IN9_V2_Display_Partial(BlackImage);
@@ -513,6 +537,46 @@ void ledBlinkTask(void *pvParameters)
         led_Green();  vTaskDelay(pdMS_TO_TICKS(200));
         led_Yellow(); vTaskDelay(pdMS_TO_TICKS(200));
         led_Blue();   vTaskDelay(pdMS_TO_TICKS(200));
+    }
+}
+
+// Minimal partial refresh test: render fixed rectangle; update only digits every 1s
+void partialTestLoop(UBYTE *BlackImage)
+{
+    // Full clear and draw a static frame
+    renderDemoHeader(BlackImage);
+    const sFONT *font = &Font40;
+    int areaX = RECT_WIDTH;
+    int areaW = EPD_2IN9_V2_WIDTH - areaX;
+    int areaY = 100;
+    int areaH = font->Height + 4;
+
+    // Draw label once
+    Paint_DrawString_EN(areaX, areaY - 20, "TIME", (sFONT *)&Font16, WHITE, BLACK);
+    // Establish baseline in both RAMs before starting partial loop
+    EPD_2IN9_V2_Display_Base(BlackImage);
+
+    // Update only the number region with partial refresh
+    while (1)
+    {
+        unsigned long seconds = millis() / 1000UL;
+        unsigned int mm = (seconds / 60UL) % 100U;
+        unsigned int ss = seconds % 60U;
+        char buf[6];
+        snprintf(buf, sizeof(buf), "%02u:%02u", mm, ss);
+
+        // Clear a tight box and draw digits
+        int textW = (int)strlen(buf) * font->Width;
+        int x = areaX + (areaW - textW) / 2;
+        if (x < areaX) x = areaX;
+        int y = areaY;
+
+        Paint_ClearWindows(areaX, areaY, areaX + areaW, areaY + areaH, WHITE);
+        Paint_DrawString_EN(x, y, buf, (sFONT *)font, WHITE, BLACK);
+
+        // Perform partial refresh on full buffer per driver requirements
+        EPD_2IN9_V2_Display_Partial(BlackImage);
+        DEV_Delay_ms(1000);
     }
 }
 #endif

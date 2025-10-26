@@ -39,6 +39,9 @@ help:
 	@echo "  demo       - Build+upload demo firmware (FW_ENV=esp32demo)"
 	@echo "  demo-build - Build demo firmware only (FW_ENV=esp32demo)"
 	@echo "  demo-upload- Upload demo firmware only (FW_ENV=esp32demo)"
+	@echo "  partial    - Build+upload partial test firmware (FW_ENV=esp32partial)"
+	@echo "  partial-build - Build partial test firmware only (FW_ENV=esp32partial)"
+	@echo "  partial-upload- Upload partial test firmware only (FW_ENV=esp32partial)"
 	@echo "  release    - Build images locally and deploy to server (defaults: JWT_SECRET=$(JWT_SECRET), HMAC_KEY=$(HMAC_KEY))"
 
 setup:
@@ -117,6 +120,9 @@ fw:
 demo:
 	@FW_ENV=esp32demo $(MAKE) fw $(if $(UPLOAD_PORT),UPLOAD_PORT=$(UPLOAD_PORT),)
 
+partial:
+	@FW_ENV=esp32partial $(MAKE) fw $(if $(UPLOAD_PORT),UPLOAD_PORT=$(UPLOAD_PORT),)
+
 # --- Release: build local images, upload, load & start on remote ---
 release:
 	@echo "Using JWT_SECRET=$(JWT_SECRET) HMAC_KEY=$(HMAC_KEY)"
@@ -165,6 +171,9 @@ fw-build:
 demo-build:
 	@FW_ENV=esp32demo $(MAKE) fw-build
 
+partial-build:
+	@FW_ENV=esp32partial $(MAKE) fw-build
+
 fw-upload:
 	@cd $(FW_DIR) && \
 	if ! command -v pio >/dev/null 2>&1; then \
@@ -175,3 +184,6 @@ fw-upload:
 
 demo-upload:
 	@FW_ENV=esp32demo $(MAKE) fw-upload $(if $(UPLOAD_PORT),UPLOAD_PORT=$(UPLOAD_PORT),)
+
+partial-upload:
+	@FW_ENV=esp32partial $(MAKE) fw-upload $(if $(UPLOAD_PORT),UPLOAD_PORT=$(UPLOAD_PORT),)
