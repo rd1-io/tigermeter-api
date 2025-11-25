@@ -48,6 +48,7 @@ void showHardwareInfo(UBYTE *BlackImage);
 void renderUptime(UBYTE *BlackImage, int iteration);
 void ledBlinkTask(void *pvParameters);
 void partialTestLoop(UBYTE *BlackImage);
+void initDemoScreen(UBYTE *BlackImage);
 
 void setup()
 {
@@ -72,10 +73,6 @@ void setup()
             ;
     }
 
-    // Render demo header once
-    renderDemoHeader(BlackImage);
-    EPD_2IN9_V2_Display(BlackImage);
-
     // Say hello, then show hardware info, then proceed to Wi‑Fi display loop
     showHelloMessage(BlackImage);
     showHardwareInfo(BlackImage);
@@ -86,6 +83,10 @@ void setup()
 
     // Start background LED blink task (runs independently)
     xTaskCreatePinnedToCore(ledBlinkTask, "ledBlink", 2048, NULL, 1, NULL, 1);
+
+    // Prepare initial DEMO screen: left bar + current Wi‑Fi.
+    // Uptime will be rendered in the main demo loop using partial updates.
+    initDemoScreen(BlackImage);
 
     // If PARTIAL_TEST defined, run the minimal partial update loop (digits only)
 #ifdef PARTIAL_TEST
@@ -369,8 +370,10 @@ void renderDemoHeader(UBYTE *BlackImage)
 
 void runDemoIteration(UBYTE *BlackImage, int iteration)
 {
-    // Header stays static; only update the uptime region with partial refresh
+    // Update uptime every second (partial refresh of time area only)
     renderUptime(BlackImage, iteration);
+    // Perform partial refresh on the whole buffer (driver handles changed area)
+    EPD_2IN9_V2_Display_Partial(BlackImage);
     DEV_Delay_ms(1000);
 }
 
@@ -394,13 +397,13 @@ void scanAndRenderTopWifi(UBYTE *BlackImage)
         }
     }
 
-    // Coordinates for right area
+    // Coordinates for Wi‑Fi area (top-right band)
     const sFONT *font = &Font24;
     int x1 = DATE_TIME_X;
     int y1 = 40;
 
-    // Clear entire right area to avoid ghosting/overlap
-    Paint_ClearWindows(DATE_TIME_X, 0, EPD_2IN9_V2_WIDTH, EPD_2IN9_V2_HEIGHT, WHITE);
+    // Clear only the Wi‑Fi band (keep uptime area untouched)
+    Paint_ClearWindows(DATE_TIME_X, 0, EPD_2IN9_V2_WIDTH, 60, WHITE);
 
     if (bestIdx >= 0)
     {
@@ -410,8 +413,7 @@ void scanAndRenderTopWifi(UBYTE *BlackImage)
         Paint_DrawString_EN(x1, y1, line, (sFONT *)font, WHITE, BLACK);
     }
 
-    // Full refresh to avoid ghosting/overlap
-    EPD_2IN9_V2_Display(BlackImage);
+    // Drawing only; actual refresh is triggered by caller
 }
 
 void showHelloMessage(UBYTE *BlackImage)
@@ -475,56 +477,31 @@ void showHardwareInfo(UBYTE *BlackImage)
 
 void renderUptime(UBYTE *BlackImage, int iteration)
 {
-    // Ensure header is present on first iteration
-    if (iteration == 0)
-    {
-        // Establish clean baseline in both RAM buffers for partial updates
-        renderDemoHeader(BlackImage);
-        EPD_2IN9_V2_Display_Base(BlackImage);
-    }
+    // Uptime displayed in the same area/geometry as the main price on the
+    // normal screen (reuses proven-good partial update area).
 
-    // Compute uptime
+    // Compute uptime in hours, minutes, seconds
     unsigned long seconds = millis() / 1000UL;
     unsigned int hh = (seconds / 3600UL) % 100U; // cap at 99 hours
     unsigned int mm = (seconds / 60UL) % 60U;
     unsigned int ss = seconds % 60U;
 
-    // Right-side drawing area (everything right to the left bar)
-    int areaX = RECT_WIDTH; // start just after the bar
-    int areaW = EPD_2IN9_V2_WIDTH - areaX;
-    int areaY = 60;
-
-    // Prefer big font, but adapt string if width is limited
-    const sFONT *font = &Font40;
-    int charW = font->Width;
-    int maxChars = areaW / charW;
-
     char timeStr[9];
-    if (maxChars >= 8)
-    {
-        snprintf(timeStr, sizeof(timeStr), "%02u:%02u:%02u", hh, mm, ss);
-    }
-    else if (maxChars >= 5)
-    {
-        snprintf(timeStr, sizeof(timeStr), "%02u:%02u", (hh * 60 + mm) % 100, ss); // MM:SS
-    }
-    else
-    {
-        font = &Font32; // fallback smaller font
-        charW = font->Width;
-        snprintf(timeStr, sizeof(timeStr), "%02u:%02u", mm, ss);
-    }
+    snprintf(timeStr, sizeof(timeStr), "%02u:%02u:%02u", hh, mm, ss);
 
-    int textWidth = charW * (int)strlen(timeStr);
-    int areaH = font->Height + 4;
-    int x = areaX + (areaW - textWidth) / 2;
-    if (x < areaX) x = areaX;
-    int y = areaY;
+    const sFONT *fontNums = &Font40;
+    int numsX = DATE_TIME_X;
+    int numsY = DATE_TIME_Y + 43;
 
-    // Clear only the time area; keep other pixels intact for stable partial updates
-    Paint_ClearWindows(areaX, areaY, areaX + areaW, areaY + areaH, WHITE);
-    Paint_DrawString_EN(x, y, timeStr, (sFONT *)font, WHITE, BLACK);
-    EPD_2IN9_V2_Display_Partial(BlackImage);
+    // Clear band exactly matching the current time string width to avoid
+    // leaving the last digit outside of the cleared region (which caused
+    // ghosting on the seconds ones digit).
+    int len = (int)strlen(timeStr);
+    Paint_ClearWindows(numsX, numsY,
+                       numsX + fontNums->Width * len,
+                       numsY + fontNums->Height,
+                       WHITE);
+    Paint_DrawString_EN(numsX, numsY, timeStr, (sFONT *)fontNums, WHITE, BLACK);
 }
 
 void ledBlinkTask(void *pvParameters)
@@ -578,5 +555,19 @@ void partialTestLoop(UBYTE *BlackImage)
         EPD_2IN9_V2_Display_Partial(BlackImage);
         DEV_Delay_ms(1000);
     }
+}
+
+// Initialize DEMO screen with header, Wi‑Fi and uptime,
+// and establish baseline buffer for subsequent partial updates.
+void initDemoScreen(UBYTE *BlackImage)
+{
+    // Draw static header first (clears entire buffer)
+    renderDemoHeader(BlackImage);
+
+    // Draw current strongest Wi‑Fi SSID (top area)
+    scanAndRenderTopWifi(BlackImage);
+
+    // Full refresh + set base image for future partial updates
+    EPD_2IN9_V2_Display_Base(BlackImage);
 }
 #endif
