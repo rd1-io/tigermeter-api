@@ -14,7 +14,7 @@ VITE_API_BASE_URL ?= https://api.tigermeter.rd1.io/api
 JWT_SECRET ?= change-me
 HMAC_KEY ?= dev
 
-.PHONY: help setup dev start build stop studio migrate db-reset db-push generate health clean fw-dev emulator fw fw-build fw-upload release
+.PHONY: help setup dev start build stop studio migrate db-reset db-push generate health clean fw-dev emulator fw fw-build fw-upload release release-push
 
 help:
 	@echo "Available targets:"
@@ -43,6 +43,27 @@ help:
 	@echo "  partial-build - Build partial test firmware only (FW_ENV=esp32partial)"
 	@echo "  partial-upload- Upload partial test firmware only (FW_ENV=esp32partial)"
 	@echo "  release    - Build images locally and deploy to server (defaults: JWT_SECRET=$(JWT_SECRET), HMAC_KEY=$(HMAC_KEY))"
+
+release-push:
+	@echo "==> Committing and pushing local changes (if any)"
+	@set -e; \
+	if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then \
+	  git add -A; \
+	  git reset -- tigermeter-images.tar >/dev/null 2>&1 || true; \
+	  if git diff --cached --quiet; then \
+	    echo "No local changes to commit."; \
+	  else \
+	    ts=$$(date -u +"%Y-%m-%dT%H:%M:%SZ"); \
+	    n=$$(git diff --cached --name-only | wc -l | tr -d " \t"); \
+	    summary=$$(git diff --cached --name-status | awk '{print $$1}' | sed -E 's/ //g' | sort | uniq -c | awk '{print $$2 ":" $$1}' | paste -sd ', ' -); \
+	    msg="chore(release): deploy $$n file(s) @ $$ts [$$summary]"; \
+	    echo "Commit: $$msg"; \
+	    git commit -m "$$msg"; \
+	    git push; \
+	  fi; \
+	else \
+	  echo "Not a git repository; skipping commit."; \
+	fi
 
 setup:
 	cd $(NODE_API) && \
