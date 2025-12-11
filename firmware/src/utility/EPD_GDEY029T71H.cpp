@@ -365,14 +365,12 @@ void EPD_GDEY029T71H_Init(void)
 	EPD_GDEY029T71H_SendCommand(0x12); // soft reset
 	EPD_GDEY029T71H_ReadBusy();
 
-	// Driver output control:
-	// These values are taken from the 296x128 panel. For 384x168, consult
-	// the GDEY029T71H datasheet; they are left as-is here so the panel has
-	// a known-good starting point.
+	// Driver output control for GDEY029T71H (384x168):
+	// Gate count = HEIGHT - 1 = 167 = 0x00A7
 	EPD_GDEY029T71H_SendCommand(0x01);
-	EPD_GDEY029T71H_SendData(0x27);
-	EPD_GDEY029T71H_SendData(0x01);
-	EPD_GDEY029T71H_SendData(0x00);
+	EPD_GDEY029T71H_SendData(0xA7);  // (HEIGHT - 1) & 0xFF = 167
+	EPD_GDEY029T71H_SendData(0x00);  // ((HEIGHT - 1) >> 8) & 0xFF
+	EPD_GDEY029T71H_SendData(0x00);  // GD = 0, SM = 0, TB = 0
 
 	EPD_GDEY029T71H_SendCommand(0x11); // data entry mode
 	EPD_GDEY029T71H_SendData(0x03);
@@ -386,7 +384,8 @@ void EPD_GDEY029T71H_Init(void)
 	EPD_GDEY029T71H_SetCursor(0, 0);
 	EPD_GDEY029T71H_ReadBusy();
 
-	EPD_GDEY029T71H_LUT_by_host(WS_GDEY029T71H);
+	// Use panel's internal LUT (don't load custom LUT for now)
+	// EPD_GDEY029T71H_LUT_by_host(WS_GDEY029T71H);
 }
 
 /******************************************************************************
@@ -447,26 +446,24 @@ void EPD_GDEY029T71H_Display_Partial(UBYTE *Image)
 {
 	UWORD i;
 
-	// Reset
+	// Reset and re-init with correct gate count
 	DEV_Digital_Write(EPD_RST_PIN, 0);
 	DEV_Delay_ms(1);
 	DEV_Digital_Write(EPD_RST_PIN, 1);
 	DEV_Delay_ms(2);
 
-	EPD_GDEY029T71H_LUT(_WF_PARTIAL_GDEY029T71H);
-	EPD_GDEY029T71H_SendCommand(0x37);
-	EPD_GDEY029T71H_SendData(0x00);
-	EPD_GDEY029T71H_SendData(0x00);
-	EPD_GDEY029T71H_SendData(0x00);
-	EPD_GDEY029T71H_SendData(0x00);
-	EPD_GDEY029T71H_SendData(0x00);
-	EPD_GDEY029T71H_SendData(0x40);
-	EPD_GDEY029T71H_SendData(0x00);
-	EPD_GDEY029T71H_SendData(0x00);
+	EPD_GDEY029T71H_ReadBusy();
+
+	// Re-init driver output control with correct gate count for 168 lines
+	EPD_GDEY029T71H_SendCommand(0x01);
+	EPD_GDEY029T71H_SendData(0xA7);  // (HEIGHT - 1) & 0xFF = 167
 	EPD_GDEY029T71H_SendData(0x00);
 	EPD_GDEY029T71H_SendData(0x00);
 
-	EPD_GDEY029T71H_SendCommand(0x3C); // BorderWavefrom
+	EPD_GDEY029T71H_SendCommand(0x11); // data entry mode
+	EPD_GDEY029T71H_SendData(0x03);
+
+	EPD_GDEY029T71H_SendCommand(0x3C); // BorderWaveform
 	EPD_GDEY029T71H_SendData(0x80);
 
 	EPD_GDEY029T71H_SendCommand(0x22);
