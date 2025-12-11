@@ -1,4 +1,5 @@
-const int CURRENT_FIRMWARE_VERSION = 2;
+// Global firmware version, shared with CaptivePortal.cpp
+extern const int CURRENT_FIRMWARE_VERSION = 2;
 
 #include <WiFiManager.h> // https://github.com/tzapu/WiFiManager
 #include "DEV_Config.h"
@@ -11,10 +12,15 @@ const int CURRENT_FIRMWARE_VERSION = 2;
 #include "utility/FirmwareUpdate.h"
 #include "utility/LedColorsAndNoises.h"
 #include <WiFi.h>
+#include "CaptivePortal.h"
 
-// Constants
+// Display geometry (GDEY029T71H 384x168)
+const int DISPLAY_WIDTH = EPD_GDEY029T71H_WIDTH;
+const int DISPLAY_HEIGHT = EPD_GDEY029T71H_HEIGHT;
+
+// Layout constants
 const int RECT_WIDTH = 90;
-const int RECT_HEIGHT = EPD_2IN9_V2_WIDTH;
+const int RECT_HEIGHT = DISPLAY_HEIGHT;
 const int DATE_TIME_X = 102;
 const int DATE_TIME_Y = 0;
 const int UPDATE_INTERVAL_MS = 1000;
@@ -65,7 +71,7 @@ void setup()
 
     // Allocate memory for the image
     UBYTE *BlackImage;
-    UWORD Imagesize = ((EPD_2IN9_V2_WIDTH % 8 == 0) ? (EPD_2IN9_V2_WIDTH / 8) : (EPD_2IN9_V2_WIDTH / 8 + 1)) * EPD_2IN9_V2_HEIGHT;
+    UWORD Imagesize = ((DISPLAY_WIDTH % 8 == 0) ? (DISPLAY_WIDTH / 8) : (DISPLAY_WIDTH / 8 + 1)) * DISPLAY_HEIGHT;
     if ((BlackImage = (UBYTE *)malloc(Imagesize)) == NULL)
     {
         Debug("Failed to apply for black memory...\r\n");
@@ -77,9 +83,8 @@ void setup()
     showHelloMessage(BlackImage);
     showHardwareInfo(BlackImage);
 
-    // Prepare WiFi scanning (used for MAC only and potential scans)
-    WiFi.mode(WIFI_STA);
-    WiFi.disconnect(true);
+    // Start captive portal AP + OTA
+    startCaptivePortal();
 
     // Start background LED blink task (runs independently)
     xTaskCreatePinnedToCore(ledBlinkTask, "ledBlink", 2048, NULL, 1, NULL, 1);
@@ -95,6 +100,7 @@ void setup()
     int iteration = 0;
     while (1)
     {
+        captivePortalLoop();
         runDemoIteration(BlackImage, iteration++);
     }
 #endif
@@ -113,7 +119,7 @@ void setup()
 
     // Allocate memory for the image
     UBYTE *BlackImage;
-    UWORD Imagesize = ((EPD_2IN9_V2_WIDTH % 8 == 0) ? (EPD_2IN9_V2_WIDTH / 8) : (EPD_2IN9_V2_WIDTH / 8 + 1)) * EPD_2IN9_V2_HEIGHT;
+    UWORD Imagesize = ((DISPLAY_WIDTH % 8 == 0) ? (DISPLAY_WIDTH / 8) : (DISPLAY_WIDTH / 8 + 1)) * DISPLAY_HEIGHT;
     if ((BlackImage = (UBYTE *)malloc(Imagesize)) == NULL)
     {
         Debug("Failed to apply for black memory...\r\n");
@@ -125,32 +131,46 @@ void setup()
     delay(500);
     // return;
 
+    // Start captive portal AP + OTA
+    startCaptivePortal();
+
     // Display initial WiFi message
     drawInitialScreen(BlackImage, "WiFi");
     displayConnectToWifiMessage(BlackImage);
-    EPD_2IN9_V2_Display_Partial(BlackImage);
+    EPD_Display_Partial(BlackImage);
 
-    // Attempt to connect to WiFi
+    // Try to connect using any stored credentials while keeping AP active
     led_Yellow();
-    WiFiManager wm;
-    bool res = wm.autoConnect("TIGERMETER", ""); // password protected ap
-
-    if (!res)
+    unsigned long startAttemptTime = millis();
+    const unsigned long connectionTimeout = 15000;
+    while (WiFi.status() != WL_CONNECTED && millis() - startAttemptTime < connectionTimeout)
     {
-        ESP.restart();
+        captivePortalLoop();
+        DEV_Delay_ms(100);
     }
-    else
+
+    static bool timeInitialized = false;
+    if (WiFi.status() == WL_CONNECTED)
     {
         initNTPTime();
-        // Connected to WiFi, display main screen
-        drawInitialScreen(BlackImage, "BTC");
-        int iteration = 0;
-        while (1)
+        timeInitialized = true;
+    }
+
+    // Display main screen (will show BTC data once WiFi/NTP are ready)
+    drawInitialScreen(BlackImage, "BTC");
+    int iteration = 0;
+    while (1)
+    {
+        captivePortalLoop();
+        // Initialize time later if WiFi becomes available after user configures it
+        if (!timeInitialized && WiFi.status() == WL_CONNECTED)
         {
-            updateDisplay(BlackImage, iteration);
-            iteration++;
-            DEV_Delay_ms(UPDATE_INTERVAL_MS);
+            initNTPTime();
+            timeInitialized = true;
         }
+        updateDisplay(BlackImage, iteration);
+        iteration++;
+        DEV_Delay_ms(UPDATE_INTERVAL_MS);
     }
 #endif
 }
@@ -164,30 +184,30 @@ void initializeEPaper()
 {
     Debug("e-Paper Init and Clear...\r\n");
     DEV_Module_Init();
-    EPD_2IN9_V2_Init();
-    EPD_2IN9_V2_Clear();
+    EPD_Init();
+    EPD_Clear();
 }
 
 void drawLogoScreen(UBYTE *BlackImage)
 {
     initializeEPaper();
-    Paint_NewImage(BlackImage, EPD_2IN9_V2_WIDTH, EPD_2IN9_V2_HEIGHT, 270, WHITE);
+    Paint_NewImage(BlackImage, DISPLAY_WIDTH, DISPLAY_HEIGHT, 270, WHITE);
     Paint_SelectImage(BlackImage);
     Paint_Clear(WHITE);
     int textX = 45;
     int textY = 40;
     Paint_DrawString_EN(textX, textY, "TIGERMETER", &Font38, WHITE, BLACK);
-    EPD_2IN9_V2_Display(BlackImage);
+    EPD_Display(BlackImage);
 }
 
 void drawInitialScreen(UBYTE *BlackImage, const char *Text)
 {
     initializeEPaper();
-    Paint_NewImage(BlackImage, EPD_2IN9_V2_WIDTH, EPD_2IN9_V2_HEIGHT, 270, WHITE);
+    Paint_NewImage(BlackImage, DISPLAY_WIDTH, DISPLAY_HEIGHT, 270, WHITE);
     Paint_SelectImage(BlackImage);
     Paint_Clear(WHITE);
     drawRectangleAndText(Text);
-    // EPD_2IN9_V2_Display(BlackImage);
+    // EPD_Display(BlackImage);
 }
 
 void drawRectangleAndText(const char *Text)
@@ -208,7 +228,7 @@ void updateDisplay(UBYTE *BlackImage, int iteration)
             // Display "Connect to WiFi" message
             drawInitialScreen(BlackImage, "WiFi");
             displayConnectToWifiMessage(BlackImage);
-            EPD_2IN9_V2_Display_Partial(BlackImage);
+            EPD_Display_Partial(BlackImage);
             led_Purple();
 
             // Attempt to reconnect to WiFi
@@ -238,7 +258,7 @@ void updateDisplay(UBYTE *BlackImage, int iteration)
         displayDateTime(BlackImage);
         displayRandomNumber(BlackImage);
         displayProfitOrLoss(BlackImage);
-        EPD_2IN9_V2_Display_Partial(BlackImage);
+        EPD_Display_Partial(BlackImage);
     }
 }
 
@@ -272,12 +292,12 @@ void displayConnectToWifiMessage(UBYTE *BlackImage)
     int yNet = 55;
 
     Paint_ClearWindows(xNet, yNet, xNet + fontNetwork->Width * 11, yNet + fontNetwork->Height, WHITE);
-    Paint_DrawString_EN(xNet, yNet, "TIGERMETER", (sFONT *)fontNetwork, WHITE, BLACK);
+    Paint_DrawString_EN(xNet, yNet, "tigermeter", (sFONT *)fontNetwork, WHITE, BLACK);
 
     int xIp = xNet;
-    int yIp = EPD_2IN9_V2_WIDTH - fontIp->Height;
+    int yIp = DISPLAY_HEIGHT - fontIp->Height;
 
-    Paint_ClearWindows(xIp, yIp, xIp + fontIp->Width * 11, yIp + fontIp->Height, WHITE);
+    Paint_ClearWindows(xIp, yIp, xIp + fontIp->Width * 16, yIp + fontIp->Height, WHITE);
     Paint_DrawString_EN(xIp, yIp, "192.168.4.1", (sFONT *)fontIp, WHITE, BLACK);
 }
 void displayRandomNumber(UBYTE *BlackImage)
@@ -304,7 +324,7 @@ void displayProfitOrLoss(UBYTE *BlackImage)
 
     const sFONT *fontProfit = &Font24;
     int profitX = DATE_TIME_X;
-    int profitY = EPD_2IN9_V2_WIDTH - fontProfit->Height;
+    int profitY = DISPLAY_HEIGHT - fontProfit->Height;
 
     // Debugging statements
     // Debug("Updating profit/loss display: %s\n", displayStr);
@@ -362,7 +382,7 @@ void initNTPTime()
 void renderDemoHeader(UBYTE *BlackImage)
 {
     // Prepare canvas and draw left black bar with DEMO text
-    Paint_NewImage(BlackImage, EPD_2IN9_V2_WIDTH, EPD_2IN9_V2_HEIGHT, 270, WHITE);
+    Paint_NewImage(BlackImage, DISPLAY_WIDTH, DISPLAY_HEIGHT, 270, WHITE);
     Paint_SelectImage(BlackImage);
     Paint_Clear(WHITE);
     drawRectangleAndText("DEMO");
@@ -373,7 +393,7 @@ void runDemoIteration(UBYTE *BlackImage, int iteration)
     // Update uptime every second (partial refresh of time area only)
     renderUptime(BlackImage, iteration);
     // Perform partial refresh on the whole buffer (driver handles changed area)
-    EPD_2IN9_V2_Display_Partial(BlackImage);
+    EPD_Display_Partial(BlackImage);
     DEV_Delay_ms(1000);
 }
 
@@ -403,7 +423,7 @@ void scanAndRenderTopWifi(UBYTE *BlackImage)
     int y1 = 40;
 
     // Clear only the Wi‑Fi band (keep uptime area untouched)
-    Paint_ClearWindows(DATE_TIME_X, 0, EPD_2IN9_V2_WIDTH, 60, WHITE);
+    Paint_ClearWindows(DATE_TIME_X, 0, DISPLAY_WIDTH, 60, WHITE);
 
     if (bestIdx >= 0)
     {
@@ -422,17 +442,17 @@ void showHelloMessage(UBYTE *BlackImage)
     const sFONT *font = &Font32;
 
     int textWidth = font->Width * (int)strlen(msg);
-    int areaWidth = EPD_2IN9_V2_WIDTH - DATE_TIME_X;
+    int areaWidth = DISPLAY_WIDTH - DATE_TIME_X;
     int x = DATE_TIME_X + (areaWidth - textWidth) / 2;
     if (x < DATE_TIME_X) x = DATE_TIME_X;
-    int y = (EPD_2IN9_V2_HEIGHT - font->Height) / 2;
+    int y = (DISPLAY_HEIGHT - font->Height) / 2;
     if (y < 0) y = 0;
 
     // Clear right area and draw message
-    Paint_ClearWindows(DATE_TIME_X, 0, EPD_2IN9_V2_WIDTH, EPD_2IN9_V2_HEIGHT, WHITE);
+    Paint_ClearWindows(DATE_TIME_X, 0, DISPLAY_WIDTH, DISPLAY_HEIGHT, WHITE);
     Paint_DrawString_EN(x, y, msg, (sFONT *)font, WHITE, BLACK);
     // Full refresh for a clean first screen
-    EPD_2IN9_V2_Display(BlackImage);
+    EPD_Display(BlackImage);
     DEV_Delay_ms(1500);
 }
 
@@ -447,7 +467,7 @@ void showHardwareInfo(UBYTE *BlackImage)
     String mac = WiFi.macAddress();
 
     // Clear right area
-    Paint_ClearWindows(DATE_TIME_X, 0, EPD_2IN9_V2_WIDTH, EPD_2IN9_V2_HEIGHT, WHITE);
+    Paint_ClearWindows(DATE_TIME_X, 0, DISPLAY_WIDTH, DISPLAY_HEIGHT, WHITE);
 
     const sFONT *font = &Font16;
     int x = DATE_TIME_X;
@@ -471,7 +491,7 @@ void showHardwareInfo(UBYTE *BlackImage)
     Paint_DrawString_EN(x, y, line, (sFONT *)font, WHITE, BLACK);
 
     // Full refresh to ensure clean rendering of info
-    EPD_2IN9_V2_Display(BlackImage);
+    EPD_Display(BlackImage);
     DEV_Delay_ms(2000);
 }
 
@@ -524,14 +544,14 @@ void partialTestLoop(UBYTE *BlackImage)
     renderDemoHeader(BlackImage);
     const sFONT *font = &Font40;
     int areaX = RECT_WIDTH;
-    int areaW = EPD_2IN9_V2_WIDTH - areaX;
+    int areaW = DISPLAY_WIDTH - areaX;
     int areaY = 100;
     int areaH = font->Height + 4;
 
     // Draw label once
     Paint_DrawString_EN(areaX, areaY - 20, "TIME", (sFONT *)&Font16, WHITE, BLACK);
     // Establish baseline in both RAMs before starting partial loop
-    EPD_2IN9_V2_Display_Base(BlackImage);
+    EPD_Display_Base(BlackImage);
 
     // Update only the number region with partial refresh
     while (1)
@@ -552,7 +572,7 @@ void partialTestLoop(UBYTE *BlackImage)
         Paint_DrawString_EN(x, y, buf, (sFONT *)font, WHITE, BLACK);
 
         // Perform partial refresh on full buffer per driver requirements
-        EPD_2IN9_V2_Display_Partial(BlackImage);
+        EPD_Display_Partial(BlackImage);
         DEV_Delay_ms(1000);
     }
 }
@@ -568,6 +588,6 @@ void initDemoScreen(UBYTE *BlackImage)
     scanAndRenderTopWifi(BlackImage);
 
     // Full refresh + set base image for future partial updates
-    EPD_2IN9_V2_Display_Base(BlackImage);
+    EPD_Display_Base(BlackImage);
 }
 #endif

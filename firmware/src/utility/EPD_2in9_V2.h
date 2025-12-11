@@ -33,7 +33,8 @@
 
 #include "DEV_Config.h"
 
-// Display resolution
+// Display resolution (legacy Waveshare 2.9\" V2 panel, 128x296).
+// This driver is no longer used by the main firmware but kept for reference.
 #define EPD_2IN9_V2_WIDTH 128
 #define EPD_2IN9_V2_HEIGHT 296
 
