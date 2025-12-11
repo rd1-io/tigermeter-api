@@ -1,5 +1,4 @@
-// Global firmware version, shared with CaptivePortal.cpp
-extern const int CURRENT_FIRMWARE_VERSION = 2;
+const int CURRENT_FIRMWARE_VERSION = 2;
 
 #include <WiFiManager.h> // https://github.com/tzapu/WiFiManager
 #include "DEV_Config.h"
