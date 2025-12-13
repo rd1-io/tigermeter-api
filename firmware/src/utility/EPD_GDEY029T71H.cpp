@@ -365,11 +365,11 @@ void EPD_GDEY029T71H_Init(void)
 	EPD_GDEY029T71H_SendCommand(0x12); // soft reset
 	EPD_GDEY029T71H_ReadBusy();
 
-	// Driver output control for GDEY029T71H (384x168):
-	// Gate count = HEIGHT - 1 = 167 = 0x00A7
+	// Driver output control for GDEY029T71H (168x384 in controller RAM):
+	// Gate count = HEIGHT - 1 = 383 = 0x017F
 	EPD_GDEY029T71H_SendCommand(0x01);
-	EPD_GDEY029T71H_SendData(0xA7);  // (HEIGHT - 1) & 0xFF = 167
-	EPD_GDEY029T71H_SendData(0x00);  // ((HEIGHT - 1) >> 8) & 0xFF
+	EPD_GDEY029T71H_SendData(0x7F);  // (HEIGHT - 1) & 0xFF = 127
+	EPD_GDEY029T71H_SendData(0x01);  // ((HEIGHT - 1) >> 8) & 0xFF = 1
 	EPD_GDEY029T71H_SendData(0x00);  // GD = 0, SM = 0, TB = 0
 
 	EPD_GDEY029T71H_SendCommand(0x11); // data entry mode
@@ -454,10 +454,10 @@ void EPD_GDEY029T71H_Display_Partial(UBYTE *Image)
 
 	EPD_GDEY029T71H_ReadBusy();
 
-	// Re-init driver output control with correct gate count for 168 lines
+	// Re-init driver output control with correct gate count for 384 lines
 	EPD_GDEY029T71H_SendCommand(0x01);
-	EPD_GDEY029T71H_SendData(0xA7);  // (HEIGHT - 1) & 0xFF = 167
-	EPD_GDEY029T71H_SendData(0x00);
+	EPD_GDEY029T71H_SendData(0x7F);  // (HEIGHT - 1) & 0xFF = 127
+	EPD_GDEY029T71H_SendData(0x01);  // ((HEIGHT - 1) >> 8) & 0xFF = 1
 	EPD_GDEY029T71H_SendData(0x00);
 
 	EPD_GDEY029T71H_SendCommand(0x11); // data entry mode
