@@ -248,6 +248,17 @@ static void EPD_GDEY029T71H_SendCommand(UBYTE Reg)
 }
 
 /******************************************************************************
+function :	Reverse bits in a byte (MSB <-> LSB)
+******************************************************************************/
+static UBYTE reverseBits(UBYTE b)
+{
+	b = (b & 0xF0) >> 4 | (b & 0x0F) << 4;
+	b = (b & 0xCC) >> 2 | (b & 0x33) << 2;
+	b = (b & 0xAA) >> 1 | (b & 0x55) << 1;
+	return b;
+}
+
+/******************************************************************************
 function :	send data
 parameter:
 	Data : Write data
@@ -257,6 +268,15 @@ static void EPD_GDEY029T71H_SendData(UBYTE Data)
 	DEV_Digital_Write(EPD_DC_PIN, 1);
 	DEV_Digital_Write(EPD_CS_PIN, 0);
 	DEV_SPI_WriteByte(Data);
+	DEV_Digital_Write(EPD_CS_PIN, 1);
+}
+
+// Send image data with bit reversal (for displays with LSB-first pixel order)
+static void EPD_GDEY029T71H_SendImageData(UBYTE Data)
+{
+	DEV_Digital_Write(EPD_DC_PIN, 1);
+	DEV_Digital_Write(EPD_CS_PIN, 0);
+	DEV_SPI_WriteByte(reverseBits(Data));
 	DEV_Digital_Write(EPD_CS_PIN, 1);
 }
 
@@ -308,15 +328,18 @@ parameter:
 static void EPD_GDEY029T71H_TurnOnDisplay(void)
 {
 	EPD_GDEY029T71H_SendCommand(0x22); // Display Update Control
-	EPD_GDEY029T71H_SendData(0xc7);
+	EPD_GDEY029T71H_SendData(0xF4);    // From manufacturer example
 	EPD_GDEY029T71H_SendCommand(0x20); // Activate Display Update Sequence
 	EPD_GDEY029T71H_ReadBusy();
 }
 
 static void EPD_GDEY029T71H_TurnOnDisplay_Partial(void)
 {
+	EPD_GDEY029T71H_SendCommand(0x3C); // BorderWaveform
+	EPD_GDEY029T71H_SendData(0xC0);
+
 	EPD_GDEY029T71H_SendCommand(0x22); // Display Update Control
-	EPD_GDEY029T71H_SendData(0x0F);
+	EPD_GDEY029T71H_SendData(0xDF);    // From manufacturer partial update
 	EPD_GDEY029T71H_SendCommand(0x20); // Activate Display Update Sequence
 	EPD_GDEY029T71H_ReadBusy();
 }
@@ -345,7 +368,7 @@ parameter:
 static void EPD_GDEY029T71H_SetCursor(UWORD Xstart, UWORD Ystart)
 {
 	EPD_GDEY029T71H_SendCommand(0x4E); // SET_RAM_X_ADDRESS_COUNTER
-	EPD_GDEY029T71H_SendData(Xstart & 0xFF);
+	EPD_GDEY029T71H_SendData(Xstart & 0xFF);  // X is already byte address
 
 	EPD_GDEY029T71H_SendCommand(0x4F); // SET_RAM_Y_ADDRESS_COUNTER
 	EPD_GDEY029T71H_SendData(Ystart & 0xFF);
@@ -353,39 +376,57 @@ static void EPD_GDEY029T71H_SetCursor(UWORD Xstart, UWORD Ystart)
 }
 
 /******************************************************************************
-function :	Initialize the e-Paper register
+function :	Initialize the e-Paper register (from manufacturer example)
 parameter:
 ******************************************************************************/
 void EPD_GDEY029T71H_Init(void)
 {
 	EPD_GDEY029T71H_Reset();
-	DEV_Delay_ms(100);
 
 	EPD_GDEY029T71H_ReadBusy();
-	EPD_GDEY029T71H_SendCommand(0x12); // soft reset
+	EPD_GDEY029T71H_SendCommand(0x12); // SWRESET
 	EPD_GDEY029T71H_ReadBusy();
 
-	// Driver output control for GDEY029T71H (168x384 in controller RAM):
-	// Gate count = HEIGHT - 1 = 383 = 0x017F
+	EPD_GDEY029T71H_SendCommand(0x3C); // BorderWaveform
+	EPD_GDEY029T71H_SendData(0x01);
+
+	// Driver output control: gate count = HEIGHT-1 = 383 = 0x017F
 	EPD_GDEY029T71H_SendCommand(0x01);
-	EPD_GDEY029T71H_SendData(0x7F);  // (HEIGHT - 1) & 0xFF = 127
-	EPD_GDEY029T71H_SendData(0x01);  // ((HEIGHT - 1) >> 8) & 0xFF = 1
-	EPD_GDEY029T71H_SendData(0x00);  // GD = 0, SM = 0, TB = 0
-
-	EPD_GDEY029T71H_SendCommand(0x11); // data entry mode
-	EPD_GDEY029T71H_SendData(0x03);
-
-	EPD_GDEY029T71H_SetWindows(0, 0, EPD_GDEY029T71H_WIDTH - 1, EPD_GDEY029T71H_HEIGHT - 1);
-
-	EPD_GDEY029T71H_SendCommand(0x21); //  Display update control
+	EPD_GDEY029T71H_SendData((EPD_GDEY029T71H_HEIGHT - 1) & 0xFF);   // 0x7F
+	EPD_GDEY029T71H_SendData((EPD_GDEY029T71H_HEIGHT - 1) >> 8);     // 0x01
 	EPD_GDEY029T71H_SendData(0x00);
+
+	EPD_GDEY029T71H_SendCommand(0x11); // Data entry mode
+	EPD_GDEY029T71H_SendData(0x00);    // X dec, Y dec (mirrored horizontally)
+
+	// Set RAM X address start/end (X decrements from WIDTH/8-1 to 0)
+	EPD_GDEY029T71H_SendCommand(0x44);
+	EPD_GDEY029T71H_SendData(EPD_GDEY029T71H_WIDTH / 8 - 1);  // Start X = 20
+	EPD_GDEY029T71H_SendData(0x00);                           // End X = 0
+
+	// Set RAM Y address start/end (Y decrements from HEIGHT-1 to 0)
+	EPD_GDEY029T71H_SendCommand(0x45);
+	EPD_GDEY029T71H_SendData((EPD_GDEY029T71H_HEIGHT - 1) & 0xFF);   // Start Y low
+	EPD_GDEY029T71H_SendData((EPD_GDEY029T71H_HEIGHT - 1) >> 8);     // Start Y high
+	EPD_GDEY029T71H_SendData(0x00);  // End Y low
+	EPD_GDEY029T71H_SendData(0x00);  // End Y high
+
+	EPD_GDEY029T71H_SendCommand(0x3C); // BorderWaveform
+	EPD_GDEY029T71H_SendData(0x05);
+
+	EPD_GDEY029T71H_SendCommand(0x18); // Read built-in temperature sensor
 	EPD_GDEY029T71H_SendData(0x80);
 
-	EPD_GDEY029T71H_SetCursor(0, 0);
-	EPD_GDEY029T71H_ReadBusy();
+	// Set RAM X counter to WIDTH/8-1
+	EPD_GDEY029T71H_SendCommand(0x4E);
+	EPD_GDEY029T71H_SendData(EPD_GDEY029T71H_WIDTH / 8 - 1);
 
-	// Use panel's internal LUT (don't load custom LUT for now)
-	// EPD_GDEY029T71H_LUT_by_host(WS_GDEY029T71H);
+	// Set RAM Y counter to HEIGHT-1
+	EPD_GDEY029T71H_SendCommand(0x4F);
+	EPD_GDEY029T71H_SendData((EPD_GDEY029T71H_HEIGHT - 1) & 0xFF);
+	EPD_GDEY029T71H_SendData((EPD_GDEY029T71H_HEIGHT - 1) >> 8);
+
+	EPD_GDEY029T71H_ReadBusy();
 }
 
 /******************************************************************************
@@ -402,10 +443,10 @@ void EPD_GDEY029T71H_Clear(void)
 		EPD_GDEY029T71H_SendData(0xff);
 	}
 
-	EPD_GDEY029T71H_SendCommand(0x26); // write RAM for black(0)/white (1)
+	EPD_GDEY029T71H_SendCommand(0x26); // write second RAM with 0x00
 	for (i = 0; i < EPD_GDEY029T71H_BUF_SIZE; i++)
 	{
-		EPD_GDEY029T71H_SendData(0xff);
+		EPD_GDEY029T71H_SendData(0x00);
 	}
 	EPD_GDEY029T71H_TurnOnDisplay();
 }
@@ -422,6 +463,11 @@ void EPD_GDEY029T71H_Display(UBYTE *Image)
 	{
 		EPD_GDEY029T71H_SendData(Image[i]);
 	}
+	EPD_GDEY029T71H_SendCommand(0x26); // write second RAM
+	for (i = 0; i < EPD_GDEY029T71H_BUF_SIZE; i++)
+	{
+		EPD_GDEY029T71H_SendData(0x00);
+	}
 	EPD_GDEY029T71H_TurnOnDisplay();
 }
 
@@ -429,56 +475,39 @@ void EPD_GDEY029T71H_Display_Base(UBYTE *Image)
 {
 	UWORD i;
 
-	EPD_GDEY029T71H_SendCommand(0x24); // Write Black and White image to RAM
+	// Write image to RAM
+	EPD_GDEY029T71H_SendCommand(0x24);
 	for (i = 0; i < EPD_GDEY029T71H_BUF_SIZE; i++)
 	{
 		EPD_GDEY029T71H_SendData(Image[i]);
 	}
-	EPD_GDEY029T71H_SendCommand(0x26); // Write Black and White image to RAM
+	// Write 0x00 to second RAM
+	EPD_GDEY029T71H_SendCommand(0x26);
 	for (i = 0; i < EPD_GDEY029T71H_BUF_SIZE; i++)
 	{
-		EPD_GDEY029T71H_SendData(Image[i]);
+		EPD_GDEY029T71H_SendData(0x00);
 	}
 	EPD_GDEY029T71H_TurnOnDisplay();
+
+	// For partial refresh base: also copy to second RAM
+	EPD_GDEY029T71H_SendCommand(0x26);
+	for (i = 0; i < EPD_GDEY029T71H_BUF_SIZE; i++)
+	{
+		EPD_GDEY029T71H_SendData(Image[i]);
+	}
 }
 
 void EPD_GDEY029T71H_Display_Partial(UBYTE *Image)
 {
 	UWORD i;
 
-	// Reset and re-init with correct gate count
-	DEV_Digital_Write(EPD_RST_PIN, 0);
-	DEV_Delay_ms(1);
-	DEV_Digital_Write(EPD_RST_PIN, 1);
-	DEV_Delay_ms(2);
-
-	EPD_GDEY029T71H_ReadBusy();
-
-	// Re-init driver output control with correct gate count for 384 lines
-	EPD_GDEY029T71H_SendCommand(0x01);
-	EPD_GDEY029T71H_SendData(0x7F);  // (HEIGHT - 1) & 0xFF = 127
-	EPD_GDEY029T71H_SendData(0x01);  // ((HEIGHT - 1) >> 8) & 0xFF = 1
-	EPD_GDEY029T71H_SendData(0x00);
-
-	EPD_GDEY029T71H_SendCommand(0x11); // data entry mode
-	EPD_GDEY029T71H_SendData(0x03);
-
-	EPD_GDEY029T71H_SendCommand(0x3C); // BorderWaveform
-	EPD_GDEY029T71H_SendData(0x80);
-
-	EPD_GDEY029T71H_SendCommand(0x22);
-	EPD_GDEY029T71H_SendData(0xC0);
-	EPD_GDEY029T71H_SendCommand(0x20);
-	EPD_GDEY029T71H_ReadBusy();
-
-	EPD_GDEY029T71H_SetWindows(0, 0, EPD_GDEY029T71H_WIDTH - 1, EPD_GDEY029T71H_HEIGHT - 1);
-	EPD_GDEY029T71H_SetCursor(0, 0);
-
-	EPD_GDEY029T71H_SendCommand(0x24); // Write Black and White image to RAM
+	// Write image to RAM (only RAM 0x24, not 0x26)
+	EPD_GDEY029T71H_SendCommand(0x24);
 	for (i = 0; i < EPD_GDEY029T71H_BUF_SIZE; i++)
 	{
 		EPD_GDEY029T71H_SendData(Image[i]);
 	}
+
 	EPD_GDEY029T71H_TurnOnDisplay_Partial();
 }
 

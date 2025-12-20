@@ -15,7 +15,8 @@
 #include "DEV_Config.h"
 
 // Display resolution (GDEY029T71H)
-// Note: Controller RAM is organized as portrait (168 sources × 384 gates)
+// Controller sees: 168 wide × 384 tall (portrait)
+// Physical panel: 384 × 168 (landscape when rotated)
 #define EPD_GDEY029T71H_WIDTH 168
 #define EPD_GDEY029T71H_HEIGHT 384
 

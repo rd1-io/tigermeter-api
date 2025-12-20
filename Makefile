@@ -14,7 +14,7 @@ VITE_API_BASE_URL ?= https://api.tigermeter.rd1.io/api
 JWT_SECRET ?= change-me
 HMAC_KEY ?= dev
 
-.PHONY: help setup dev start build stop studio migrate db-reset db-push generate health clean fw-dev emulator fw fw-build fw-upload release release-push
+.PHONY: help setup dev start build stop studio migrate db-reset db-push generate health clean fw-dev emulator fw fw-build fw-upload log release release-push
 
 help:
 	@echo "Available targets:"
@@ -36,6 +36,7 @@ help:
 	@echo "  fw         - Build and upload firmware (usage: make fw [FW_ENV=esp32dev] [UPLOAD_PORT=/dev/cu.*])"
 	@echo "  fw-build   - Build firmware only (usage: make fw-build [FW_ENV=esp32dev])"
 	@echo "  fw-upload  - Upload firmware only (usage: make fw-upload [FW_ENV=esp32dev] [UPLOAD_PORT=/dev/cu.*])"
+	@echo "  log        - Read serial logs from device (usage: make log [UPLOAD_PORT=/dev/cu.*])"
 	@echo "  demo       - Build+upload demo firmware (FW_ENV=esp32demo)"
 	@echo "  demo-build - Build demo firmware only (FW_ENV=esp32demo)"
 	@echo "  demo-upload- Upload demo firmware only (FW_ENV=esp32demo)"
@@ -195,6 +196,12 @@ demo-build:
 partial-build:
 	@FW_ENV=esp32partial $(MAKE) fw-build
 
+gxepd2-test:
+	@FW_ENV=esp32gxepd2test $(MAKE) fw $(if $(UPLOAD_PORT),UPLOAD_PORT=$(UPLOAD_PORT),)
+
+gxepd2-test-build:
+	@FW_ENV=esp32gxepd2test $(MAKE) fw-build
+
 fw-upload:
 	@cd $(FW_DIR) && \
 	if ! command -v pio >/dev/null 2>&1; then \
@@ -208,3 +215,11 @@ demo-upload:
 
 partial-upload:
 	@FW_ENV=esp32partial $(MAKE) fw-upload $(if $(UPLOAD_PORT),UPLOAD_PORT=$(UPLOAD_PORT),)
+
+log:
+	@cd $(FW_DIR) && \
+	if ! command -v pio >/dev/null 2>&1; then \
+		echo "PlatformIO (pio) not found. Install with: pipx install platformio   or   brew install platformio" 1>&2; exit 127; \
+	fi; \
+	EXTRA=""; if [ -n "$(UPLOAD_PORT)" ]; then EXTRA="--port $(UPLOAD_PORT)"; fi; \
+	pio device monitor $$EXTRA

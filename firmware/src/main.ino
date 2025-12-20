@@ -1,6 +1,68 @@
 // Global firmware version, shared with CaptivePortal.cpp
 extern const int CURRENT_FIRMWARE_VERSION = 2;
 
+#ifdef GXEPD2_TEST
+// ============== GxEPD2 TEST MODE ==============
+// GxEPD2 includes all drivers in the main header
+#include <GxEPD2_BW.h>
+#include <Fonts/FreeMonoBold9pt7b.h>
+
+// Using custom SPI pins
+#define EPD_SCK_PIN 33
+#define EPD_MOSI_PIN 32
+#define EPD_CS_PIN 26
+#define EPD_RST_PIN 14
+#define EPD_DC_PIN 27
+#define EPD_BUSY_PIN 13
+
+// GxEPD2 display object - using T94 driver (similar to GDEY029T71H)
+GxEPD2_BW<GxEPD2_290_T94, GxEPD2_290_T94::HEIGHT> display(
+    GxEPD2_290_T94(EPD_CS_PIN, EPD_DC_PIN, EPD_RST_PIN, EPD_BUSY_PIN));
+
+SPIClass hspi(HSPI);
+
+void setup()
+{
+    Serial.begin(115200);
+    delay(100);
+    Serial.println();
+    Serial.println("GxEPD2 Test for GDEY029T71H");
+
+    // Initialize custom SPI
+    hspi.begin(EPD_SCK_PIN, -1, EPD_MOSI_PIN, EPD_CS_PIN);
+    display.epd2.selectSPI(hspi, SPISettings(4000000, MSBFIRST, SPI_MODE0));
+
+    display.init(115200);
+    display.setRotation(1);  // Landscape
+    display.setFont(&FreeMonoBold9pt7b);
+    display.setTextColor(GxEPD_BLACK);
+
+    // Full window test
+    display.setFullWindow();
+    display.firstPage();
+    do {
+        display.fillScreen(GxEPD_WHITE);
+        display.setCursor(10, 30);
+        display.print("GxEPD2 Test");
+        display.setCursor(10, 60);
+        display.print("GDEY029T71H");
+        display.setCursor(10, 90);
+        display.print("384 x 168");
+        // Draw a rectangle
+        display.drawRect(5, 5, 200, 100, GxEPD_BLACK);
+    } while (display.nextPage());
+
+    Serial.println("Display test complete!");
+}
+
+void loop()
+{
+    // Nothing to do
+    delay(1000);
+}
+
+#else
+// ============== NORMAL MODE ==============
 #include <WiFiManager.h> // https://github.com/tzapu/WiFiManager
 #include "DEV_Config.h"
 #include "EPD.h"
@@ -19,9 +81,12 @@ const int DISPLAY_WIDTH = EPD_GDEY029T71H_WIDTH;
 const int DISPLAY_HEIGHT = EPD_GDEY029T71H_HEIGHT;
 
 // Layout constants
-const int RECT_WIDTH = 90;
-const int RECT_HEIGHT = DISPLAY_HEIGHT;
-const int DATE_TIME_X = 102;
+// With 270° rotation: visual display is DISPLAY_HEIGHT × DISPLAY_WIDTH (384 × 168)
+const int VISUAL_WIDTH = DISPLAY_HEIGHT;   // 384
+const int VISUAL_HEIGHT = DISPLAY_WIDTH;   // 168
+const int RECT_WIDTH = 135;                // Left black bar width (50% wider)
+const int RECT_HEIGHT = VISUAL_HEIGHT;     // Left black bar height (full visual height)
+const int DATE_TIME_X = 102;               // Start of right content area
 const int DATE_TIME_Y = 0;
 const int UPDATE_INTERVAL_MS = 1000;
 const int FULL_UPDATE_INTERVAL = 20;
@@ -46,15 +111,11 @@ void led_Yellow();
 void updateFirmware();
 
 // Demo helpers
+void showStrongestWifi(UBYTE *BlackImage);
 void renderDemoHeader(UBYTE *BlackImage);
-void scanAndRenderTopWifi(UBYTE *BlackImage);
-void runDemoIteration(UBYTE *BlackImage, int iteration);
-void showHelloMessage(UBYTE *BlackImage);
-void showHardwareInfo(UBYTE *BlackImage);
-void renderUptime(UBYTE *BlackImage, int iteration);
+void renderUptime(UBYTE *BlackImage);
+void runDemoLoop(UBYTE *BlackImage);
 void ledBlinkTask(void *pvParameters);
-void partialTestLoop(UBYTE *BlackImage);
-void initDemoScreen(UBYTE *BlackImage);
 
 void setup()
 {
@@ -79,9 +140,8 @@ void setup()
             ;
     }
 
-    // Say hello, then show hardware info, then proceed to Wi‑Fi display loop
-    showHelloMessage(BlackImage);
-    showHardwareInfo(BlackImage);
+    // Step 1: Show strongest WiFi network for 10 seconds
+    showStrongestWifi(BlackImage);
 
     // Start captive portal AP + OTA
     startCaptivePortal();
@@ -89,21 +149,8 @@ void setup()
     // Start background LED blink task (runs independently)
     xTaskCreatePinnedToCore(ledBlinkTask, "ledBlink", 2048, NULL, 1, NULL, 1);
 
-    // Prepare initial DEMO screen: left bar + current Wi‑Fi.
-    // Uptime will be rendered in the main demo loop using partial updates.
-    initDemoScreen(BlackImage);
-
-    // If PARTIAL_TEST defined, run the minimal partial update loop (digits only)
-#ifdef PARTIAL_TEST
-    partialTestLoop(BlackImage);
-#else
-    int iteration = 0;
-    while (1)
-    {
-        captivePortalLoop();
-        runDemoIteration(BlackImage, iteration++);
-    }
-#endif
+    // Step 2: Show main demo screen (DEMO bar + timer) and loop
+    runDemoLoop(BlackImage);
 #else
 
     Debug("Starting TigerMeter...\r\n");
@@ -379,27 +426,16 @@ void initNTPTime()
 }
 
 #ifdef DEMO_MODE
-void renderDemoHeader(UBYTE *BlackImage)
+// Show strongest WiFi network full-screen for 10 seconds
+void showStrongestWifi(UBYTE *BlackImage)
 {
-    // Prepare canvas and draw left black bar with DEMO text
+    // Prepare canvas (with 270° rotation: visual is 384 wide x 168 tall)
     Paint_NewImage(BlackImage, DISPLAY_WIDTH, DISPLAY_HEIGHT, 270, WHITE);
     Paint_SelectImage(BlackImage);
     Paint_Clear(WHITE);
-    drawRectangleAndText("DEMO");
-}
 
-void runDemoIteration(UBYTE *BlackImage, int iteration)
-{
-    // Update uptime every second (partial refresh of time area only)
-    renderUptime(BlackImage, iteration);
-    // Perform partial refresh on the whole buffer (driver handles changed area)
-    EPD_Display_Partial(BlackImage);
-    DEV_Delay_ms(1000);
-}
-
-void scanAndRenderTopWifi(UBYTE *BlackImage)
-{
     // Perform WiFi scan
+    Debug("Scanning WiFi networks...\r\n");
     int n = WiFi.scanNetworks();
 
     // Pick strongest non-empty SSID
@@ -417,111 +453,113 @@ void scanAndRenderTopWifi(UBYTE *BlackImage)
         }
     }
 
-    // Coordinates for Wi‑Fi area (top-right band)
-    const sFONT *font = &Font24;
-    int x1 = DATE_TIME_X;
-    int y1 = 40;
+    const sFONT *fontTitle = &Font24;
+    const sFONT *fontSsid = &Font32;
 
-    // Clear only the Wi‑Fi band (keep uptime area untouched)
-    Paint_ClearWindows(DATE_TIME_X, 0, DISPLAY_WIDTH, 60, WHITE);
+    // Draw title "WiFi:" at top
+    const char *title = "WiFi:";
+    int titleX = (VISUAL_WIDTH - fontTitle->Width * strlen(title)) / 2;
+    Paint_DrawString_EN(titleX, 20, title, (sFONT *)fontTitle, WHITE, BLACK);
 
+    // Draw SSID centered
     if (bestIdx >= 0)
     {
         String ssid = WiFi.SSID(bestIdx);
-        char line[48];
-        snprintf(line, sizeof(line), "%.22s", ssid.c_str());
-        Paint_DrawString_EN(x1, y1, line, (sFONT *)font, WHITE, BLACK);
+        char ssidStr[32];
+        snprintf(ssidStr, sizeof(ssidStr), "%.20s", ssid.c_str());
+        
+        int ssidW = fontSsid->Width * strlen(ssidStr);
+        int ssidX = (VISUAL_WIDTH - ssidW) / 2;
+        if (ssidX < 0) ssidX = 0;
+        int ssidY = (VISUAL_HEIGHT - fontSsid->Height) / 2;
+        
+        Paint_DrawString_EN(ssidX, ssidY, ssidStr, (sFONT *)fontSsid, WHITE, BLACK);
+
+        // Draw signal strength below
+        char rssiStr[16];
+        snprintf(rssiStr, sizeof(rssiStr), "%d dBm", bestRssi);
+        int rssiW = fontTitle->Width * strlen(rssiStr);
+        int rssiX = (VISUAL_WIDTH - rssiW) / 2;
+        Paint_DrawString_EN(rssiX, ssidY + fontSsid->Height + 10, rssiStr, (sFONT *)fontTitle, WHITE, BLACK);
+    }
+    else
+    {
+        const char *noWifi = "No WiFi found";
+        int noWifiW = fontSsid->Width * strlen(noWifi);
+        int noWifiX = (VISUAL_WIDTH - noWifiW) / 2;
+        int noWifiY = (VISUAL_HEIGHT - fontSsid->Height) / 2;
+        Paint_DrawString_EN(noWifiX, noWifiY, noWifi, (sFONT *)fontSsid, WHITE, BLACK);
     }
 
-    // Drawing only; actual refresh is triggered by caller
-}
-
-void showHelloMessage(UBYTE *BlackImage)
-{
-    const char *msg = "HELLO";
-    const sFONT *font = &Font32;
-
-    int textWidth = font->Width * (int)strlen(msg);
-    int areaWidth = DISPLAY_WIDTH - DATE_TIME_X;
-    int x = DATE_TIME_X + (areaWidth - textWidth) / 2;
-    if (x < DATE_TIME_X) x = DATE_TIME_X;
-    int y = (DISPLAY_HEIGHT - font->Height) / 2;
-    if (y < 0) y = 0;
-
-    // Clear right area and draw message
-    Paint_ClearWindows(DATE_TIME_X, 0, DISPLAY_WIDTH, DISPLAY_HEIGHT, WHITE);
-    Paint_DrawString_EN(x, y, msg, (sFONT *)font, WHITE, BLACK);
-    // Full refresh for a clean first screen
+    // Full refresh
     EPD_Display(BlackImage);
-    DEV_Delay_ms(1500);
+
+    // Wait 10 seconds
+    DEV_Delay_ms(10000);
 }
 
-void showHardwareInfo(UBYTE *BlackImage)
+// Draw the demo header: black bar on left with "DEMO" text
+void renderDemoHeader(UBYTE *BlackImage)
 {
-    // Gather hardware info
-    const char *chip = ESP.getChipModel();
-    int rev = ESP.getChipRevision();
-    int cores = ESP.getChipCores();
-    uint32_t cpu = getCpuFrequencyMhz();
-    uint32_t flash = ESP.getFlashChipSize();
-    String mac = WiFi.macAddress();
-
-    // Clear right area
-    Paint_ClearWindows(DATE_TIME_X, 0, DISPLAY_WIDTH, DISPLAY_HEIGHT, WHITE);
-
-    const sFONT *font = &Font16;
-    int x = DATE_TIME_X;
-    int y = 10;
-    int lh = font->Height + 2;
-
-    char line[64];
-    snprintf(line, sizeof(line), "Chip: %s", chip);
-    Paint_DrawString_EN(x, y, line, (sFONT *)font, WHITE, BLACK);
-    y += lh;
-
-    snprintf(line, sizeof(line), "Cores:%d Rev:%d CPU:%dMHz", cores, rev, (int)cpu);
-    Paint_DrawString_EN(x, y, line, (sFONT *)font, WHITE, BLACK);
-    y += lh;
-
-    snprintf(line, sizeof(line), "Flash:%uMB", (unsigned int)(flash / (1024 * 1024)));
-    Paint_DrawString_EN(x, y, line, (sFONT *)font, WHITE, BLACK);
-    y += lh;
-
-    snprintf(line, sizeof(line), "MAC:%s", mac.c_str());
-    Paint_DrawString_EN(x, y, line, (sFONT *)font, WHITE, BLACK);
-
-    // Full refresh to ensure clean rendering of info
-    EPD_Display(BlackImage);
-    DEV_Delay_ms(2000);
+    Paint_NewImage(BlackImage, DISPLAY_WIDTH, DISPLAY_HEIGHT, 270, WHITE);
+    Paint_SelectImage(BlackImage);
+    Paint_Clear(WHITE);
+    drawRectangleAndText("DEMO");
 }
 
-void renderUptime(UBYTE *BlackImage, int iteration)
+// Render the uptime timer in the right area
+void renderUptime(UBYTE *BlackImage)
 {
-    // Uptime displayed in the same area/geometry as the main price on the
-    // normal screen (reuses proven-good partial update area).
-
     // Compute uptime in hours, minutes, seconds
     unsigned long seconds = millis() / 1000UL;
-    unsigned int hh = (seconds / 3600UL) % 100U; // cap at 99 hours
+    unsigned int hh = (seconds / 3600UL) % 100U;
     unsigned int mm = (seconds / 60UL) % 60U;
     unsigned int ss = seconds % 60U;
 
     char timeStr[9];
     snprintf(timeStr, sizeof(timeStr), "%02u:%02u:%02u", hh, mm, ss);
 
-    const sFONT *fontNums = &Font40;
-    int numsX = DATE_TIME_X;
-    int numsY = DATE_TIME_Y + 43;
+    const sFONT *font = &Font40;
+    
+    // Calculate position to center in the right area (after RECT_WIDTH)
+    int rightAreaStart = RECT_WIDTH;
+    int rightAreaWidth = VISUAL_WIDTH - RECT_WIDTH;
+    int textWidth = font->Width * strlen(timeStr);
+    int x = rightAreaStart + (rightAreaWidth - textWidth) / 2;
+    int y = (VISUAL_HEIGHT - font->Height) / 2;
 
-    // Clear band exactly matching the current time string width to avoid
-    // leaving the last digit outside of the cleared region (which caused
-    // ghosting on the seconds ones digit).
-    int len = (int)strlen(timeStr);
-    Paint_ClearWindows(numsX, numsY,
-                       numsX + fontNums->Width * len,
-                       numsY + fontNums->Height,
-                       WHITE);
-    Paint_DrawString_EN(numsX, numsY, timeStr, (sFONT *)fontNums, WHITE, BLACK);
+    // Clear the timer area and draw
+    Paint_ClearWindows(rightAreaStart, 0, VISUAL_WIDTH, VISUAL_HEIGHT, WHITE);
+    Paint_DrawString_EN(x, y, timeStr, (sFONT *)font, WHITE, BLACK);
+}
+
+// Main demo loop: show DEMO bar + timer, update every second
+void runDemoLoop(UBYTE *BlackImage)
+{
+    // Draw initial screen with DEMO bar
+    renderDemoHeader(BlackImage);
+    renderUptime(BlackImage);
+
+    // Full refresh to establish baseline
+    EPD_Display_Base(BlackImage);
+
+    // Loop: update timer every second with partial refresh
+    unsigned long lastUpdate = millis();
+    while (1)
+    {
+        captivePortalLoop();
+        
+        // Update every 1000ms, accounting for refresh time
+        unsigned long now = millis();
+        if (now - lastUpdate >= 1000)
+        {
+            lastUpdate = now;
+            renderUptime(BlackImage);
+            EPD_Display_Partial(BlackImage);
+        }
+        
+        DEV_Delay_ms(50);  // Small delay to prevent busy loop
+    }
 }
 
 void ledBlinkTask(void *pvParameters)
@@ -536,58 +574,6 @@ void ledBlinkTask(void *pvParameters)
         led_Blue();   vTaskDelay(pdMS_TO_TICKS(200));
     }
 }
-
-// Minimal partial refresh test: render fixed rectangle; update only digits every 1s
-void partialTestLoop(UBYTE *BlackImage)
-{
-    // Full clear and draw a static frame
-    renderDemoHeader(BlackImage);
-    const sFONT *font = &Font40;
-    int areaX = RECT_WIDTH;
-    int areaW = DISPLAY_WIDTH - areaX;
-    int areaY = 100;
-    int areaH = font->Height + 4;
-
-    // Draw label once
-    Paint_DrawString_EN(areaX, areaY - 20, "TIME", (sFONT *)&Font16, WHITE, BLACK);
-    // Establish baseline in both RAMs before starting partial loop
-    EPD_Display_Base(BlackImage);
-
-    // Update only the number region with partial refresh
-    while (1)
-    {
-        unsigned long seconds = millis() / 1000UL;
-        unsigned int mm = (seconds / 60UL) % 100U;
-        unsigned int ss = seconds % 60U;
-        char buf[6];
-        snprintf(buf, sizeof(buf), "%02u:%02u", mm, ss);
-
-        // Clear a tight box and draw digits
-        int textW = (int)strlen(buf) * font->Width;
-        int x = areaX + (areaW - textW) / 2;
-        if (x < areaX) x = areaX;
-        int y = areaY;
-
-        Paint_ClearWindows(areaX, areaY, areaX + areaW, areaY + areaH, WHITE);
-        Paint_DrawString_EN(x, y, buf, (sFONT *)font, WHITE, BLACK);
-
-        // Perform partial refresh on full buffer per driver requirements
-        EPD_Display_Partial(BlackImage);
-        DEV_Delay_ms(1000);
-    }
-}
-
-// Initialize DEMO screen with header, Wi‑Fi and uptime,
-// and establish baseline buffer for subsequent partial updates.
-void initDemoScreen(UBYTE *BlackImage)
-{
-    // Draw static header first (clears entire buffer)
-    renderDemoHeader(BlackImage);
-
-    // Draw current strongest Wi‑Fi SSID (top area)
-    scanAndRenderTopWifi(BlackImage);
-
-    // Full refresh + set base image for future partial updates
-    EPD_Display_Base(BlackImage);
-}
 #endif
+
+#endif // GXEPD2_TEST
