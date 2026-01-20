@@ -69,13 +69,13 @@ def merge_bin(source, target, env):
     print(f"Merged firmware created: {merged_output}")
     print(f"Size: {merged_size:,} bytes ({merged_size / 1024 / 1024:.2f} MB)")
     
-    # Auto-copy to flash-page directory based on environment
-    flash_page_dir = os.path.join(project_dir, "..", "flash-page", "firmware")
+    # Auto-copy to docs directory based on environment (for GitHub Pages)
+    docs_dir = os.path.join(project_dir, "..", "docs", "firmware")
     
     if env_name == "esp32demo":
-        dest_dir = os.path.join(flash_page_dir, "demo")
+        dest_dir = os.path.join(docs_dir, "demo")
     elif env_name == "esp32api":
-        dest_dir = os.path.join(flash_page_dir, "prod")
+        dest_dir = os.path.join(docs_dir, "prod")
     else:
         dest_dir = None
     
