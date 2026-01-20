@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TigerMeter Flash Tool</title>
+  <script
+    type="module"
+    src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"
+  ></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Space+Grotesk:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-primary: #0a0a0f;
+      --bg-secondary: #12121a;
+      --bg-card: #1a1a24;
+      --accent-orange: #ff6b35;
+      --accent-orange-glow: rgba(255, 107, 53, 0.3);
+      --accent-cyan: #00d4aa;
+      --accent-cyan-glow: rgba(0, 212, 170, 0.3);
+      --text-primary: #f0f0f5;
+      --text-secondary: #8888a0;
+      --border-color: #2a2a3a;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Space Grotesk', sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+      background-image: 
+        radial-gradient(ellipse at 20% 20%, rgba(255, 107, 53, 0.08) 0%, transparent 50%),
+        radial-gradient(ellipse at 80% 80%, rgba(0, 212, 170, 0.06) 0%, transparent 50%),
+        linear-gradient(180deg, var(--bg-primary) 0%, var(--bg-secondary) 100%);
+    }
+
+    .container {
+      max-width: 600px;
+      width: 100%;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 3rem;
+    }
+
+    .logo {
+      font-size: 2.5rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-bottom: 0.5rem;
+      background: linear-gradient(135deg, var(--accent-orange) 0%, #ffaa33 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .logo span {
+      color: var(--text-primary);
+      -webkit-text-fill-color: var(--text-primary);
+    }
+
+    .subtitle {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.9rem;
+      color: var(--text-secondary);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .flash-cards {
+      display: grid;
+      gap: 1.5rem;
+      margin-bottom: 3rem;
+    }
+
+    .flash-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 2rem;
+      position: relative;
+      overflow: hidden;
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .flash-card:hover {
+      transform: translateY(-2px);
+    }
+
+    .flash-card.demo {
+      border-color: rgba(0, 212, 170, 0.3);
+    }
+
+    .flash-card.demo:hover {
+      box-shadow: 0 8px 32px var(--accent-cyan-glow);
+    }
+
+    .flash-card.prod {
+      border-color: rgba(255, 107, 53, 0.3);
+    }
+
+    .flash-card.prod:hover {
+      box-shadow: 0 8px 32px var(--accent-orange-glow);
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
+
+    .card-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.5rem;
+    }
+
+    .demo .card-icon {
+      background: linear-gradient(135deg, rgba(0, 212, 170, 0.2) 0%, rgba(0, 212, 170, 0.05) 100%);
+      color: var(--accent-cyan);
+    }
+
+    .prod .card-icon {
+      background: linear-gradient(135deg, rgba(255, 107, 53, 0.2) 0%, rgba(255, 107, 53, 0.05) 100%);
+      color: var(--accent-orange);
+    }
+
+    .card-title {
+      font-size: 1.25rem;
+      font-weight: 600;
+    }
+
+    .card-description {
+      color: var(--text-secondary);
+      font-size: 0.95rem;
+      line-height: 1.6;
+      margin-bottom: 1.5rem;
+    }
+
+    esp-web-install-button {
+      display: block;
+    }
+
+    esp-web-install-button::part(button) {
+      width: 100%;
+      padding: 1rem 1.5rem;
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 1rem;
+      font-weight: 600;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .demo esp-web-install-button::part(button) {
+      background: linear-gradient(135deg, var(--accent-cyan) 0%, #00b090 100%);
+      color: #000;
+    }
+
+    .demo esp-web-install-button::part(button):hover {
+      box-shadow: 0 4px 20px var(--accent-cyan-glow);
+      transform: translateY(-1px);
+    }
+
+    .prod esp-web-install-button::part(button) {
+      background: linear-gradient(135deg, var(--accent-orange) 0%, #ff8855 100%);
+      color: #000;
+    }
+
+    .prod esp-web-install-button::part(button):hover {
+      box-shadow: 0 4px 20px var(--accent-orange-glow);
+      transform: translateY(-1px);
+    }
+
+    .instructions {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 1.5rem 2rem;
+    }
+
+    .instructions h3 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 1rem;
+      color: var(--text-primary);
+    }
+
+    .instructions ol {
+      color: var(--text-secondary);
+      font-size: 0.9rem;
+      line-height: 1.8;
+      padding-left: 1.25rem;
+    }
+
+    .instructions li {
+      margin-bottom: 0.25rem;
+    }
+
+    .instructions code {
+      font-family: 'JetBrains Mono', monospace;
+      background: rgba(255, 255, 255, 0.05);
+      padding: 0.15rem 0.4rem;
+      border-radius: 4px;
+      font-size: 0.85em;
+    }
+
+    .browser-warning {
+      margin-top: 2rem;
+      text-align: center;
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+    }
+
+    .browser-warning a {
+      color: var(--accent-cyan);
+      text-decoration: none;
+    }
+
+    .browser-warning a:hover {
+      text-decoration: underline;
+    }
+
+    .unsupported {
+      display: none;
+      background: rgba(255, 100, 100, 0.1);
+      border: 1px solid rgba(255, 100, 100, 0.3);
+      border-radius: 12px;
+      padding: 1.5rem;
+      text-align: center;
+      margin-bottom: 2rem;
+    }
+
+    .unsupported.show {
+      display: block;
+    }
+
+    .unsupported h3 {
+      color: #ff6b6b;
+      margin-bottom: 0.5rem;
+    }
+
+    .unsupported p {
+      color: var(--text-secondary);
+      font-size: 0.9rem;
+    }
+
+    @media (max-width: 480px) {
+      .logo {
+        font-size: 2rem;
+      }
+      
+      .flash-card {
+        padding: 1.5rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1 class="logo">Tiger<span>Meter</span></h1>
+      <p class="subtitle">Firmware Flash Tool</p>
+    </header>
+
+    <div class="unsupported" id="unsupported">
+      <h3>Browser Not Supported</h3>
+      <p>Web Serial is only supported in Chrome, Edge, and Opera on desktop. Please switch to a supported browser.</p>
+    </div>
+
+    <div class="flash-cards">
+      <div class="flash-card demo">
+        <div class="card-header">
+          <div class="card-icon">⚡</div>
+          <h2 class="card-title">Demo Mode</h2>
+        </div>
+        <p class="card-description">
+          Standalone demo firmware. Shows sample data without requiring a backend server. Perfect for testing hardware and display functionality.
+        </p>
+        <esp-web-install-button manifest="manifest-demo.json">
+          <button slot="activate">Flash Demo Firmware</button>
+          <span slot="unsupported">Browser not supported</span>
+          <span slot="not-allowed">HTTPS required</span>
+        </esp-web-install-button>
+      </div>
+
+      <div class="flash-card prod">
+        <div class="card-header">
+          <div class="card-icon">🚀</div>
+          <h2 class="card-title">Production Mode</h2>
+        </div>
+        <p class="card-description">
+          Full-featured firmware with API connectivity. Requires a running TigerMeter backend server. Use this for actual deployments.
+        </p>
+        <esp-web-install-button manifest="manifest-prod.json">
+          <button slot="activate">Flash Production Firmware</button>
+          <span slot="unsupported">Browser not supported</span>
+          <span slot="not-allowed">HTTPS required</span>
+        </esp-web-install-button>
+      </div>
+    </div>
+
+    <div class="instructions">
+      <h3>How to Flash</h3>
+      <ol>
+        <li>Connect your ESP32 device via USB</li>
+        <li>Click the appropriate flash button above</li>
+        <li>Select the serial port when prompted</li>
+        <li>Wait for the flashing to complete (~1 minute)</li>
+        <li>Device will restart automatically</li>
+      </ol>
+    </div>
+
+    <p class="browser-warning">
+      Requires <strong>Chrome</strong>, <strong>Edge</strong>, or <strong>Opera</strong> on desktop.<br>
+      <a href="https://developer.mozilla.org/en-US/docs/Web/API/Web_Serial_API#browser_compatibility" target="_blank">Learn more about Web Serial API</a>
+    </p>
+  </div>
+
+  <script>
+    // Check for Web Serial support
+    if (!('serial' in navigator)) {
+      document.getElementById('unsupported').classList.add('show');
+    }
+  </script>
+</body>
+</html>

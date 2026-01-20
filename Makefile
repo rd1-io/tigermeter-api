@@ -43,6 +43,9 @@ help:
 	@echo "  partial    - Build+upload partial test firmware (FW_ENV=esp32partial)"
 	@echo "  partial-build - Build partial test firmware only (FW_ENV=esp32partial)"
 	@echo "  partial-upload- Upload partial test firmware only (FW_ENV=esp32partial)"
+	@echo "  api        - Build+upload API mode firmware (FW_ENV=esp32api)"
+	@echo "  api-build  - Build API mode firmware only (FW_ENV=esp32api)"
+	@echo "  api-upload - Upload API mode firmware only (FW_ENV=esp32api)"
 	@echo "  release    - Build images locally and deploy to server (defaults: JWT_SECRET=$(JWT_SECRET), HMAC_KEY=$(HMAC_KEY))"
 
 release-push:
@@ -141,6 +144,7 @@ fw:
 
 demo:
 	@FW_ENV=esp32demo $(MAKE) fw $(if $(UPLOAD_PORT),UPLOAD_PORT=$(UPLOAD_PORT),)
+	@$(MAKE) log $(if $(UPLOAD_PORT),UPLOAD_PORT=$(UPLOAD_PORT),)
 
 partial:
 	@FW_ENV=esp32partial $(MAKE) fw $(if $(UPLOAD_PORT),UPLOAD_PORT=$(UPLOAD_PORT),)
@@ -216,10 +220,19 @@ demo-upload:
 partial-upload:
 	@FW_ENV=esp32partial $(MAKE) fw-upload $(if $(UPLOAD_PORT),UPLOAD_PORT=$(UPLOAD_PORT),)
 
+api:
+	@FW_ENV=esp32api $(MAKE) fw $(if $(UPLOAD_PORT),UPLOAD_PORT=$(UPLOAD_PORT),)
+
+api-build:
+	@FW_ENV=esp32api $(MAKE) fw-build
+
+api-upload:
+	@FW_ENV=esp32api $(MAKE) fw-upload $(if $(UPLOAD_PORT),UPLOAD_PORT=$(UPLOAD_PORT),)
+
 log:
 	@cd $(FW_DIR) && \
 	if ! command -v pio >/dev/null 2>&1; then \
 		echo "PlatformIO (pio) not found. Install with: pipx install platformio   or   brew install platformio" 1>&2; exit 127; \
 	fi; \
-	EXTRA=""; if [ -n "$(UPLOAD_PORT)" ]; then EXTRA="--port $(UPLOAD_PORT)"; fi; \
+	EXTRA="--baud 115200"; if [ -n "$(UPLOAD_PORT)" ]; then EXTRA="$$EXTRA --port $(UPLOAD_PORT)"; fi; \
 	pio device monitor $$EXTRA

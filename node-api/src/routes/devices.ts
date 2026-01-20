@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { addSeconds } from 'date-fns';
+import bcrypt from 'bcryptjs';
 import { config } from '../config.js';
 import { generateDeviceSecret, hashPassword } from '../utils/crypto.js';
 
@@ -22,10 +23,10 @@ export default async function deviceRoutes(app: FastifyInstance) {
     if (!device) throw (app as any).httpErrors.notFound('Device not found');
     // Verify against current or previous hash within expiry
     const now = new Date();
-    const ok = await (await import('bcryptjs')).compare(token, device.currentSecretHash ?? '')
+    const ok = await bcrypt.compare(token, device.currentSecretHash ?? '')
       .catch(() => false)
       .then(Boolean);
-    const okPrev = await (await import('bcryptjs')).compare(token, device.previousSecretHash ?? '')
+    const okPrev = await bcrypt.compare(token, device.previousSecretHash ?? '')
       .catch(() => false)
       .then(Boolean);
     const validCurrent = ok && !!device.currentSecretExpiresAt && device.currentSecretExpiresAt > now;

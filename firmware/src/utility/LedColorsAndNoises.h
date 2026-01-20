@@ -2,16 +2,85 @@
 #include <Arduino.h>
 #include <driver/ledc.h>
 #include "../DEV_Config.h"
+
 // LEDC configuration for buzzer (ESP-IDF level for compatibility)
 static const ledc_mode_t BUZZER_SPEED_MODE = LEDC_LOW_SPEED_MODE;
 static const ledc_timer_t BUZZER_TIMER = LEDC_TIMER_0;
 static const ledc_channel_t BUZZER_CHANNEL = LEDC_CHANNEL_0;
 static const ledc_timer_bit_t BUZZER_RES = LEDC_TIMER_12_BIT; // 12-bit resolution
+
+// LEDC configuration for RGB LED (using channels 1-3 and timer 1)
+static const ledc_mode_t LED_SPEED_MODE = LEDC_LOW_SPEED_MODE;
+static const ledc_timer_t LED_TIMER = LEDC_TIMER_1;
+static const ledc_channel_t RED_CHANNEL = LEDC_CHANNEL_1;
+static const ledc_channel_t GREEN_CHANNEL = LEDC_CHANNEL_2;
+static const ledc_channel_t BLUE_CHANNEL = LEDC_CHANNEL_3;
+static const ledc_timer_bit_t LED_RES = LEDC_TIMER_8_BIT; // 8-bit resolution (0-255)
+static const int LED_FREQ = 5000; // 5kHz PWM frequency
+static const int LED_MAX_DUTY = 255; // Max duty for 8-bit resolution
+
+// Current RGB values (0 = full brightness, 255 = off for common anode LED)
+static uint8_t currentR = 255;
+static uint8_t currentG = 255;
+static uint8_t currentB = 255;
+
+// Rainbow colors for common anode LED (target values when fully ON)
+// Format: {R_on, G_on, B_on} where 0 = fully on, 255 = off
+static const uint8_t RAINBOW_COLORS[7][3] = {
+    {0, 255, 255},   // Red
+    {0, 180, 255},   // Orange (red + some green)
+    {0, 0, 255},     // Yellow (red + green)
+    {255, 0, 255},   // Green
+    {255, 0, 180},   // Cyan (green + some blue)
+    {255, 255, 0},   // Blue
+    {0, 255, 0}      // Violet (red + blue)
+};
+static const int RAINBOW_COLOR_COUNT = 7;
+
 void initializePins()
 {
-    pinMode(RED_PIN, OUTPUT);
-    pinMode(BLUE_PIN, OUTPUT);
-    pinMode(GREEN_PIN, OUTPUT);
+    // Configure LEDC timer for LED PWM
+    ledc_timer_config_t led_timer_config = {};
+    led_timer_config.speed_mode = LED_SPEED_MODE;
+    led_timer_config.duty_resolution = LED_RES;
+    led_timer_config.timer_num = LED_TIMER;
+    led_timer_config.freq_hz = LED_FREQ;
+    led_timer_config.clk_cfg = LEDC_AUTO_CLK;
+    ledc_timer_config(&led_timer_config);
+
+    // Configure RED channel
+    ledc_channel_config_t red_channel_config = {};
+    red_channel_config.gpio_num = RED_PIN;
+    red_channel_config.speed_mode = LED_SPEED_MODE;
+    red_channel_config.channel = RED_CHANNEL;
+    red_channel_config.intr_type = LEDC_INTR_DISABLE;
+    red_channel_config.timer_sel = LED_TIMER;
+    red_channel_config.duty = LED_MAX_DUTY; // Start off (common anode)
+    red_channel_config.hpoint = 0;
+    ledc_channel_config(&red_channel_config);
+
+    // Configure GREEN channel
+    ledc_channel_config_t green_channel_config = {};
+    green_channel_config.gpio_num = GREEN_PIN;
+    green_channel_config.speed_mode = LED_SPEED_MODE;
+    green_channel_config.channel = GREEN_CHANNEL;
+    green_channel_config.intr_type = LEDC_INTR_DISABLE;
+    green_channel_config.timer_sel = LED_TIMER;
+    green_channel_config.duty = LED_MAX_DUTY; // Start off
+    green_channel_config.hpoint = 0;
+    ledc_channel_config(&green_channel_config);
+
+    // Configure BLUE channel
+    ledc_channel_config_t blue_channel_config = {};
+    blue_channel_config.gpio_num = BLUE_PIN;
+    blue_channel_config.speed_mode = LED_SPEED_MODE;
+    blue_channel_config.channel = BLUE_CHANNEL;
+    blue_channel_config.intr_type = LEDC_INTR_DISABLE;
+    blue_channel_config.timer_sel = LED_TIMER;
+    blue_channel_config.duty = LED_MAX_DUTY; // Start off
+    blue_channel_config.hpoint = 0;
+    ledc_channel_config(&blue_channel_config);
+
     // Configure LEDC timer and channel for buzzer
     ledc_timer_config_t timer_config = {};
     timer_config.speed_mode = BUZZER_SPEED_MODE;
@@ -30,6 +99,67 @@ void initializePins()
     channel_config.duty = 0; // start silent
     channel_config.hpoint = 0;
     ledc_channel_config(&channel_config);
+}
+
+// Set LED PWM values directly (0 = full brightness, 255 = off for common anode)
+void setLedPWM(uint8_t r, uint8_t g, uint8_t b)
+{
+    currentR = r;
+    currentG = g;
+    currentB = b;
+    ledc_set_duty(LED_SPEED_MODE, RED_CHANNEL, r);
+    ledc_update_duty(LED_SPEED_MODE, RED_CHANNEL);
+    ledc_set_duty(LED_SPEED_MODE, GREEN_CHANNEL, g);
+    ledc_update_duty(LED_SPEED_MODE, GREEN_CHANNEL);
+    ledc_set_duty(LED_SPEED_MODE, BLUE_CHANNEL, b);
+    ledc_update_duty(LED_SPEED_MODE, BLUE_CHANNEL);
+}
+
+// Pulse a single color: off -> on -> off over durationMs
+// targetR, targetG, targetB: target values when fully ON (0 = full brightness for common anode)
+void pulseColor(uint8_t targetR, uint8_t targetG, uint8_t targetB, uint16_t durationMs)
+{
+    const int steps = 50; // Steps per half-cycle (fade in or fade out)
+    const int stepDelay = durationMs / (steps * 2); // Total duration split between fade in and fade out
+    
+    // Phase 1: Fade in (255 -> target, i.e. off -> on)
+    for (int i = 1; i <= steps; i++)
+    {
+        // Linear interpolation from OFF (255) to ON (target)
+        uint8_t r = 255 - ((255 - targetR) * i) / steps;
+        uint8_t g = 255 - ((255 - targetG) * i) / steps;
+        uint8_t b = 255 - ((255 - targetB) * i) / steps;
+        
+        setLedPWM(r, g, b);
+        delay(stepDelay);
+    }
+    
+    // Phase 2: Fade out (target -> 255, i.e. on -> off)
+    for (int i = 1; i <= steps; i++)
+    {
+        // Linear interpolation from ON (target) to OFF (255)
+        uint8_t r = targetR + ((255 - targetR) * i) / steps;
+        uint8_t g = targetG + ((255 - targetG) * i) / steps;
+        uint8_t b = targetB + ((255 - targetB) * i) / steps;
+        
+        setLedPWM(r, g, b);
+        delay(stepDelay);
+    }
+    
+    // Ensure LED is fully off at the end
+    setLedPWM(255, 255, 255);
+}
+
+// Pulse a rainbow color by index (0-6)
+void pulseRainbowColor(int colorIndex, uint16_t durationMs)
+{
+    if (colorIndex < 0 || colorIndex >= RAINBOW_COLOR_COUNT) return;
+    pulseColor(
+        RAINBOW_COLORS[colorIndex][0],
+        RAINBOW_COLORS[colorIndex][1],
+        RAINBOW_COLORS[colorIndex][2],
+        durationMs
+    );
 }
 
 void playBuzzerPositive()
@@ -67,37 +197,28 @@ void playBuzzerNegative()
     ledc_update_duty(BUZZER_SPEED_MODE, BUZZER_CHANNEL);
 }
 
+// Original LED functions using PWM for instant switching (backward compatible)
 void led_Purple()
 {
-    digitalWrite(RED_PIN, LOW);
-    digitalWrite(BLUE_PIN, LOW);
-    digitalWrite(GREEN_PIN, HIGH);
+    setLedPWM(0, 255, 0); // Red + Blue ON, Green OFF
 }
 
 void led_Red()
 {
-    digitalWrite(RED_PIN, LOW);
-    digitalWrite(BLUE_PIN, HIGH);
-    digitalWrite(GREEN_PIN, HIGH);
+    setLedPWM(0, 255, 255); // Red ON, Green + Blue OFF
 }
 
 void led_Green()
 {
-    digitalWrite(RED_PIN, HIGH);
-    digitalWrite(BLUE_PIN, HIGH);
-    digitalWrite(GREEN_PIN, LOW);
+    setLedPWM(255, 0, 255); // Green ON, Red + Blue OFF
 }
 
 void led_Yellow()
 {
-    digitalWrite(RED_PIN, HIGH);
-    digitalWrite(BLUE_PIN, LOW);
-    digitalWrite(GREEN_PIN, LOW);
+    setLedPWM(0, 0, 255); // Red + Green ON, Blue OFF
 }
 
 void led_Blue()
 {
-    digitalWrite(RED_PIN, HIGH);
-    digitalWrite(BLUE_PIN, LOW);
-    digitalWrite(GREEN_PIN, HIGH);
+    setLedPWM(255, 255, 0); // Blue ON, Red + Green OFF
 }

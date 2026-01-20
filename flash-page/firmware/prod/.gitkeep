@@ -1,0 +1,3 @@
+# Place firmware.bin here after building with:
+# cd firmware && pio run -e esp32api
+# Then run the merge script to create the combined binary

@@ -6,7 +6,10 @@ import { config } from '../config.js';
 export const canonicalJson = (obj: unknown): string => JSON.stringify(obj, Object.keys(obj as object).sort(), 0).replace(/\s+/g, '');
 
 export const instructionHash = (obj: unknown): string => {
-  const json = JSON.stringify(obj, Object.keys(obj as object).sort());
+  // Create a copy without the hash field to avoid circular dependency
+  const copy = { ...(obj as Record<string, unknown>) };
+  delete copy.hash;
+  const json = JSON.stringify(copy, Object.keys(copy).sort());
   const hash = createHash('sha256').update(json).digest('hex');
   return `sha256:${hash}`;
 };
