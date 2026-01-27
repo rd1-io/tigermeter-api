@@ -180,6 +180,30 @@
       transform: translateY(-2px);
     }
 
+    .flash-card.disabled {
+      opacity: 0.5;
+      pointer-events: none;
+    }
+
+    .flash-card.disabled:hover {
+      transform: none;
+      box-shadow: none;
+    }
+
+    .flash-card.disabled button {
+      background: #3a3a4a !important;
+      box-shadow: none !important;
+      cursor: not-allowed;
+    }
+
+    .coming-soon {
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin-top: 0.5rem;
+    }
+
     .browser-warning {
       text-align: center;
       font-size: 0.8rem;
@@ -248,7 +272,7 @@
         </esp-web-install-button>
       </div>
 
-      <div class="flash-card prod">
+      <div class="flash-card prod disabled">
         <div class="card-header">
           <span class="card-icon">🚀</span>
           <h2 class="card-title">Production</h2>
@@ -256,9 +280,8 @@
         <p class="card-description">
           Полная версия с API
         </p>
-        <esp-web-install-button manifest="manifest-prod.json">
-          <button slot="activate">Прошить Production</button>
-        </esp-web-install-button>
+        <button disabled>Прошить Production</button>
+        <p class="coming-soon">Скоро</p>
       </div>
     </div>
 
