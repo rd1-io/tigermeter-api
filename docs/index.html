@@ -133,6 +133,17 @@
       font-weight: 600;
     }
 
+    .version {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.7rem;
+      font-weight: 400;
+      color: var(--text-secondary);
+      background: var(--bg-secondary);
+      padding: 0.15rem 0.5rem;
+      border-radius: 4px;
+      margin-left: 0.5rem;
+    }
+
     .card-description {
       color: var(--text-secondary);
       font-size: 0.85rem;
@@ -317,7 +328,7 @@
       <div class="flash-card demo">
         <div class="card-header">
           <span class="card-icon">⚡</span>
-          <h2 class="card-title">Демо</h2>
+          <h2 class="card-title">Демо <span class="version" id="demo-version"></span></h2>
         </div>
         <p class="card-description">
           Тестовые данные без сервера
@@ -330,7 +341,7 @@
       <div class="flash-card prod disabled">
         <div class="card-header">
           <span class="card-icon">🚀</span>
-          <h2 class="card-title">Production</h2>
+          <h2 class="card-title">Production <span class="version" id="prod-version"></span></h2>
         </div>
         <p class="card-description">
           Полная версия с API
@@ -348,10 +359,10 @@
       </p>
       <div class="ota-links">
         <a href="firmware/demo/firmware-ota.bin" class="ota-link" download>
-          ⬇ Demo OTA
+          ⬇ Demo OTA <span id="demo-ota-version"></span>
         </a>
         <a href="firmware/prod/firmware-ota.bin" class="ota-link prod" download>
-          ⬇ Prod OTA
+          ⬇ Prod OTA <span id="prod-ota-version"></span>
         </a>
       </div>
     </div>
@@ -365,6 +376,29 @@
     if (!('serial' in navigator)) {
       document.getElementById('unsupported').classList.add('show');
     }
+    
+    // Load firmware versions
+    async function loadVersions() {
+      try {
+        const demoRes = await fetch('firmware/demo/version.json');
+        if (demoRes.ok) {
+          const data = await demoRes.json();
+          const v = 'v' + data.version;
+          document.getElementById('demo-version').textContent = v;
+          document.getElementById('demo-ota-version').textContent = v;
+        }
+      } catch (e) {}
+      try {
+        const prodRes = await fetch('firmware/prod/version.json');
+        if (prodRes.ok) {
+          const data = await prodRes.json();
+          const v = 'v' + data.version;
+          document.getElementById('prod-version').textContent = v;
+          document.getElementById('prod-ota-version').textContent = v;
+        }
+      } catch (e) {}
+    }
+    loadVersions();
   </script>
 </body>
 </html>
