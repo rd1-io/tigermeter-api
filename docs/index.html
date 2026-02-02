@@ -235,6 +235,61 @@
       font-size: 0.85rem;
     }
 
+    .ota-section {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 1.5rem;
+      margin-bottom: 2rem;
+    }
+
+    .ota-section h3 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .ota-section p {
+      color: var(--text-secondary);
+      font-size: 0.85rem;
+      margin-bottom: 1rem;
+      line-height: 1.5;
+    }
+
+    .ota-links {
+      display: flex;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+    }
+
+    .ota-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.6rem 1rem;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.8rem;
+      color: var(--text-primary);
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      text-decoration: none;
+      transition: all 0.2s ease;
+    }
+
+    .ota-link:hover {
+      border-color: var(--accent-cyan);
+      background: rgba(0, 212, 170, 0.1);
+    }
+
+    .ota-link.prod:hover {
+      border-color: var(--accent-orange);
+      background: rgba(255, 107, 53, 0.1);
+    }
+
     @media (max-width: 480px) {
       .logo {
         font-size: 2rem;
@@ -282,6 +337,22 @@
         </p>
         <button disabled>Прошить Production</button>
         <p class="coming-soon">Скоро</p>
+      </div>
+    </div>
+
+    <div class="ota-section">
+      <h3>📡 OTA обновление</h3>
+      <p>
+        Для обновления по WiFi: скачайте файл, откройте <code>http://[IP устройства]/update</code> 
+        в браузере и загрузите скачанный файл.
+      </p>
+      <div class="ota-links">
+        <a href="firmware/demo/firmware-ota.bin" class="ota-link" download>
+          ⬇ Demo OTA
+        </a>
+        <a href="firmware/prod/firmware-ota.bin" class="ota-link prod" download>
+          ⬇ Prod OTA
+        </a>
       </div>
     </div>
 
