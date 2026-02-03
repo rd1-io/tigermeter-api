@@ -8,6 +8,7 @@
 
 #include "CaptivePortal.h"
 #include "utility/FirmwareUpdate.h"
+#include "Display.h"
 
 // Exposed from main.ino
 extern const int CURRENT_FIRMWARE_VERSION;
@@ -566,6 +567,20 @@ namespace
                   "<p>Downloading firmware...<br>Do not power off the device.</p>"
                   "</div></body></html>");
         server.send(200, "text/html", page);
+        
+        // Show "Updating" on e-ink display
+        display.clear();
+        display.fillRect(0, 0, 140, 168, true);  // Black rectangle on left
+        display.setFont(FONT_SIZE_MEDIUM);
+        display.setTextColor(false);  // White text on black
+        display.drawText(45, 70, "OTA");
+        display.setTextColor(true);   // Black text
+        char updateMsg[32];
+        snprintf(updateMsg, sizeof(updateMsg), "Updating to v%d", OtaUpdate::getLatestVersion());
+        display.drawText(150, 50, updateMsg);
+        display.setFont(FONT_SIZE_SMALL);
+        display.drawText(150, 85, "Please wait...");
+        display.refresh();
         
         // Perform the update
         Serial.println("[Portal] Starting force OTA update...");
