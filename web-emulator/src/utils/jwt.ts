@@ -3,8 +3,9 @@
 
 import { SignJWT } from 'jose';
 
-// This should match the backend's JWT secret for testing
-const JWT_SECRET = 'change-me-dev';
+// This should match the backend's JWT secret
+// Read from env variable for production, fallback to dev default
+const JWT_SECRET = import.meta.env.VITE_JWT_SECRET || 'change-me-dev';
 
 export interface UserPayload {
   sub?: string;

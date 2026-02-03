@@ -38,8 +38,34 @@ export default async function deviceClaimsRoutes(app: FastifyInstance) {
     }
 
     // Device must already exist and be in awaiting_claim state
-  const device = await app.prisma.device.findFirst({ where: { mac } });
-    if (!device) return reply.code(404).send({ message: 'device not found' });
+    const device = await app.prisma.device.findFirst({ where: { mac } });
+    if (!device) {
+      // HMAC already validated above, so this is a legitimate device
+      // Log it as pending for admin approval
+      try {
+        const existing = await app.prisma.pendingDevice.findUnique({ where: { mac } });
+        if (existing) {
+          await app.prisma.pendingDevice.update({
+            where: { mac },
+            data: { 
+              lastSeen: new Date(),
+              attemptCount: { increment: 1 },
+              ip: ip || existing.ip,
+              firmwareVersion: firmwareVersion || existing.firmwareVersion,
+              status: 'pending'  // Reset status so device appears in admin panel again
+            }
+          });
+        } else {
+          await app.prisma.pendingDevice.create({
+            data: { mac, firmwareVersion, ip }
+          });
+          // #endregion
+        }
+      } catch (err: any) {
+        // Ignore errors when saving pending device
+      }
+      return reply.code(404).send({ message: 'device not found' });
+    }
     if (device.status !== 'awaiting_claim') {
       return reply.code(409).send({ message: 'device not in awaiting_claim' });
     }

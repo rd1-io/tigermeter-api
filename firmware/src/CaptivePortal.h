@@ -5,6 +5,7 @@
 
 void startCaptivePortal();
 void captivePortalLoop();
+void webLog(const char *format, ...);  // Printf-style logging to web /logs page
 
 
 

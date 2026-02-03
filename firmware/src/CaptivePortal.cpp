@@ -4,8 +4,10 @@
 #include <DNSServer.h>
 #include <Preferences.h>
 #include <Update.h>
+#include <stdarg.h>
 
 #include "CaptivePortal.h"
+#include "utility/FirmwareUpdate.h"
 
 // Exposed from main.ino
 extern const int CURRENT_FIRMWARE_VERSION;
@@ -22,6 +24,57 @@ namespace
 
     bool portalStarted = false;
     bool otaSuccess = false;
+
+    // Web log buffer (circular, max 30 entries)
+    const int LOG_BUFFER_SIZE = 30;
+    String logBuffer[LOG_BUFFER_SIZE];
+    int logHead = 0;
+    int logCount = 0;
+
+    void addWebLog(const String &msg)
+    {
+        logBuffer[logHead] = String(millis() / 1000) + "s: " + msg;
+        logHead = (logHead + 1) % LOG_BUFFER_SIZE;
+        if (logCount < LOG_BUFFER_SIZE) logCount++;
+    }
+
+    void handleLogs()
+    {
+        String page;
+        page.reserve(4096);
+        page += F("<!DOCTYPE html><html><head><meta charset='utf-8'>");
+        page += F("<meta name='viewport' content='width=device-width,initial-scale=1'>");
+        page += F("<meta http-equiv='refresh' content='3'>");
+        page += F("<title>TigerMeter Logs</title>");
+        page += F("<style>"
+                  "body{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,monospace;"
+                  "margin:0;padding:20px;background:#0a0a0f;color:#00d4aa;min-height:100vh}"
+                  ".wrap{max-width:600px;margin:0 auto}"
+                  ".header{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;"
+                  "padding-bottom:12px;border-bottom:1px solid #2a2a3a}"
+                  "h1{font-size:16px;font-weight:600;margin:0;color:#f0f0f5}"
+                  "a{color:#f0b90b;text-decoration:none;font-size:13px}"
+                  "a:hover{text-decoration:underline}"
+                  ".log{font-size:12px;line-height:1.8;white-space:pre-wrap;word-break:break-all}"
+                  ".empty{color:#666;font-style:italic}"
+                  ".ts{color:#666}"
+                  "</style></head><body><div class='wrap'>");
+        page += F("<div class='header'><h1>Device Logs</h1><a href='/'>&larr; Back</a></div>");
+        page += F("<div class='log'>");
+        
+        // Output logs from oldest to newest
+        int start = (logCount < LOG_BUFFER_SIZE) ? 0 : logHead;
+        for (int i = 0; i < logCount; i++) {
+            int idx = (start + i) % LOG_BUFFER_SIZE;
+            page += logBuffer[idx] + "\n";
+        }
+        if (logCount == 0) {
+            page += F("<span class='empty'>No logs yet. Waiting for events...</span>");
+        }
+        
+        page += F("</div></div></body></html>");
+        server.send(200, "text/html", page);
+    }
 
     String htmlEscape(const String &s)
     {
@@ -58,70 +111,158 @@ namespace
         return F("Not connected");
     }
 
+    // Shared CSS for dark theme pages
+    const char* DARK_STYLE = 
+        "body{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,monospace;"
+        "margin:0;padding:20px;background:#0a0a0f;color:#f0f0f5;min-height:100vh;"
+        "background-image:radial-gradient(ellipse at 20% 0%,rgba(240,185,11,0.08) 0%,transparent 50%)}"
+        ".wrap{max-width:420px;margin:0 auto}"
+        "header{text-align:center;margin-bottom:24px}"
+        ".logo{width:48px;height:48px;margin-bottom:12px}"
+        "h1{font-size:22px;font-weight:600;margin:0;letter-spacing:-0.02em}"
+        "h1 span{color:#f0b90b}"
+        ".card{background:#1a1a24;border:1px solid #2a2a3a;border-radius:12px;padding:16px;margin-bottom:14px}"
+        ".card h2{font-size:14px;font-weight:600;margin:0 0 12px;color:#f0f0f5}"
+        ".row{display:flex;justify-content:space-between;align-items:center;font-size:13px;margin-bottom:6px}"
+        ".row:last-child{margin-bottom:0}"
+        ".lbl{color:#8888a0}"
+        ".val{color:#f0f0f5}"
+        ".badge{background:#f0b90b;color:#000;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600}"
+        ".ok{color:#00d4aa}"
+        ".warn{color:#ff6b6b}"
+        ".link{color:#f0b90b}"
+        "label{display:block;font-size:12px;color:#8888a0;margin:10px 0 4px}"
+        "input[type=text],input[type=password]{width:100%;padding:10px;background:#12121a;border:1px solid #2a2a3a;"
+        "border-radius:8px;color:#f0f0f5;font-size:14px;box-sizing:border-box;font-family:inherit}"
+        "input[type=text]:focus,input[type=password]:focus{border-color:#f0b90b;outline:none}"
+        "input[type=file]{font-size:12px;color:#8888a0;margin:8px 0}"
+        "input[type=file]::file-selector-button{background:#2a2a3a;color:#f0f0f5;border:none;padding:8px 12px;"
+        "border-radius:6px;font-size:12px;cursor:pointer;margin-right:10px}"
+        "button,input[type=submit]{width:100%;background:linear-gradient(135deg,#f0b90b 0%,#d4a00a 100%);"
+        "color:#000;font-weight:600;border:none;border-radius:8px;padding:12px;font-size:14px;cursor:pointer;"
+        "margin-top:12px;font-family:inherit;transition:opacity .2s}"
+        "button:hover,input[type=submit]:hover{opacity:0.9}"
+        "button:disabled,input[type=submit]:disabled{background:#3a3a4a;color:#666;cursor:default}"
+        ".btn-danger{background:linear-gradient(135deg,#ff4444 0%,#cc3333 100%);color:#fff}"
+        ".hint{font-size:11px;color:#666;margin-top:8px}";
+
+    // Binance logo SVG (official shape)
+    const char* BINANCE_LOGO_IMG = 
+        "<svg class='logo' viewBox='0 0 126.61 126.61' fill='#f0b90b'>"
+        "<path d='M38.73,53.2l24.59-24.58L88,53.2l-9.07,9.07L63.32,46.68,47.8,62.2Z'/>"
+        "<path d='M19.71,63.31l9.06-9.07,9.07,9.07-9.07,9.06Z'/>"
+        "<path d='M38.73,73.41,63.32,98,88,73.41l9.07,9.06L63.32,116.16l-33.68-33.67Z'/>"
+        "<path d='M89.78,63.31l9.06-9.07,9.07,9.07L98.84,72.37Z'/>"
+        "<path d='M72.39,63.3l-9.07-9.06L56.24,61.3l-.89.9L63.32,72.37Z'/>"
+        "</svg>";
+
     void handleRoot()
     {
         String page;
-        page.reserve(2048);
+        page.reserve(4096);
 
         page += F("<!DOCTYPE html><html><head><meta charset='utf-8'>");
         page += F("<meta name='viewport' content='width=device-width,initial-scale=1'>");
-        page += F("<title>TigerMeter Portal</title>");
-        page += F("<style>"
-                  "body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;"
-                  "margin:0;padding:16px;background:#f5f5f7;color:#111}"
-                  "h1{font-size:24px;margin-bottom:4px}"
-                  "h2{font-size:18px;margin-top:24px;margin-bottom:8px}"
-                  ".card{background:#fff;border-radius:12px;padding:16px;margin-bottom:16px;"
-                  "box-shadow:0 4px 12px rgba(0,0,0,0.08)}"
-                  "label{display:block;font-size:14px;margin:8px 0 4px}"
-                  "input[type=text],input[type=password]{width:100%;padding:8px 10px;border-radius:8px;"
-                  "border:1px solid #ccc;font-size:14px;box-sizing:border-box}"
-                  "input[type=file]{margin:8px 0}"
-                  "button,input[type=submit]{background:#111;color:#fff;border:none;border-radius:999px;"
-                  "padding:10px 18px;font-size:14px;cursor:pointer;margin-top:8px}"
-                  "button:disabled,input[type=submit]:disabled{background:#aaa;cursor:default}"
-                  ".status{font-size:14px;color:#555}"
-                  ".badge{display:inline-block;border-radius:999px;padding:4px 10px;font-size:11px;"
-                  "text-transform:uppercase;letter-spacing:.08em;background:#111;color:#fff}"
-                  "</style></head><body>");
+        page += F("<title>TigerMeter</title>");
+        page += F("<style>");
+        page += DARK_STYLE;
+        page += F("</style></head><body><div class='wrap'>");
 
-        page += F("<h1>TigerMeter</h1>");
-        page += F("<div class='status'>Captive portal on <strong>");
-        page += AP_SSID;
-        page += F("</strong></div>");
+        // Header with logo
+        page += F("<header>");
+        page += BINANCE_LOGO_IMG;
+        page += F("<h1>Tiger<span>Meter</span></h1>");
+        page += F("</header>");
 
+        // Device status card
         page += F("<div class='card'><h2>Device</h2>");
-        page += F("<div>Firmware version: <span class='badge'>v");
+        page += F("<div class='row'><span class='lbl'>Firmware</span><span class='badge'>v");
         page += String(CURRENT_FIRMWARE_VERSION);
         page += F("</span></div>");
-        page += F("<div style='margin-top:6px;'>Wi‑Fi: ");
-        page += htmlEscape(wifiStatusLine());
-        page += F("</div></div>");
+        page += F("<div class='row'><span class='lbl'>Wi-Fi</span><span class='val'>");
+        if (WiFi.status() == WL_CONNECTED) {
+            page += htmlEscape(WiFi.SSID());
+        } else {
+            page += F("<span class='warn'>Not connected</span>");
+        }
+        page += F("</span></div>");
+        if (WiFi.status() == WL_CONNECTED) {
+            page += F("<div class='row'><span class='lbl'>IP</span><span class='val'>");
+            page += WiFi.localIP().toString();
+            page += F("</span></div>");
+        }
+        page += F("<div class='row'><span class='lbl'>Logs</span><a href='/logs' class='link'>View &rarr;</a></div>");
+        page += F("</div>");
 
-        page += F("<div class='card'><h2>Wi‑Fi configuration</h2>"
+        // OTA Update card
+        page += F("<div class='card'><h2>Firmware Update</h2>");
+        page += F("<div class='row'><span class='lbl'>Current</span><span class='val'>v");
+        page += String(CURRENT_FIRMWARE_VERSION);
+        page += F("</span></div>");
+        
+        if (OtaUpdate::getLatestVersion() > 0) {
+            page += F("<div class='row'><span class='lbl'>Latest</span><span class='val'>v");
+            page += String(OtaUpdate::getLatestVersion());
+            if (OtaUpdate::isUpdateAvailable()) {
+                page += F(" <span class='ok'>&bull; new</span>");
+            } else {
+                page += F(" <span class='ok'>&check;</span>");
+            }
+            page += F("</span></div>");
+        }
+        
+        page += F("<div class='row'><span class='lbl'>Auto-update</span><span class='val'>");
+        page += OtaUpdate::autoUpdateEnabled ? "On" : "Off";
+        page += F("</span></div>");
+        
+        if (WiFi.status() == WL_CONNECTED && OtaUpdate::isUpdateAvailable()) {
+            page += F("<form method='POST' action='/force-update'>"
+                      "<input type='submit' value='Update to v");
+            page += String(OtaUpdate::getLatestVersion());
+            page += F("' onclick=\"return confirm('Update firmware? Device will reboot.')\">"
+                      "</form>");
+        } else if (WiFi.status() != WL_CONNECTED) {
+            page += F("<div class='hint'>Connect Wi-Fi to check for updates</div>");
+        }
+        page += F("</div>");
+
+        // WiFi configuration card
+        page += F("<div class='card'><h2>Wi-Fi Setup</h2>"
                   "<form method='POST' action='/wifi'>"
-                  "<label for='ssid'>SSID</label>"
-                  "<input id='ssid' name='ssid' type='text' autocomplete='off' required>"
-                  "<label for='password'>Password</label>"
-                  "<input id='password' name='password' type='password' autocomplete='off'>"
-                  "<input type='submit' value='Save & Connect'>"
-                  "</form>"
-                  "<div style='margin-top:8px;font-size:12px;color:#777'>"
-                  "After saving, the device will try to connect while keeping the "
-                  "tigermeter hotspot active."
-                  "</div></div>");
+                  "<label>Network name (SSID)</label>"
+                  "<input name='ssid' type='text' autocomplete='off' required>"
+                  "<label>Password</label>"
+                  "<input name='password' type='password' autocomplete='off'>"
+                  "<input type='submit' value='Connect'>"
+                  "</form></div>");
 
-        page += F("<div class='card'><h2>OTA firmware update</h2>"
+        // Manual OTA upload card
+        page += F("<div class='card'><h2>Manual Update</h2>"
                   "<form method='POST' action='/update' enctype='multipart/form-data'>"
-                  "<label for='firmware'>Firmware .bin file</label>"
-                  "<input id='firmware' name='firmware' type='file' accept='.bin' required>"
-                  "<input type='submit' value='Upload & Update'>"
-                  "</form>"
-                  "<div style='margin-top:8px;font-size:12px;color:#777'>"
-                  "Device will reboot automatically after a successful update."
-                  "</div></div>");
+                  "<label>Firmware file (.bin)</label>"
+                  "<input name='firmware' type='file' accept='.bin' required>"
+                  "<input type='submit' value='Upload &amp; Install'>"
+                  "</form></div>");
 
-        page += F("</body></html>");
+        // Demo mode card
+        page += F("<div class='card'><h2>Demo Mode</h2>"
+                  "<div class='hint' style='margin-top:0;margin-bottom:8px'>"
+                  "Show demo screen with rainbow LED animation</div>"
+                  "<form method='POST' action='/demo-mode'>"
+                  "<input type='submit' value='");
+        page += preferences.getBool("demoMode", false) ? "Disable Demo Mode" : "Enable Demo Mode";
+        page += F("'></form></div>");
+
+        // Factory reset card
+        page += F("<div class='card'><h2>Factory Reset</h2>"
+                  "<div class='hint' style='color:#ff6b6b;margin-top:0;margin-bottom:8px'>"
+                  "Erases all data. Device must be reclaimed.</div>"
+                  "<form method='POST' action='/reset'>"
+                  "<input type='submit' value='Reset Device' class='btn-danger' "
+                  "onclick=\"return confirm('Erase all data? This cannot be undone.')\">"
+                  "</form></div>");
+
+        page += F("</div></body></html>");
 
         server.send(200, "text/html", page);
     }
@@ -169,13 +310,31 @@ namespace
         }
 
         String page;
-        page.reserve(512);
+        page.reserve(1024);
         page += F("<!DOCTYPE html><html><head><meta charset='utf-8'>"
                   "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-                  "<title>Wi‑Fi saved</title></head><body>"
-                  "<p>");
+                  "<title>Wi-Fi</title>"
+                  "<style>"
+                  "body{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,monospace;"
+                  "margin:0;padding:20px;background:#0a0a0f;color:#f0f0f5;min-height:100vh;"
+                  "display:flex;align-items:center;justify-content:center}"
+                  ".box{background:#1a1a24;border:1px solid #2a2a3a;border-radius:12px;padding:24px;"
+                  "max-width:360px;text-align:center}"
+                  ".icon{font-size:32px;margin-bottom:12px}"
+                  "h1{font-size:18px;margin:0 0 8px}"
+                  "p{font-size:13px;color:#8888a0;margin:0 0 16px}"
+                  ".ok{color:#00d4aa}"
+                  ".warn{color:#ff6b6b}"
+                  "a{display:inline-block;color:#f0b90b;font-size:13px}"
+                  "</style></head><body><div class='box'>");
+        
+        if (WiFi.status() == WL_CONNECTED) {
+            page += F("<div class='icon ok'>&#10003;</div><h1>Connected</h1><p>");
+        } else {
+            page += F("<div class='icon warn'>!</div><h1>Saved</h1><p>");
+        }
         page += htmlEscape(msg);
-        page += F("</p><p><a href='/'>Back</a></p></body></html>");
+        page += F("</p><a href='/'>&larr; Back to portal</a></div></body></html>");
 
         server.send(200, "text/html", page);
     }
@@ -186,9 +345,13 @@ namespace
 
         if (upload.status == UPLOAD_FILE_START)
         {
+            Serial.printf("[OTA] START: filename=%s, totalSize=%u\n", upload.filename.c_str(), upload.totalSize);
             otaSuccess = false;
-            if (!Update.begin())
+            // Use UPDATE_SIZE_UNKNOWN when totalSize is 0 (not yet known at start)
+            size_t updateSize = (upload.totalSize > 0) ? upload.totalSize : UPDATE_SIZE_UNKNOWN;
+            if (!Update.begin(updateSize))
             {
+                Serial.printf("[OTA] Update.begin FAILED (size=%u)\n", updateSize);
                 Update.printError(Serial);
             }
         }
@@ -199,6 +362,7 @@ namespace
                 size_t written = Update.write(upload.buf, upload.currentSize);
                 if (written != upload.currentSize)
                 {
+                    Serial.printf("[OTA] Write mismatch: expected=%u, written=%u\n", upload.currentSize, written);
                     Update.printError(Serial);
                 }
             }
@@ -207,18 +371,39 @@ namespace
         {
             if (Update.end(true))
             {
+                Serial.println("[OTA] SUCCESS");
                 otaSuccess = true;
             }
             else
             {
+                Serial.println("[OTA] FAILED");
                 Update.printError(Serial);
             }
         }
         else if (upload.status == UPLOAD_FILE_ABORTED)
         {
+            Serial.println("[OTA] ABORTED");
             Update.end();
         }
     }
+
+    // Shared result page style
+    const char* RESULT_STYLE = 
+        "<style>"
+        "body{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,monospace;"
+        "margin:0;padding:20px;background:#0a0a0f;color:#f0f0f5;min-height:100vh;"
+        "display:flex;align-items:center;justify-content:center}"
+        ".box{background:#1a1a24;border:1px solid #2a2a3a;border-radius:12px;padding:24px;"
+        "max-width:360px;text-align:center}"
+        ".icon{font-size:32px;margin-bottom:12px}"
+        "h1{font-size:18px;margin:0 0 8px}"
+        "p{font-size:13px;color:#8888a0;margin:0 0 16px}"
+        ".ok{color:#00d4aa}"
+        ".warn{color:#ff6b6b}"
+        "a{display:inline-block;color:#f0b90b;font-size:13px}"
+        "@keyframes spin{to{transform:rotate(360deg)}}"
+        ".spin{animation:spin 1s linear infinite;display:inline-block}"
+        "</style>";
 
     void handleUpdateResult()
     {
@@ -226,21 +411,27 @@ namespace
         {
             String page = F("<!DOCTYPE html><html><head><meta charset='utf-8'>"
                             "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-                            "<title>Update failed</title></head><body>"
-                            "<h1>Update failed</h1>"
-                            "<p>Please check the firmware file and try again.</p>"
-                            "<p><a href='/'>Back</a></p>"
-                            "</body></html>");
+                            "<title>Update Failed</title>");
+            page += RESULT_STYLE;
+            page += F("</head><body><div class='box'>"
+                      "<div class='icon warn'>&#10007;</div>"
+                      "<h1>Update Failed</h1>"
+                      "<p>Please check the firmware file and try again.</p>"
+                      "<a href='/'>&larr; Back to portal</a>"
+                      "</div></body></html>");
             server.send(500, "text/html", page);
         }
         else
         {
             String page = F("<!DOCTYPE html><html><head><meta charset='utf-8'>"
                             "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-                            "<title>Update successful</title></head><body>"
-                            "<h1>Update successful</h1>"
-                            "<p>Device will reboot now.</p>"
-                            "</body></html>");
+                            "<title>Update Complete</title>");
+            page += RESULT_STYLE;
+            page += F("</head><body><div class='box'>"
+                      "<div class='icon ok'>&#10003;</div>"
+                      "<h1>Update Complete</h1>"
+                      "<p>Device is rebooting...</p>"
+                      "</div></body></html>");
             server.send(200, "text/html", page);
             delay(1000);
             ESP.restart();
@@ -288,32 +479,158 @@ namespace
 
         WiFi.begin(ssid.c_str(), password.length() ? password.c_str() : nullptr);
     }
+
+    void handleFactoryReset()
+    {
+        // Clear all stored data in the "tigermeter" namespace
+        preferences.clear();
+        
+        String page = F("<!DOCTYPE html><html><head><meta charset='utf-8'>"
+                        "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+                        "<title>Factory Reset</title>");
+        page += RESULT_STYLE;
+        page += F("</head><body><div class='box'>"
+                  "<div class='icon ok'>&#10003;</div>"
+                  "<h1>Reset Complete</h1>"
+                  "<p>All data erased. Device is rebooting...</p>"
+                  "</div></body></html>");
+        server.send(200, "text/html", page);
+        delay(1000);
+        ESP.restart();
+    }
+
+    void handleDemoMode()
+    {
+        bool currentMode = preferences.getBool("demoMode", false);
+        bool newMode = !currentMode;
+        preferences.putBool("demoMode", newMode);
+        
+        String page = F("<!DOCTYPE html><html><head><meta charset='utf-8'>"
+                        "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+                        "<title>Demo Mode</title>");
+        page += RESULT_STYLE;
+        page += F("</head><body><div class='box'>"
+                  "<div class='icon ok'>&#10003;</div>"
+                  "<h1>Demo Mode ");
+        page += newMode ? "Enabled" : "Disabled";
+        page += F("</h1>"
+                  "<p>Device is rebooting...</p>"
+                  "</div></body></html>");
+        server.send(200, "text/html", page);
+        delay(1000);
+        ESP.restart();
+    }
+
+    void handleForceUpdate()
+    {
+        if (WiFi.status() != WL_CONNECTED) {
+            String page = F("<!DOCTYPE html><html><head><meta charset='utf-8'>"
+                            "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+                            "<title>Update Failed</title>");
+            page += RESULT_STYLE;
+            page += F("</head><body><div class='box'>"
+                      "<div class='icon warn'>&#10007;</div>"
+                      "<h1>No Connection</h1>"
+                      "<p>Connect to Wi-Fi first to download updates.</p>"
+                      "<a href='/'>&larr; Back to portal</a>"
+                      "</div></body></html>");
+            server.send(400, "text/html", page);
+            return;
+        }
+        
+        if (!OtaUpdate::isUpdateAvailable()) {
+            String page = F("<!DOCTYPE html><html><head><meta charset='utf-8'>"
+                            "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+                            "<title>Up to Date</title>");
+            page += RESULT_STYLE;
+            page += F("</head><body><div class='box'>"
+                      "<div class='icon ok'>&#10003;</div>"
+                      "<h1>Up to Date</h1>"
+                      "<p>Already running the latest firmware.</p>"
+                      "<a href='/'>&larr; Back to portal</a>"
+                      "</div></body></html>");
+            server.send(200, "text/html", page);
+            return;
+        }
+        
+        // Show updating page
+        String page = F("<!DOCTYPE html><html><head><meta charset='utf-8'>"
+                        "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+                        "<title>Updating</title>");
+        page += RESULT_STYLE;
+        page += F("</head><body><div class='box'>"
+                  "<div class='icon spin'>&#8635;</div>"
+                  "<h1>Updating to v");
+        page += String(OtaUpdate::getLatestVersion());
+        page += F("</h1>"
+                  "<p>Downloading firmware...<br>Do not power off the device.</p>"
+                  "</div></body></html>");
+        server.send(200, "text/html", page);
+        
+        // Perform the update
+        Serial.println("[Portal] Starting force OTA update...");
+        OtaResult result = OtaUpdate::forceUpdate();
+        
+        if (result.success) {
+            Serial.println("[Portal] OTA update successful, rebooting...");
+            delay(1000);
+            ESP.restart();
+        } else {
+            Serial.printf("[Portal] OTA update failed: %s\n", result.errorMessage.c_str());
+            // Note: Since we already sent the response, we can't send another one
+            // The user will need to refresh to see the status
+        }
+    }
 }
 
 void startCaptivePortal()
 {
+    Serial.println("[CaptivePortal] Starting...");
+    
     if (portalStarted)
     {
+        Serial.println("[CaptivePortal] Already started, skipping");
         return;
     }
     portalStarted = true;
 
     preferences.begin("tigermeter", false);
 
+    Serial.println("[CaptivePortal] Setting WiFi mode to AP_STA");
+    
+    // Set unique hostname using last 4 chars of MAC (e.g. "tigermeter-A1B2")
+    String mac = WiFi.macAddress();
+    mac.replace(":", "");
+    String hostname = "tigermeter-" + mac.substring(mac.length() - 4);
+    WiFi.setHostname(hostname.c_str());
+    Serial.printf("[CaptivePortal] Hostname: %s\n", hostname.c_str());
+    
     WiFi.mode(WIFI_AP_STA);
     WiFi.softAPConfig(AP_IP, AP_IP, AP_NETMASK);
-    WiFi.softAP(AP_SSID);
+    
+    bool apStarted = WiFi.softAP(AP_SSID);
+    Serial.printf("[CaptivePortal] softAP('%s') = %s\n", AP_SSID, apStarted ? "OK" : "FAILED");
+    
+    if (apStarted) {
+        Serial.printf("[CaptivePortal] AP IP: %s\n", WiFi.softAPIP().toString().c_str());
+    }
 
     autoConnectFromStoredCredentials();
 
     dnsServer.start(53, "*", AP_IP);
+    Serial.println("[CaptivePortal] DNS server started");
 
     server.on("/", HTTP_GET, handleRoot);
+    server.on("/logs", HTTP_GET, handleLogs);
     server.on("/wifi", HTTP_POST, handleWifiSave);
     server.on("/update", HTTP_POST, handleUpdateResult, handleUpdateUpload);
+    server.on("/reset", HTTP_POST, handleFactoryReset);
+    server.on("/demo-mode", HTTP_POST, handleDemoMode);
+    server.on("/force-update", HTTP_POST, handleForceUpdate);
     server.onNotFound(handleNotFound);
 
     server.begin();
+    Serial.println("[CaptivePortal] HTTP server started on port 80");
 }
 
 void captivePortalLoop()
@@ -325,6 +642,18 @@ void captivePortalLoop()
 
     dnsServer.processNextRequest();
     server.handleClient();
+}
+
+void webLog(const char *format, ...)
+{
+    char buf[256];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(buf, sizeof(buf), format, args);
+    va_end(args);
+    
+    Serial.println(buf);  // Also print to serial
+    addWebLog(String(buf));
 }
 
 

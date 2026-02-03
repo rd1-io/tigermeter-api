@@ -77,7 +77,7 @@
       "event": [ {
         "listen": "prerequest",
         "script": { "type": "text/javascript", "exec": [
-          "const instr = { type: 'single', version: 1, single: { name: 'BTC', price: 63250.45, currencySymbol: '$', timestamp: '2025-09-14T09:30:00Z', ledBrightness: 'mid' } };",
+          "const instr = { version: 1, symbol: 'BTC', mainText: '$63,250', topLine: 'Bitcoin', bottomLine: '+1.5%', ledColor: 'green', ledBrightness: 'mid' };",
           "const sorted = Object.keys(instr).sort();",
           "const json = JSON.stringify(instr, sorted);",
           "const hash = CryptoJS.SHA256(json).toString(CryptoJS.enc.Hex);",
@@ -86,25 +86,6 @@
           "pm.request.body.raw = JSON.stringify(instr, null, 2);"
         ] }
       }, { "listen": "test", "script": { "type": "text/javascript", "exec": [
-        "if(pm.response.code===200){ const j=pm.response.json(); if(j.displayHash) pm.environment.set('displayHash', j.displayHash); }"
-      ] } } ],
-      "body": { "mode": "raw", "raw": "{}" }
-    },
-    {
-      "name": "Portal / Set Display Instruction (Playlist)",
-      "request": {
-        "method": "PUT",
-        "header": [ { "key": "Authorization", "value": "Bearer {{userToken}}" }, { "key": "Content-Type", "value": "application/json" } ],
-        "url": "{{baseUrl}}/api/devices/{{deviceId}}/display"
-      },
-      "event": [ { "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
-        "const instr = { type: 'playlist', version: 1, playlist: { displaySeconds: 5, items: [ { name: 'BTC', price: 63250.45, currencySymbol: '$', timestamp: '2025-09-14T09:30:00Z', ledBrightness: 'high' }, { name: 'ETH', price: 3250.10, currencySymbol: '$', timestamp: '2025-09-14T09:30:05Z', ledBrightness: 'low' } ] } };",
-        "const sorted = Object.keys(instr).sort();",
-        "const json = JSON.stringify(instr, sorted);",
-        "const hash = CryptoJS.SHA256(json).toString(CryptoJS.enc.Hex);",
-        "instr.hash = 'sha256:' + hash;",
-        "pm.request.body.raw = JSON.stringify(instr, null, 2);"
-      ] } }, { "listen": "test", "script": { "type": "text/javascript", "exec": [
         "if(pm.response.code===200){ const j=pm.response.json(); if(j.displayHash) pm.environment.set('displayHash', j.displayHash); }"
       ] } } ],
       "body": { "mode": "raw", "raw": "{}" }

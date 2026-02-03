@@ -2,31 +2,55 @@ import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { instructionHash } from '../utils/crypto.js';
 
-const DisplaySingle = z.object({
-  name: z.string(),
-  price: z.number(),
-  currencySymbol: z.string(),
-  timestamp: z.string(),
-  ledColor: z.enum(['blue', 'green', 'red', 'yellow', 'purple']).optional(),
+// Enum definitions
+const FontSize = z.number().int().min(10).max(40); // 10-40px font size
+const TextAlign = z.enum(['left', 'center', 'right']);
+const LedColor = z.enum(['blue', 'green', 'red', 'yellow', 'purple']);
+const LedBrightness = z.enum(['off', 'low', 'mid', 'high']);
+
+// Display instruction schema
+const DisplayInstruction = z.object({
+  // Metadata
+  version: z.number().int(),
+  hash: z.string(),
+  
+  // Required fields
+  symbol: z.string(),
+  mainText: z.string(),
+  
+  // Symbol (left bar)
+  symbolFontSize: FontSize.optional().default(24),
+  
+  // Top line
+  topLine: z.string().optional(),
+  topLineFontSize: FontSize.optional().default(16),
+  topLineAlign: TextAlign.optional(),
+  topLineShowDate: z.boolean().optional(),
+  
+  // Main text
+  mainTextFontSize: FontSize.optional().default(32),
+  mainTextAlign: TextAlign.optional(),
+  
+  // Bottom line
+  bottomLine: z.string().optional(),
+  bottomLineFontSize: FontSize.optional().default(16),
+  bottomLineAlign: TextAlign.optional(),
+  
+  // LED control
+  ledColor: LedColor.optional(),
+  ledBrightness: LedBrightness.optional(),
+  
+  // One-time actions
   beep: z.boolean().optional(),
   flashCount: z.number().int().min(0).optional(),
-  ledBrightness: z.enum(['off', 'low', 'mid', 'high']).optional(),
-  portfolioValue: z.number().optional(),
-  portfolioChangeAbsolute: z.number().optional(),
-  portfolioChangePercent: z.number().optional(),
+  
+  // Device behavior
+  refreshInterval: z.number().int().min(5).optional(),
+  timezoneOffset: z.number().min(-12).max(14).optional(), // Hours from UTC
+  
+  // Future extensions
   extensions: z.record(z.any()).optional(),
 });
-
-const DisplayPlaylist = z.object({
-  items: z.array(DisplaySingle),
-  displaySeconds: z.number().int().min(1),
-  extensions: z.record(z.any()).optional(),
-});
-
-const DisplayInstruction = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('single'), version: z.number().int(), hash: z.string(), extensions: z.record(z.any()).optional(), single: DisplaySingle }),
-  z.object({ type: z.literal('playlist'), version: z.number().int(), hash: z.string(), extensions: z.record(z.any()).optional(), playlist: DisplayPlaylist }),
-]);
 
 export default async function portalRoutes(app: FastifyInstance) {
   app.get('/devices', async (request) => {
@@ -43,38 +67,27 @@ export default async function portalRoutes(app: FastifyInstance) {
     const d = await app.prisma.device.findUnique({ where: { id } });
     if (!d) return reply.code(404).send({ message: 'Not found' });
     if (d.userId !== userId) return reply.code(403).send({ message: 'Forbidden' });
-    // Prefer stored ledBrightness; fallback to parsing legacy if null after migration phase
-    // @ts-ignore new column
-    let derivedLed: string | null = (d as any).ledBrightness ? ((d as any).ledBrightness === 'mid' ? 'middle' : (d as any).ledBrightness) : null;
-    if (!derivedLed && d.displayInstructionJson) {
+    
+    // Parse display instruction if available
+    let displayInstruction = null;
+    if (d.displayInstructionJson) {
       try {
-        const instr = JSON.parse(d.displayInstructionJson);
-        if (instr && instr.type === 'single' && instr.single && instr.single.ledBrightness) {
-          const lb = instr.single.ledBrightness as string;
-          derivedLed = lb === 'mid' ? 'middle' : lb;
-        } else if (instr && instr.type === 'playlist' && instr.playlist?.items?.length) {
-          const first = instr.playlist.items[0];
-          if (first.ledBrightness) {
-            const lb = first.ledBrightness as string;
-            derivedLed = lb === 'mid' ? 'middle' : lb;
-          }
-        }
+        displayInstruction = JSON.parse(d.displayInstructionJson);
       } catch {
         // ignore parse errors
       }
     }
+    
     return {
       id: d.id,
-      name: null,
       status: d.status,
       lastSeen: d.lastSeen,
       mac: d.mac,
       userId: d.userId,
-      currentDisplayType: d.currentDisplayType as any,
       battery: d.battery,
-      led: derivedLed, // derive from single display instruction if available
       secretExpiresAt: d.currentSecretExpiresAt,
       displayHash: d.displayHash,
+      displayInstruction,
     };
   });
 
@@ -102,38 +115,16 @@ export default async function portalRoutes(app: FastifyInstance) {
     if (instruction.hash !== computed) {
       return reply.code(400).send({ message: 'Hash mismatch', expected: computed });
     }
-    const hash = computed;
 
-    // Derive led brightness (single or first playlist item)
-    let ledBrightness: string | null = null;
-    if (instruction.type === 'single' && instruction.single.ledBrightness) {
-      ledBrightness = instruction.single.ledBrightness;
-    } else if (instruction.type === 'playlist' && instruction.playlist.items.length > 0) {
-      const first = instruction.playlist.items[0];
-      if (first.ledBrightness) ledBrightness = first.ledBrightness;
-    }
-
-  // @ts-ignore - ledBrightness added to schema; regenerate prisma client after migration
-  await app.prisma.device.update({
+    await app.prisma.device.update({
       where: { id },
       data: {
         displayInstructionJson: JSON.stringify(instruction),
-        displayHash: hash,
-        currentDisplayType: instruction.type,
+        displayHash: computed,
         displayVersion: (d.displayVersion ?? 0) + 1,
-  // @ts-ignore
-  ledBrightness: ledBrightness ? (ledBrightness === 'mid' ? 'middle' : ledBrightness) : d.ledBrightness,
       },
     });
 
-    return { displayHash: hash };
+    return { displayHash: computed };
   });
 }
-
-
-
-
-
-
-
-

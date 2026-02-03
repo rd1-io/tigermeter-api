@@ -2,19 +2,7 @@ SHELL := /bin/bash
 NODE_API := node-api
 PORT ?= 3001
 
-# --- Release settings (override via env or make vars) ---
-SERVER_HOST ?= 89.169.47.121
-SERVER_USER ?= root
-# Use a writable temp dir to avoid read-only FS issues. Override if desired.
-REMOTE_DIR ?= /tmp/tigermeter/tigermeter-api
-REMOTE_PLATFORM ?= linux/amd64
-API_TAG ?= tigermeter-api:release
-EMU_TAG ?= tigermeter-emulator:release
-VITE_API_BASE_URL ?= https://api.tigermeter.rd1.io/api
-JWT_SECRET ?= change-me
-HMAC_KEY ?= dev
-
-.PHONY: help setup dev start build stop studio migrate db-reset db-push generate health clean fw-dev emulator fw fw-build fw-upload log release release-push
+.PHONY: help setup dev start build stop studio migrate db-reset db-push generate health clean fw-dev emulator fw fw-build fw-upload log firmware-release pages-release fly-deploy fly-api fly-emulator fly-logs deploy
 
 help:
 	@echo "Available targets:"
@@ -37,37 +25,18 @@ help:
 	@echo "  fw-build   - Build firmware only (usage: make fw-build [FW_ENV=esp32dev])"
 	@echo "  fw-upload  - Upload firmware only (usage: make fw-upload [FW_ENV=esp32dev] [UPLOAD_PORT=/dev/cu.*])"
 	@echo "  log        - Read serial logs from device (usage: make log [UPLOAD_PORT=/dev/cu.*])"
-	@echo "  demo       - Build+upload demo firmware (FW_ENV=esp32demo)"
-	@echo "  demo-build - Build demo firmware only (FW_ENV=esp32demo)"
-	@echo "  demo-upload- Upload demo firmware only (FW_ENV=esp32demo)"
-	@echo "  partial    - Build+upload partial test firmware (FW_ENV=esp32partial)"
-	@echo "  partial-build - Build partial test firmware only (FW_ENV=esp32partial)"
-	@echo "  partial-upload- Upload partial test firmware only (FW_ENV=esp32partial)"
-	@echo "  api        - Build+upload API mode firmware (FW_ENV=esp32api)"
-	@echo "  api-build  - Build API mode firmware only (FW_ENV=esp32api)"
-	@echo "  api-upload - Upload API mode firmware only (FW_ENV=esp32api)"
-	@echo "  release    - Build images locally and deploy to server (defaults: JWT_SECRET=$(JWT_SECRET), HMAC_KEY=$(HMAC_KEY))"
-
-release-push:
-	@echo "==> Committing and pushing local changes (if any)"
-	@set -e; \
-	if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then \
-	  git add -A; \
-	  git reset -- tigermeter-images.tar >/dev/null 2>&1 || true; \
-	  if git diff --cached --quiet; then \
-	    echo "No local changes to commit."; \
-	  else \
-	    ts=$$(date -u +"%Y-%m-%dT%H:%M:%SZ"); \
-	    n=$$(git diff --cached --name-only | wc -l | tr -d " \t"); \
-	    summary=$$(git diff --cached --name-status | awk '{print $$1}' | sed -E 's/ //g' | sort | uniq -c | awk '{print $$2 ":" $$1}' | paste -sd ', ' -); \
-	    msg="chore(release): deploy $$n file(s) @ $$ts [$$summary]"; \
-	    echo "Commit: $$msg"; \
-	    git commit -m "$$msg"; \
-	    git push; \
-	  fi; \
-	else \
-	  echo "Not a git repository; skipping commit."; \
-	fi
+	@echo "  prod       - Build+upload production firmware (FW_ENV=esp32api)"
+	@echo "  prod-build - Build production firmware only (FW_ENV=esp32api)"
+	@echo "  prod-upload- Upload production firmware only (FW_ENV=esp32api)"
+	@echo "  firmware-release - Build firmware and deploy to GitHub Pages"
+	@echo "  pages-release    - Deploy docs/ changes to GitHub Pages (no firmware build)"
+	@echo "  deploy           - Commit and push all changes to GitHub (usage: make deploy [m=\"commit message\"])"
+	@echo ""
+	@echo "Fly.io deployment:"
+	@echo "  fly-deploy   - Deploy both API and Emulator to Fly.io"
+	@echo "  fly-api      - Deploy only API to Fly.io"
+	@echo "  fly-emulator - Deploy only Emulator to Fly.io"
+	@echo "  fly-logs     - Tail API logs from Fly.io"
 
 setup:
 	cd $(NODE_API) && \
@@ -134,6 +103,38 @@ FW_DIR := firmware
 FW_ENV ?= esp32dev
 UPLOAD_PORT ?=
 
+# Get version file based on environment
+define get_version_file
+$(if $(filter esp32api,$(1)),$(FW_DIR)/version_prod.txt,)
+endef
+
+# Read and increment version (returns new version)
+define increment_version
+$(shell \
+	FILE=$(call get_version_file,$(1)); \
+	if [ -n "$$FILE" ] && [ -f "$$FILE" ]; then \
+		V=$$(cat "$$FILE" | tr -d '[:space:]'); \
+		V=$$((V + 1)); \
+		echo "$$V" > "$$FILE"; \
+		echo "$$V"; \
+	else \
+		echo "0"; \
+	fi \
+)
+endef
+
+# Read version without incrementing
+define read_version
+$(shell \
+	FILE=$(call get_version_file,$(1)); \
+	if [ -n "$$FILE" ] && [ -f "$$FILE" ]; then \
+		cat "$$FILE" | tr -d '[:space:]'; \
+	else \
+		echo "0"; \
+	fi \
+)
+endef
+
 fw:
 	@cd $(FW_DIR) && \
 	if ! command -v pio >/dev/null 2>&1; then \
@@ -142,63 +143,24 @@ fw:
 	EXTRA=""; if [ -n "$(UPLOAD_PORT)" ]; then EXTRA="--upload-port $(UPLOAD_PORT)"; fi; \
 	pio run -e $(FW_ENV) -t upload $$EXTRA
 
-demo:
-	@FW_ENV=esp32demo $(MAKE) fw $(if $(UPLOAD_PORT),UPLOAD_PORT=$(UPLOAD_PORT),)
+minimal-demo:
+	@FW_ENV=esp32minimal $(MAKE) fw $(if $(UPLOAD_PORT),UPLOAD_PORT=$(UPLOAD_PORT),)
 	@$(MAKE) log $(if $(UPLOAD_PORT),UPLOAD_PORT=$(UPLOAD_PORT),)
 
-partial:
-	@FW_ENV=esp32partial $(MAKE) fw $(if $(UPLOAD_PORT),UPLOAD_PORT=$(UPLOAD_PORT),)
-
-# --- Release: build local images, upload, load & start on remote ---
-release:
-	@echo "Using JWT_SECRET=$(JWT_SECRET) HMAC_KEY=$(HMAC_KEY)"
-	@echo "==> Committing and pushing local changes (if any)"
-		@set -e; \
-		if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then \
-		  git add -A; \
-		  git reset -- tigermeter-images.tar >/dev/null 2>&1 || true; \
-		  if git diff --cached --quiet; then \
-		    echo "No local changes to commit."; \
-		  else \
-		    ts=$$(date -u +"%Y-%m-%dT%H:%M:%SZ"); \
-		    n=$$(git diff --cached --name-only | wc -l | tr -d " \t"); \
-		    summary=$$(git diff --cached --name-status | awk '{print $$1}' | sed -E 's/ //g' | sort | uniq -c | awk '{print $$2 ":" $$1}' | paste -sd ', ' -); \
-		    msg="chore(release): deploy $$n file(s) @ $$ts [$$summary]"; \
-		    echo "Commit: $$msg"; \
-		    git commit -m "$$msg"; \
-		    git push; \
-		  fi; \
-		else \
-		  echo "Not a git repository; skipping commit."; \
-		fi
-	@echo "==> Building API image: $(API_TAG)"
-	docker build --platform=$(REMOTE_PLATFORM) -t "$(API_TAG)" -f node-api/Dockerfile node-api
-	@echo "==> Building Emulator image: $(EMU_TAG)"
-	docker build --platform=$(REMOTE_PLATFORM) -t "$(EMU_TAG)" -f web-emulator/Dockerfile \
-		--build-arg VITE_API_BASE_URL="$(VITE_API_BASE_URL)" \
-		--build-arg VITE_HMAC_KEY="$(HMAC_KEY)" \
-		web-emulator
-	@echo "==> Saving images to tar"
-	docker save -o tigermeter-images.tar "$(API_TAG)" "$(EMU_TAG)"
-	@echo "==> Creating remote dir $(REMOTE_DIR)"
-	ssh -o StrictHostKeyChecking=no $(SERVER_USER)@$(SERVER_HOST) "mkdir -p '$(REMOTE_DIR)' || true"
-	@echo "==> Uploading bundle and compose files"
-	scp -o StrictHostKeyChecking=no tigermeter-images.tar docker-compose.yml Caddyfile $(SERVER_USER)@$(SERVER_HOST):$(REMOTE_DIR)/
-	@echo "==> Loading images and starting stack on remote"
-	ssh -o StrictHostKeyChecking=no $(SERVER_USER)@$(SERVER_HOST) "set -euo pipefail; mkdir -p '$(REMOTE_DIR)'; cd '$(REMOTE_DIR)'; if ! command -v docker >/dev/null 2>&1; then echo 'Docker not found. Installing...'; curl -fsSL https://get.docker.com | sh; systemctl enable --now docker; fi; docker load -i tigermeter-images.tar; printf '%s\n' 'JWT_SECRET=$(JWT_SECRET)' 'HMAC_KEY=$(HMAC_KEY)' 'API_IMAGE=$(API_TAG)' 'EMULATOR_IMAGE=$(EMU_TAG)' > .env; docker compose -f docker-compose.yml up -d --remove-orphans; echo '=== docker ps ==='; docker ps"
-
 fw-build:
-	@cd $(FW_DIR) && \
+	@VERSION_FILE=""; \
+	if [ "$(FW_ENV)" = "esp32api" ]; then VERSION_FILE="$(FW_DIR)/version_prod.txt"; fi; \
+	if [ -n "$$VERSION_FILE" ] && [ -f "$$VERSION_FILE" ]; then \
+		V=$$(cat "$$VERSION_FILE" | tr -d '[:space:]'); \
+		V=$$((V + 1)); \
+		printf "%d" "$$V" > "$$VERSION_FILE"; \
+		echo "==> Building $(FW_ENV) v$$V"; \
+	fi; \
+	cd $(FW_DIR) && \
 	if ! command -v pio >/dev/null 2>&1; then \
 		echo "PlatformIO (pio) not found. Install with: pipx install platformio   or   brew install platformio" 1>&2; exit 127; \
 	fi; \
 	pio run -e $(FW_ENV)
-
-demo-build:
-	@FW_ENV=esp32demo $(MAKE) fw-build
-
-partial-build:
-	@FW_ENV=esp32partial $(MAKE) fw-build
 
 gxepd2-test:
 	@FW_ENV=esp32gxepd2test $(MAKE) fw $(if $(UPLOAD_PORT),UPLOAD_PORT=$(UPLOAD_PORT),)
@@ -214,20 +176,46 @@ fw-upload:
 	EXTRA=""; if [ -n "$(UPLOAD_PORT)" ]; then EXTRA="--upload-port $(UPLOAD_PORT)"; fi; \
 	pio run -e $(FW_ENV) -t upload $$EXTRA
 
-demo-upload:
-	@FW_ENV=esp32demo $(MAKE) fw-upload $(if $(UPLOAD_PORT),UPLOAD_PORT=$(UPLOAD_PORT),)
-
-partial-upload:
-	@FW_ENV=esp32partial $(MAKE) fw-upload $(if $(UPLOAD_PORT),UPLOAD_PORT=$(UPLOAD_PORT),)
-
-api:
+prod:
 	@FW_ENV=esp32api $(MAKE) fw $(if $(UPLOAD_PORT),UPLOAD_PORT=$(UPLOAD_PORT),)
 
-api-build:
+prod-build:
 	@FW_ENV=esp32api $(MAKE) fw-build
 
-api-upload:
+prod-upload:
 	@FW_ENV=esp32api $(MAKE) fw-upload $(if $(UPLOAD_PORT),UPLOAD_PORT=$(UPLOAD_PORT),)
+
+# --- Firmware Web Release (GitHub Pages) ---
+firmware-release:
+	@echo "==> Building production firmware..."
+	@FW_ENV=esp32api $(MAKE) fw-build
+	@echo "==> Deploying to GitHub Pages..."
+	@git add docs/firmware/prod/
+	@git commit -m "chore(firmware): update firmware" || echo "No changes to commit"
+	@git push
+	@echo "==> Done! Firmware deployed"
+	@echo ""
+	@echo "📄 Page URL: https://rd1-io.github.io/tigermeter-api/"
+
+pages-release:
+	@echo "==> Deploying docs/ to GitHub Pages..."
+	@git add docs/
+	@git commit -m "chore(pages): update flash page" || echo "No changes to commit"
+	@git push
+	@echo "==> Done! Pages deployed"
+	@echo ""
+	@echo "📄 Page URL: https://rd1-io.github.io/tigermeter-api/"
+
+deploy:
+	@echo "==> Committing and pushing all changes..."
+	@git add -A
+	@if [ -n "$(m)" ]; then \
+		git commit -m "$(m)" || echo "No changes to commit"; \
+	else \
+		git commit -m "chore: update" || echo "No changes to commit"; \
+	fi
+	@git push
+	@echo "==> Done! Changes pushed to GitHub"
 
 log:
 	@cd $(FW_DIR) && \
@@ -236,3 +224,19 @@ log:
 	fi; \
 	EXTRA="--baud 115200"; if [ -n "$(UPLOAD_PORT)" ]; then EXTRA="$$EXTRA --port $(UPLOAD_PORT)"; fi; \
 	pio device monitor $$EXTRA
+
+# --- Fly.io Deployment ---
+fly-deploy: fly-api fly-emulator
+	@echo "==> Both apps deployed to Fly.io!"
+
+fly-api:
+	@echo "==> Deploying API to Fly.io..."
+	cd $(NODE_API) && fly deploy
+
+fly-emulator:
+	@echo "==> Deploying Emulator to Fly.io..."
+	cd web-emulator && fly deploy
+
+fly-logs:
+	@echo "==> Tailing API logs..."
+	fly logs -a tigermeter-api

@@ -39,6 +39,15 @@ model Device {
   previousSecretHash      String?
   previousSecretExpiresAt DateTime?
 
+  // Remote commands
+  pendingFactoryReset     Boolean  @default(false)
+
+  // OTA settings
+  autoUpdate              Boolean  @default(true)
+
+  // Demo mode
+  demoMode                Boolean  @default(false)
+
   // Timestamps
   createdAt               DateTime @default(now())
   updatedAt               DateTime @updatedAt
@@ -61,4 +70,15 @@ model DeviceClaim {
 
   @@index([status])
   @@index([mac])
+}
+
+model PendingDevice {
+  id              String   @id @default(uuid())
+  mac             String   @unique
+  firmwareVersion String?
+  ip              String?
+  firstSeen       DateTime @default(now())
+  lastSeen        DateTime @updatedAt
+  attemptCount    Int      @default(1)
+  status          String   @default("pending")
 }

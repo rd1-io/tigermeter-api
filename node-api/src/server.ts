@@ -19,8 +19,12 @@ const buildServer = () => {
   app.register(fastifyCors as any, {
     origin: (origin: string | undefined, cb: (err: Error | null, allow?: boolean) => void) => {
       if (!origin) return cb(null, true);
-      const allowedLocal = [/^http:\/\/localhost:\\d+$/, /^http:\/\/127\\.0\\.0\\.1:\\d+$/];
-      if (allowedLocal.some((r) => r.test(origin))) return cb(null, true);
+      const allowedPatterns = [
+        /^http:\/\/localhost:\d+$/,
+        /^http:\/\/127\.0\.0\.1:\d+$/,
+        /^https:\/\/tigermeter-[\w-]+\.fly\.dev$/,  // Fly.io apps
+      ];
+      if (allowedPatterns.some((r) => r.test(origin))) return cb(null, true);
       const envOrigins = (process.env.CORS_ALLOWED_ORIGINS || '')
         .split(',')
         .map((s) => s.trim())
@@ -28,7 +32,7 @@ const buildServer = () => {
       if (envOrigins.includes(origin)) return cb(null, true);
       cb(new Error('CORS not allowed'), false);
     },
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     credentials: false
   });
   app.register(rateLimitPlugin);

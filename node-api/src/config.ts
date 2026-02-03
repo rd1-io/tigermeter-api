@@ -7,6 +7,10 @@ export const config = {
   deviceSecretTtlDays: 90,
   deviceSecretOverlapSeconds: 300,
   claimCodeTtlSeconds: 300,
+  
+  // OTA firmware settings
+  latestFirmwareVersion: parseInt(process.env.LATEST_FIRMWARE_VERSION ?? '3', 10),
+  firmwareDownloadUrl: process.env.FIRMWARE_DOWNLOAD_URL ?? 'https://github.com/Pavel-Demidyuk/tigermeter_releases/releases/download',
 };
 
 

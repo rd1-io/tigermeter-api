@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { DisplayInstruction } from "../types/display";
+import { DisplayInstruction, FontSize, TextAlign } from "../types/display";
 
 export type ScreenState =
   | "welcome"
@@ -21,7 +21,42 @@ interface ScreenProps {
   displayInstruction?: DisplayInstruction | null;
   scale?: number;
   variant?: "flow" | "display";
+  battery?: number | null;
 }
+
+// Battery icon SVG for low battery warning
+const LowBatteryIcon: React.FC = () => (
+  <svg width="20" height="10" viewBox="0 0 20 10" fill="currentColor">
+    <rect x="0" y="0" width="17" height="10" rx="1" stroke="currentColor" strokeWidth="1" fill="none" />
+    <rect x="17" y="3" width="3" height="4" rx="0.5" fill="currentColor" />
+    <rect x="2" y="2" width="3" height="6" fill="currentColor" />
+  </svg>
+);
+
+// Helper to get font size (handles both legacy string values and new numeric values)
+const getFontSize = (size: FontSize | undefined, defaultSize: number): number => {
+  if (size === undefined) return defaultSize;
+  if (typeof size === 'number') return size;
+  // Legacy string values fallback
+  if (size === 'small') return 16;
+  if (size === 'mid') return 20;
+  if (size === 'large') return 35;
+  return defaultSize;
+};
+
+// Default symbol font size (matches firmware FONT_SIZE_SYMBOL ~24px)
+const DEFAULT_SYMBOL_FONT_SIZE = 24;
+
+// Layout constants (matches firmware RECT_WIDTH = 135)
+const SYMBOL_BAR_WIDTH = 135;
+const RIGHT_AREA_WIDTH = 249; // 384 - 135
+
+// Text alignment mapping
+const textAlignMap: Record<TextAlign, React.CSSProperties['textAlign']> = {
+  left: 'left',
+  center: 'center',
+  right: 'right',
+};
 
 export const Screen: React.FC<ScreenProps> = ({
   state,
@@ -30,8 +65,9 @@ export const Screen: React.FC<ScreenProps> = ({
   deviceId,
   deviceSecret,
   displayInstruction,
-  scale = 2, // Default 2x scale for better visibility
+  scale = 2,
   variant = "flow",
+  battery,
 }) => {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -40,6 +76,7 @@ export const Screen: React.FC<ScreenProps> = ({
   }, []);
 
   let content: React.ReactNode = null;
+  
   switch (state) {
     case "welcome":
       content = (
@@ -51,6 +88,7 @@ export const Screen: React.FC<ScreenProps> = ({
         </div>
       );
       break;
+      
     case "wifi_prompt":
       content = (
         <div className="flex flex-col items-center justify-center h-full text-center gap-3">
@@ -65,6 +103,7 @@ export const Screen: React.FC<ScreenProps> = ({
         </div>
       );
       break;
+      
     case "claim_requesting":
       content = (
         <div className="flex flex-col items-center justify-center h-full text-center gap-2 animate-pulse">
@@ -75,6 +114,7 @@ export const Screen: React.FC<ScreenProps> = ({
         </div>
       );
       break;
+      
     case "claim_code":
       content = (
         <div className="flex flex-col items-center justify-center h-full text-center gap-3">
@@ -85,12 +125,12 @@ export const Screen: React.FC<ScreenProps> = ({
             {claimCode}
           </div>
           <div className="text-[9px] opacity-60 max-w-[260px] leading-tight">
-            Используйте этот код в портале для привязки устройства. Скоро
-            истечёт.
+            Используйте этот код в портале для привязки устройства.
           </div>
         </div>
       );
       break;
+      
     case "waiting_for_attach":
       content = (
         <div className="flex flex-col items-center justify-center h-full text-center gap-3">
@@ -106,6 +146,7 @@ export const Screen: React.FC<ScreenProps> = ({
         </div>
       );
       break;
+      
     case "secret_received":
       content = (
         <div className="flex flex-col items-center justify-center h-full text-center gap-2">
@@ -122,230 +163,150 @@ export const Screen: React.FC<ScreenProps> = ({
         </div>
       );
       break;
+      
     case "heartbeat_active":
-      if (displayInstruction?.type === "single") {
-        const single = displayInstruction.single;
-        if (variant === "display") {
-          const dt = new Date(single.timestamp);
-          const locale = "ru-RU";
-          const dateStrRaw = new Intl.DateTimeFormat(locale, {
-            day: "numeric",
-            month: "long",
-          }).format(dt);
-          const [dayPart, monthPart] = dateStrRaw.split(" ");
-          const monthCap = monthPart
-            ? monthPart.charAt(0).toUpperCase() + monthPart.slice(1)
-            : "";
-          const dateStr = `${dayPart || ""} ${monthCap}`.trim();
+      if (displayInstruction?.symbol) {
+        const s = displayInstruction;
+        const locale = "ru-RU";
+        
+        // Format current date/time for topLineShowDate (using configured timezone)
+        const formatDateTime = () => {
+          // Calculate time in the configured timezone
+          const tzOffset = s.timezoneOffset ?? 3; // Default Moscow UTC+3
+          const utcTime = now.getTime() + now.getTimezoneOffset() * 60000;
+          const tzTime = new Date(utcTime + tzOffset * 3600000);
+          
           const timeStr = new Intl.DateTimeFormat(locale, {
             hour: "2-digit",
             minute: "2-digit",
+            second: "2-digit",
             hour12: false,
-          }).format(dt);
-          const dateTimeStr = `${dateStr}, ${timeStr}`;
-          const asset = single.name.split("/")[0].toUpperCase();
-          // Dynamic price formatting
-          const rawPrice = single.price;
-          const decimals = rawPrice >= 1 ? 2 : 4;
-          let formatted = rawPrice.toFixed(decimals);
-          if (decimals > 0) {
-            formatted = formatted
-              .replace(/\.0+$/, "")
-              .replace(/(\.[0-9]*?)0+$/, "$1");
-          }
-          const priceStr = `${single.currencySymbol}${formatted}`;
-          // Adaptive font sizing thresholds based on character length
-          const priceFontSizeOverride = single.extensions?.priceFontSize as
-            | number
-            | undefined;
-          let priceFontSize = priceFontSizeOverride ?? 42; // base
-          if (priceStr.length > 10) priceFontSize = 38;
-          if (priceStr.length > 12) priceFontSize = 34;
-          if (priceStr.length > 14) priceFontSize = 30;
-          if (priceFontSizeOverride !== undefined) {
-            priceFontSize = priceFontSizeOverride;
-          }
+          }).format(tzTime);
+          const dateStr = new Intl.DateTimeFormat(locale, {
+            day: "numeric",
+            month: "short",
+          }).format(tzTime);
+          return `${timeStr} ${dateStr}`;
+        };
+        
+        // Get font sizes (using numeric values directly, with fallback for legacy strings)
+        const topFontSize = getFontSize(s.topLineFontSize, 16);
+        const mainFontSize = getFontSize(s.mainTextFontSize, 32);
+        const bottomFontSize = getFontSize(s.bottomLineFontSize, 16);
+        
+        // Get alignments
+        const topAlign = textAlignMap[s.topLineAlign || 'center'];
+        const mainAlign = textAlignMap[s.mainTextAlign || 'center'];
+        const bottomAlign = textAlignMap[s.bottomLineAlign || 'center'];
+        
+        // What to show in top line
+        const topLineContent = s.topLineShowDate ? formatDateTime() : (s.topLine || '');
+        
+        if (variant === "display") {
+          // Full display layout with symbol bar
           content = (
             <div
               className="absolute inset-0 flex"
-              style={{
-                fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-              }}
             >
-              {/* Left square strip 168x168 */}
+              {/* Left symbol bar */}
               <div
                 style={{
-                  width:
-                    (single.extensions?.leftBarWidth as number | undefined) ??
-                    100,
+                  width: SYMBOL_BAR_WIDTH,
                   height: 168,
                   background: "#121212",
                   color: "#fafafa",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
+                  fontFamily: "system-ui, -apple-system, sans-serif",
                 }}
               >
-                <div
-                  className="font-extrabold tracking-tight"
-                  style={{
-                    fontSize:
-                      (single.extensions?.assetFontSize as number | undefined) ??
-                      40,
-                  }}
-                >
-                  {asset}
+                <div className="font-bold tracking-tight" style={{ fontSize: getFontSize(s.symbolFontSize, DEFAULT_SYMBOL_FONT_SIZE) }}>
+                  {s.symbol}
                 </div>
               </div>
+              
               {/* Right content area */}
               <div
-                className="flex flex-col"
-                style={{
-                  width:
-                    384 -
-                    (((single.extensions?.leftBarWidth as number | undefined) ??
-                      100) as number) -
-                    0,
-                  padding: "8px 14px 8px 14px",
-                }}
+                className="flex flex-col justify-between"
+                style={{ width: RIGHT_AREA_WIDTH, padding: "8px 10px" }}
               >
+                {/* Top line */}
                 <div
-                  className="text-center font-medium leading-none mb-3 tracking-tight"
-                  style={{
-                    fontSize:
-                      (single.extensions?.dateFontSize as number | undefined) ??
-                      12,
+                  className="leading-tight"
+                  style={{ 
+                    fontSize: topFontSize, 
+                    textAlign: topAlign,
+                    fontFamily: "system-ui, -apple-system, sans-serif",
+                    fontWeight: 500,
                   }}
                 >
-                  {dateTimeStr}
+                  {topLineContent}
                 </div>
-                <div className="flex-1 flex items-center justify-center overflow-hidden">
-                  <div className="text-center max-w-full">
-                    <div
-                      className="font-black leading-none tracking-tight tabular-nums whitespace-nowrap"
-                      style={{
-                        letterSpacing: "-1px",
-                        fontSize: priceFontSize,
-                        transform: "translateZ(0)",
-                      }}
-                    >
-                      {priceStr}
-                    </div>
+                
+                {/* Main text - centered vertically */}
+                <div
+                  className="flex-1 flex items-center"
+                  style={{ justifyContent: mainAlign === 'center' ? 'center' : mainAlign === 'right' ? 'flex-end' : 'flex-start' }}
+                >
+                  <div
+                    className="leading-none tracking-tight"
+                    style={{ 
+                      fontSize: mainFontSize, 
+                      textAlign: mainAlign,
+                      fontFamily: "system-ui, -apple-system, sans-serif",
+                      fontWeight: 700,
+                    }}
+                  >
+                    {s.mainText}
                   </div>
                 </div>
+                
+                {/* Bottom line */}
                 <div
-                  className="mt-2 text-center font-semibold tracking-tight leading-none"
-                  style={{
-                    fontSize:
-                      (single.extensions?.bottomFontSize as number | undefined) ??
-                      13,
+                  className="leading-tight"
+                  style={{ 
+                    fontSize: bottomFontSize, 
+                    textAlign: bottomAlign,
+                    fontFamily: "system-ui, -apple-system, sans-serif",
+                    fontWeight: 500,
                   }}
                 >
-                  {(() => {
-                    const periodLabel =
-                      (single.extensions?.periodLabel as string) || "1 день";
-                    const hasPercent =
-                      single.portfolioChangePercent !== undefined &&
-                      single.portfolioChangePercent !== null;
-                    const hasAbs =
-                      single.portfolioChangeAbsolute !== undefined &&
-                      single.portfolioChangeAbsolute !== null;
-                    if (!hasPercent && !hasAbs) return <>&nbsp;</>;
-
-                    const percentPart = hasPercent ? (
-                      <>
-                        {periodLabel} {single.portfolioChangePercent! > 0 ? "+" : ""}
-                        {single.portfolioChangePercent!.toFixed(2)}%
-                      </>
-                    ) : (
-                      <>{periodLabel}</>
-                    );
-
-                    const absVal = single.portfolioChangeAbsolute as number | undefined;
-                    let absPart: React.ReactNode = null;
-                    if (hasAbs && typeof absVal === "number") {
-                      const sign = absVal >= 0 ? "+" : "-";
-                      const absNum = Math.abs(absVal);
-                      const absStr = Number.isInteger(absNum)
-                        ? String(absNum)
-                        : absNum.toFixed(2).replace(/\.0+$/, "").replace(/(\.[0-9]*?)0+$/, "$1");
-                      absPart = (
-                        <>
-                          {" "}({sign}
-                          {single.currencySymbol}
-                          {absStr})
-                        </>
-                      );
-                    }
-
-                    return (
-                      <>
-                        {percentPart}
-                        {absPart}
-                      </>
-                    );
-                  })()}
+                  {s.bottomLine || ''}
                 </div>
               </div>
             </div>
           );
         } else {
+          // Simple flow variant
           content = (
-            <div className="flex flex-col items-center justify-center h-full text-center gap-2">
-              <div className="text-[13px] font-semibold tracking-wide">
-                {single.name.toUpperCase()}
+            <div className="flex flex-col h-full p-4">
+              {/* Top line */}
+              <div
+                className="font-medium"
+                style={{ fontSize: topFontSize, textAlign: topAlign }}
+              >
+                {topLineContent || <span className="opacity-30">—</span>}
               </div>
-              <div className="text-[28px] font-bold tabular-nums">
-                {single.currencySymbol}
-                {single.price.toFixed(2)}
-              </div>
-              {single.portfolioValue && (
-                <div className="text-[10px] opacity-70">
-                  Портфель: {single.currencySymbol}
-                  {single.portfolioValue.toFixed(2)}
-                  {single.portfolioChangePercent !== undefined && (
-                    <span className="ml-1">
-                      {single.portfolioChangePercent > 0 ? "+" : ""}
-                      {single.portfolioChangePercent.toFixed(1)}%
-                    </span>
-                  )}
+              
+              {/* Main area with symbol and main text */}
+              <div className="flex-1 flex items-center justify-center gap-3">
+                <div className="text-[16px] font-bold opacity-60">{s.symbol}</div>
+                <div
+                  className="font-black"
+                  style={{ fontSize: mainFontSize, textAlign: mainAlign }}
+                >
+                  {s.mainText}
                 </div>
-              )}
-              <div className="text-[8px] opacity-50">
-                {new Date(single.timestamp).toLocaleTimeString()}
               </div>
-              {/* Removed in-display LED dot */}
-            </div>
-          );
-        }
-      } else if (displayInstruction?.type === "playlist") {
-        // For simplicity, show first item for now
-        const firstItem = displayInstruction.playlist.items[0];
-        if (firstItem) {
-          content = (
-            <div className="flex flex-col items-center justify-center h-full text-center gap-2">
-              <div className="text-[9px] opacity-60">
-                ПЛЕЙЛИСТ • {displayInstruction.playlist.items.length} эл.
+              
+              {/* Bottom line */}
+              <div
+                className="font-medium"
+                style={{ fontSize: bottomFontSize, textAlign: bottomAlign }}
+              >
+                {s.bottomLine || <span className="opacity-30">—</span>}
               </div>
-              <div className="text-[11px] font-semibold tracking-wide">
-                {firstItem.name.toUpperCase()}
-              </div>
-              <div className="text-[24px] font-bold tabular-nums">
-                {firstItem.currencySymbol}
-                {firstItem.price.toFixed(2)}
-              </div>
-              <div className="text-[8px] opacity-50">
-                {new Date(firstItem.timestamp).toLocaleTimeString()}
-              </div>
-            </div>
-          );
-        } else {
-          content = (
-            <div className="flex flex-col items-center justify-center h-full text-center gap-2">
-              <div className="text-[11px] font-semibold tracking-wide">
-                ПЛЕЙЛИСТ
-              </div>
-              <div className="text-[10px] opacity-70">Пустой плейлист</div>
             </div>
           );
         }
@@ -358,11 +319,11 @@ export const Screen: React.FC<ScreenProps> = ({
             <div className="text-[10px] opacity-70">
               Нет инструкции отображения
             </div>
-            <div className="text-[8px] opacity-50">Пульс активно</div>
           </div>
         );
       }
       break;
+      
     case "error":
       content = (
         <div className="flex flex-col items-center justify-center h-full text-center gap-2">
@@ -404,17 +365,26 @@ export const Screen: React.FC<ScreenProps> = ({
                 {now.toLocaleTimeString()}
               </div>
             )}
+            {/* Low battery indicator */}
+            {battery !== undefined && battery !== null && battery < 10 && (
+              <div className="absolute top-2 left-2 opacity-80">
+                <LowBatteryIcon />
+              </div>
+            )}
           </div>
-          {/* LED bar right side vertical */}
+          
+          {/* LED bar */}
           {(() => {
             let ledColor: string | undefined;
             let ledBrightness: string | undefined;
             let flashCount: number | undefined;
-            if (displayInstruction?.type === "single") {
-              ledColor = displayInstruction.single.ledColor;
-              ledBrightness = displayInstruction.single.ledBrightness;
-              flashCount = displayInstruction.single.flashCount;
+            
+            if (displayInstruction) {
+              ledColor = displayInstruction.ledColor;
+              ledBrightness = displayInstruction.ledBrightness;
+              flashCount = displayInstruction.flashCount;
             }
+            
             const colorMap: Record<string, string> = {
               red: "#dc2626",
               green: "#16a34a",
@@ -422,19 +392,20 @@ export const Screen: React.FC<ScreenProps> = ({
               yellow: "#ca8a04",
               purple: "#7e22ce",
             };
+            
             const brightnessOpacity: Record<string, number> = {
               off: 0.15,
               low: 0.35,
               mid: 0.65,
               high: 1,
             };
+            
             const active = ledColor && ledBrightness && ledBrightness !== "off";
             const flash = active && flashCount && flashCount > 0;
+            
             return (
               <div
-                className={`ml-1 h-[168px] rounded-sm border border-neutral-400 relative overflow-hidden flex flex-col ${
-                  flash ? "led-flash" : ""
-                }`}
+                className={`ml-1 h-[168px] rounded-sm border border-neutral-400 relative overflow-hidden ${flash ? "led-flash" : ""}`}
                 style={{
                   width: 38,
                   background: active ? colorMap[ledColor!] : "#d4d4d4",
@@ -459,26 +430,12 @@ export const Screen: React.FC<ScreenProps> = ({
           })()}
         </div>
       </div>
+      
       <div
         className="absolute text-[11px] font-mono opacity-60"
-        style={{
-          top: 168 * scale + 8,
-          left: 0,
-        }}
+        style={{ top: 168 * scale + 8, left: 0 }}
       >
-        {(() => {
-          // Defaults: 384x168 pixels, active area 67.58mm x 29.57mm
-          let widthMm = 67.58;
-          let heightMm = 29.57;
-          if (displayInstruction?.type === "single") {
-            const ext = displayInstruction.single.extensions || {};
-            const w = (ext as any).widthMm;
-            const h = (ext as any).heightMm;
-            if (typeof w === "number" && w > 0) widthMm = w;
-            if (typeof h === "number" && h > 0) heightMm = h;
-          }
-          return `384x168 + LED ${scale > 1 ? `(${scale}x)` : ""} • ${widthMm.toFixed(2)}×${heightMm.toFixed(2)} mm`;
-        })()}
+        384x168 + LED {scale > 1 ? `(${scale}x)` : ""} • 67.58×29.57 mm
       </div>
     </div>
   );

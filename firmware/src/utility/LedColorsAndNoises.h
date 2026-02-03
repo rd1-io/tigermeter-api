@@ -101,9 +101,23 @@ void initializePins()
     ledc_channel_config(&channel_config);
 }
 
+// Track if LED channels are stopped
+static bool ledChannelsStopped = false;
+
 // Set LED PWM values directly (0 = full brightness, 255 = off for common anode)
 void setLedPWM(uint8_t r, uint8_t g, uint8_t b)
 {
+    // Restart LEDC channels if they were stopped by led_Off()
+    if (ledChannelsStopped) {
+        ledc_set_duty(LED_SPEED_MODE, RED_CHANNEL, 255);
+        ledc_update_duty(LED_SPEED_MODE, RED_CHANNEL);
+        ledc_set_duty(LED_SPEED_MODE, GREEN_CHANNEL, 255);
+        ledc_update_duty(LED_SPEED_MODE, GREEN_CHANNEL);
+        ledc_set_duty(LED_SPEED_MODE, BLUE_CHANNEL, 255);
+        ledc_update_duty(LED_SPEED_MODE, BLUE_CHANNEL);
+        ledChannelsStopped = false;
+    }
+    
     currentR = r;
     currentG = g;
     currentB = b;
@@ -197,28 +211,78 @@ void playBuzzerNegative()
     ledc_update_duty(BUZZER_SPEED_MODE, BUZZER_CHANNEL);
 }
 
+// Current brightness level (0.0 = off, 1.0 = full)
+static float currentBrightness = 1.0f;
+
+// Brightness level constants
+static const float BRIGHTNESS_OFF = 0.0f;
+static const float BRIGHTNESS_LOW = 0.08f;  // Very dim
+static const float BRIGHTNESS_MID = 0.25f;  // Moderate
+static const float BRIGHTNESS_HIGH = 1.0f;
+
+// Set brightness level from string
+void setLedBrightness(const String& brightness) {
+    if (brightness == "off") currentBrightness = BRIGHTNESS_OFF;
+    else if (brightness == "low") currentBrightness = BRIGHTNESS_LOW;
+    else if (brightness == "mid") currentBrightness = BRIGHTNESS_MID;
+    else if (brightness == "high") currentBrightness = BRIGHTNESS_HIGH;
+    else currentBrightness = BRIGHTNESS_MID; // default
+}
+
+// Apply brightness to a single channel value
+// For common anode: 0 = full ON, 255 = OFF
+// brightness 0.0 = off (return 255), brightness 1.0 = full (return original)
+uint8_t applyBrightness(uint8_t channelValue) {
+    if (currentBrightness <= 0.0f) return 255; // Off
+    if (currentBrightness >= 1.0f) return channelValue; // Full brightness
+    
+    // For common anode, we need to interpolate between channelValue and 255
+    // Lower brightness = closer to 255 (more off)
+    int diff = 255 - channelValue; // How much "on" this channel is
+    int adjustedDiff = (int)(diff * currentBrightness);
+    return 255 - adjustedDiff;
+}
+
+// Set LED with current brightness applied
+void setLedPWMWithBrightness(uint8_t r, uint8_t g, uint8_t b)
+{
+    setLedPWM(applyBrightness(r), applyBrightness(g), applyBrightness(b));
+}
+
 // Original LED functions using PWM for instant switching (backward compatible)
 void led_Purple()
 {
-    setLedPWM(0, 255, 0); // Red + Blue ON, Green OFF
+    setLedPWMWithBrightness(0, 255, 0); // Red + Blue ON, Green OFF
 }
 
 void led_Red()
 {
-    setLedPWM(0, 255, 255); // Red ON, Green + Blue OFF
+    setLedPWMWithBrightness(0, 255, 255); // Red ON, Green + Blue OFF
 }
 
 void led_Green()
 {
-    setLedPWM(255, 0, 255); // Green ON, Red + Blue OFF
+    setLedPWMWithBrightness(255, 0, 255); // Green ON, Red + Blue OFF
 }
 
 void led_Yellow()
 {
-    setLedPWM(0, 0, 255); // Red + Green ON, Blue OFF
+    setLedPWMWithBrightness(0, 180, 255); // Amber: Red full ON, Green partial, Blue OFF
 }
 
 void led_Blue()
 {
-    setLedPWM(255, 255, 0); // Blue ON, Red + Green OFF
+    setLedPWMWithBrightness(255, 255, 0); // Blue ON, Red + Green OFF
+}
+
+void led_Off()
+{
+    // Stop LEDC channels to fully turn off LED (PWM at 255 still leaks some light)
+    ledc_stop(LED_SPEED_MODE, RED_CHANNEL, 1);   // 1 = idle HIGH (off for common anode)
+    ledc_stop(LED_SPEED_MODE, GREEN_CHANNEL, 1);
+    ledc_stop(LED_SPEED_MODE, BLUE_CHANNEL, 1);
+    ledChannelsStopped = true;
+    currentR = 255;
+    currentG = 255;
+    currentB = 255;
 }

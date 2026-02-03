@@ -51,9 +51,9 @@
 #define EPD_DC_PIN 27
 #define EPD_BUSY_PIN 13
 
-#define RED_PIN 23 // 23 (dev) - 17 (live)
-#define BLUE_PIN 19
-#define GREEN_PIN 18
+#define RED_PIN 18   // Hardware: Red LED on pin 18
+#define GREEN_PIN 19 // Hardware: Green LED on pin 19
+#define BLUE_PIN 23  // Hardware: Blue LED on pin 23
 
 #define BUZZER_PIN 21
 

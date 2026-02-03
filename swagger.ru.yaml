@@ -1,8 +1,8 @@
 openapi: 3.0.0
 info:
   title: TigerMeter Cloud API
-  description: API для привязки (claim) устройств и управления инструкциями отображения (одиночная запись или плейлист).
-  version: 1.0.0
+  description: API для привязки (claim) устройств и управления универсальными инструкциями отображения с настраиваемыми текстовыми полями (symbol, topLine, mainText, bottomLine), размерами шрифтов, выравниванием и LED-управлением.
+  version: 2.0.0
   x-language: ru
 servers:
   - url: https://api.tigermeter.cloud
@@ -197,7 +197,7 @@ paths:
   /api/devices/{id}/display:
     put:
       tags: [Portal]
-      summary: Установить инструкцию отображения (single или playlist)
+      summary: Установить инструкцию отображения
       operationId: setDisplayInstruction
       description: Заменяет текущую инструкцию отображения. Устройство должно переключиться при изменении хеша.
       security:
@@ -214,10 +214,8 @@ paths:
             schema:
               $ref: '#/components/schemas/DisplayInstruction'
             examples:
-              single:
-                $ref: '#/components/examples/InstructionSingleExample'
-              playlist:
-                $ref: '#/components/examples/InstructionPlaylistExample'
+              example:
+                $ref: '#/components/examples/InstructionExample'
       responses:
         '200':
           description: Принято; возвращает текущий хеш
@@ -311,10 +309,8 @@ paths:
               schema:
                 $ref: '#/components/schemas/DisplayInstruction'
               examples:
-                currentSingle:
-                  $ref: '#/components/examples/InstructionSingleExample'
-                currentPlaylist:
-                  $ref: '#/components/examples/InstructionPlaylistExample'
+                instruction:
+                  $ref: '#/components/examples/InstructionExample'
         '304': { description: Не изменилось }
         '401': { description: Недействительный секрет }
         '404': { description: Не найдено }
@@ -434,92 +430,36 @@ components:
       description: Секретный токен устройства
   schemas:
     DisplayInstruction:
-      description: Полиморфная инструкция отображения (single | playlist) по полю type.
-      oneOf:
-        - $ref: '#/components/schemas/DisplayInstructionSingle'
-        - $ref: '#/components/schemas/DisplayInstructionPlaylist'
-      discriminator:
-        propertyName: type
-        mapping:
-          single: '#/components/schemas/DisplayInstructionSingle'
-          playlist: '#/components/schemas/DisplayInstructionPlaylist'
-    DisplayInstructionBase:
       type: object
-      required: [type, version, hash]
+      required: [version, hash, symbol, mainText]
+      description: Инструкция отображения (плоская структура).
       properties:
-        type:
-          type: string
-          enum: [single, playlist]
-          description: Тип инструкции
         version:
           type: integer
           description: Монотонно растущая версия инструкции для устройства
         hash:
           type: string
           description: Стабильный хеш JSON инструкции
+        symbol: { type: string, description: Короткий идентификатор (тикер) }
+        mainText: { type: string, description: Основной текст по центру }
+        topLine: { type: string, description: Текст верхней строки }
+        topLineFontSize: { type: integer, minimum: 10, maximum: 40, default: 16, description: 'Размер шрифта верхней строки (10-40px, пресеты: 10, 12, 16, 20, 24, 28, 32, 40)' }
+        topLineAlign: { type: string, enum: [left, center, right], default: center, description: Выравнивание верхней строки }
+        topLineShowDate: { type: boolean, default: false, description: Показывать текущее время вместо topLine }
+        mainTextFontSize: { type: integer, minimum: 10, maximum: 40, default: 32, description: 'Размер шрифта основного текста (10-40px, пресеты: 10, 12, 16, 20, 24, 28, 32, 40)' }
+        mainTextAlign: { type: string, enum: [left, center, right], default: center, description: Выравнивание основного текста }
+        bottomLine: { type: string, description: Текст нижней строки }
+        bottomLineFontSize: { type: integer, minimum: 10, maximum: 40, default: 16, description: 'Размер шрифта нижней строки (10-40px, пресеты: 10, 12, 16, 20, 24, 28, 32, 40)' }
+        bottomLineAlign: { type: string, enum: [left, center, right], default: center, description: Выравнивание нижней строки }
+        ledColor: { type: string, enum: [blue, green, red, yellow, purple], default: green, description: Цвет светодиода }
+        ledBrightness: { type: string, enum: [off, low, mid, high], default: mid, description: Яркость LED }
+        beep: { type: boolean, default: false, description: Однократный звуковой сигнал (one-time) }
+        flashCount: { type: integer, minimum: 0, default: 0, description: Количество вспышек LED (one-time) }
+        refreshInterval: { type: integer, minimum: 5, default: 30, description: Интервал опроса API в секундах }
         extensions:
           type: object
           additionalProperties: true
           description: Зарезервировано для будущих расширений
-    DisplayInstructionSingle:
-      allOf:
-        - $ref: '#/components/schemas/DisplayInstructionBase'
-        - type: object
-          required: [single]
-          properties:
-            type:
-              type: string
-              enum: [single]
-              description: Тип = single
-            single:
-              $ref: '#/components/schemas/DisplaySingle'
-    DisplayInstructionPlaylist:
-      allOf:
-        - $ref: '#/components/schemas/DisplayInstructionBase'
-        - type: object
-          required: [playlist]
-          properties:
-            type:
-              type: string
-              enum: [playlist]
-              description: Тип = playlist
-            playlist:
-              $ref: '#/components/schemas/DisplayPlaylist'
-    DisplaySingle:
-      type: object
-      required: [name, price, currencySymbol, timestamp]
-      description: Одна ценовая/портфельная запись для отображения.
-      properties:
-        name: { type: string, description: Название актива или метки }
-        price: { type: number, format: double, description: Текущая цена }
-        currencySymbol: { type: string, description: Символ валюты например $ }
-        timestamp: { type: string, format: date-time, description: Временная метка данных }
-        ledColor: { type: string, enum: [blue, green, red, yellow, purple], description: Цвет светодиода }
-        beep: { type: boolean, description: Однократный звуковой сигнал }
-        flashCount: { type: integer, minimum: 0, description: Количество вспышек }
-        ledBrightness: { type: string, enum: [off, low, mid, high], description: Яркость LED }
-        portfolioValue: { type: number, format: double, description: Текущая стоимость портфеля }
-        portfolioChangeAbsolute: { type: number, format: double, description: Абсолютное изменение портфеля }
-        portfolioChangePercent: { type: number, format: double, description: Процент изменения (5 = 5%) }
-        extensions:
-          type: object
-          additionalProperties: true
-          description: Дополнительные будущие поля
-    DisplayPlaylist:
-      type: object
-      required: [items, displaySeconds]
-      description: Плейлист из нескольких одиночных элементов.
-      properties:
-        items:
-          type: array
-          description: Список элементов
-          items:
-            $ref: '#/components/schemas/DisplaySingle'
-        displaySeconds: { type: integer, minimum: 1, description: Секунд отображается каждый элемент }
-        extensions:
-          type: object
-          additionalProperties: true
-          description: Дополнительные будущие поля
     DeviceSummary:
       type: object
       description: Краткая информация об устройстве.
@@ -536,7 +476,6 @@ components:
           properties:
             mac: { type: string, description: MAC адрес }
             userId: { type: string, nullable: true, description: Пользователь-владелец }
-            currentDisplayType: { type: string, enum: [single, playlist], nullable: true, description: Тип текущей инструкции }
             battery: { type: integer, nullable: true, description: Заряд батареи (проценты) }
             led: { type: string, enum: [off, low, middle, high], nullable: true, description: Текущая яркость LED }
             secretExpiresAt: { type: string, format: date-time, nullable: true, description: Истечение текущего секрета }
@@ -613,81 +552,43 @@ components:
         displayHash: { type: string, description: Текущий хеш инструкции (может быть пустым) }
         expiresAt: { type: string, format: date-time, description: Истечение секрета }
   examples:
-    InstructionSingleExample:
-      summary: Одиночная инструкция
+    InstructionExample:
+      summary: Инструкция отображения
       value:
-        type: single
         version: 7
-        hash: "ab12cd34ef56..."
-        single:
-          name: BTC
-          price: 63250.45
-          currencySymbol: $
-          timestamp: 2025-09-14T09:30:00Z
-          ledColor: green
-          flashCount: 0
-          ledBrightness: mid
-          beep: true
-          portfolioValue: 125000.75
-          portfolioChangeAbsolute: 1520.10
-          portfolioChangePercent: 1.23
-          extensions:
-            note: "Расширение для будущих полей"
-    InstructionPlaylistExample:
-      summary: Плейлист из двух элементов
-      value:
-        type: playlist
-        version: 12
-        hash: "ff88aa11bb22..."
-        playlist:
-          items:
-            - name: BTC
-              price: 63250.45
-              currencySymbol: $
-              timestamp: 2025-09-14T09:30:00Z
-              ledColor: green
-              ledBrightness: high
-              portfolioValue: 125000.75
-              portfolioChangeAbsolute: 1520.10
-              portfolioChangePercent: 1.23
-              flashCount: 0
-              extensions:
-                source: "feedA"
-            - name: ETH
-              price: 3250.10
-              currencySymbol: $
-              timestamp: 2025-09-14T09:30:05Z
-              ledColor: blue
-              ledBrightness: mid
-              portfolioValue: 125000.75
-              portfolioChangeAbsolute: 1520.10
-              portfolioChangePercent: 1.23
-              flashCount: 1
-              beep: false
-              extensions:
-                source: "feedB"
-          displaySeconds: 5
-          extensions:
-            rotation: "standard"
-    HeartbeatInstructionSingleExample:
-      summary: Хартбит с новой single инструкцией
+        hash: "sha256:ab12cd34ef56..."
+        symbol: BTC
+        mainText: "$98,500"
+        topLine: Bitcoin
+        topLineFontSize: 16
+        topLineAlign: center
+        mainTextFontSize: 32
+        mainTextAlign: center
+        bottomLine: "+2.5%"
+        bottomLineFontSize: 16
+        bottomLineAlign: center
+        ledColor: green
+        ledBrightness: mid
+        beep: false
+        flashCount: 0
+        refreshInterval: 30
+    HeartbeatInstructionExample:
+      summary: Хартбит с новой инструкцией
       value:
         instruction:
-          type: single
           version: 8
-          hash: "99ccaa77..."
-          single:
-            name: AAPL
-            price: 221.34
-            currencySymbol: $
-            timestamp: 2025-09-14T09:32:10Z
-            ledColor: yellow
-            flashCount: 1
-            ledBrightness: low
-            beep: false
-            portfolioValue: 45890.12
-            portfolioChangeAbsolute: -210.44
-            portfolioChangePercent: -0.46
-            extensions:
-              sector: "Tech"
-        displayHash: "99ccaa77..."
+          hash: "sha256:99ccaa77..."
+          symbol: AAPL
+          mainText: "$221.34"
+          topLine: Apple Inc
+          topLineFontSize: 16
+          topLineShowDate: false
+          mainTextFontSize: 32
+          bottomLine: "-0.46%"
+          bottomLineFontSize: 16
+          ledColor: yellow
+          ledBrightness: low
+          beep: true
+          flashCount: 2
+          refreshInterval: 60
+        displayHash: "sha256:99ccaa77..."

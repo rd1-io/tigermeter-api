@@ -6,6 +6,7 @@ Import("env")
 
 import os
 import shutil
+import json
 
 def merge_bin(source, target, env):
     """Create merged binary after successful build"""
@@ -72,18 +73,35 @@ def merge_bin(source, target, env):
     # Auto-copy to docs directory based on environment (for GitHub Pages)
     docs_dir = os.path.join(project_dir, "..", "docs", "firmware")
     
-    if env_name == "esp32demo":
-        dest_dir = os.path.join(docs_dir, "demo")
-    elif env_name == "esp32api":
+    if env_name == "esp32api":
         dest_dir = os.path.join(docs_dir, "prod")
     else:
         dest_dir = None
     
     if dest_dir and os.path.exists(os.path.dirname(dest_dir)):
         os.makedirs(dest_dir, exist_ok=True)
+        # Copy merged binary for ESP Web Tools (flash from address 0x0)
         dest_file = os.path.join(dest_dir, "firmware.bin")
         shutil.copy2(merged_output, dest_file)
-        print(f"Copied to: {dest_file}")
+        print(f"Copied merged to: {dest_file}")
+        # Copy clean app binary for OTA updates (no bootloader/partitions)
+        dest_ota = os.path.join(dest_dir, "firmware-ota.bin")
+        shutil.copy2(firmware, dest_ota)
+        ota_size = os.path.getsize(dest_ota)
+        print(f"Copied OTA to: {dest_ota} ({ota_size:,} bytes)")
+        
+        # Read version from version file and save to version.json
+        version_path = os.path.join(project_dir, "version_prod.txt")
+        version = "0"
+        if os.path.exists(version_path):
+            with open(version_path, "r") as vf:
+                version = vf.read().strip()
+        
+        # Write version.json
+        version_json_path = os.path.join(dest_dir, "version.json")
+        with open(version_json_path, "w") as vj:
+            json.dump({"version": int(version)}, vj)
+        print(f"Version {version} saved to: {version_json_path}")
 
 # Register post-build action
 env.AddPostAction("$BUILD_DIR/firmware.bin", merge_bin)

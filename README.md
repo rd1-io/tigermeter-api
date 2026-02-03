@@ -33,11 +33,11 @@ make emulator
 
 
 
-- (1) name — тикер / идентификатор актива (`single.name`).
-- (2) timestamp — время данных (`single.timestamp`).
-- (3) price — текущая цена (`currencySymbol` + `single.price`).
-- (4) portfolioValue + portfolioChangePercent — агрегированная стоимость + % изменения.
-- (5) ledColor / trend bar — динамическая полоса или LED (green/red/purple/blue/yellow/white).
+- (1) symbol — короткий идентификатор.
+- (2) topLine — верхняя строка текста, или дата/время если `topLineShowDate=true`.
+- (3) mainText — основной текст по центру с настраиваемым размером.
+- (4) bottomLine — нижняя строка текста.
+- (5) ledColor / trend bar — динамическая полоса или LED (green/red/purple/blue/yellow).
 
 
 
@@ -59,8 +59,6 @@ make emulator
 - [Процесс и параметры отображения](#процесс-и-параметры-отображения)
   - [Flow обновления отображения](#flow-обновления-отображения)
   - [Поля инструкции отображения](#поля-инструкции-отображения)
-    - [Тип `single`](#тип-single)
-    - [Тип `playlist`](#тип-playlist)
   - [Правила формирования `hash`](#правила-формирования-hash)
   - [Идемпотентность обновлений](#идемпотентность-обновлений)
   - [Безопасность](#безопасность)
@@ -184,16 +182,25 @@ stateDiagram-v2
 ```
 
 ### 7. Display Instruction (формат)
-Single или Playlist. Хеш: канонический JSON (отсортированные ключи) → SHA-256 hex, префикс sha256:.
+Хеш: канонический JSON (рекурсивно отсортированные ключи) → SHA-256 hex, префикс sha256:.
 
-Пример Single:
+Пример:
 ```json
-{"type":"single","version":12,"hash":"sha256:...","single":{"name":"BITCOIN","price":48250.23,"currencySymbol":"$","timestamp":"2025-09-14T10:00:00Z"}}
-```
-
-Пример Playlist (укорочено):
-```json
-{"type":"playlist","version":13,"hash":"sha256:...","playlist":{"displaySeconds":8,"items":[{"name":"BTC","price":48250.23},{"name":"ETH","price":3800.11}]}}
+{
+  "version": 12,
+  "hash": "sha256:...",
+  "symbol": "BTC",
+  "mainText": "$98,500",
+  "topLine": "Bitcoin",
+  "topLineFontSize": "small",
+  "topLineAlign": "center",
+  "mainTextFontSize": "large",
+  "mainTextAlign": "center",
+  "bottomLine": "+2.5%",
+  "bottomLineFontSize": "small",
+  "ledColor": "green",
+  "ledBrightness": "mid"
+}
 ```
 
 ### 8. Безопасность привязки (HMAC)
@@ -210,7 +217,7 @@ HMAC_SHA256(device_hmac_key, mac || firmwareVersion || timestampRoundedToMinute)
 ## Процесс и параметры отображения
 
 ### Flow обновления отображения
-1. Пользователь через портал вызывает `PUT /devices/{id}/display` с новой инструкцией (`single` или `playlist`).
+1. Пользователь через портал вызывает `PUT /devices/{id}/display` с новой инструкцией.
 2. Backend пересчитывает канонический JSON и SHA-256 → `displayHash` и сохраняет версию (version++).
 3. Устройство на очередном `POST /devices/{id}/heartbeat` отправляет свой известный `displayHash`.
 4. Если хеш отличается — возвращается новая инструкция (inline) или минимальный ответ с `instruction` и новым `displayHash`.
@@ -221,32 +228,29 @@ HMAC_SHA256(device_hmac_key, mac || firmwareVersion || timestampRoundedToMinute)
 - `GET /devices/{id}/display/full?ifHash=...` чтобы получить полный объект, если изменился.
 
 ### Поля инструкции отображения
-Общие базовые поля (у обоих типов):
-- `type`: `single|playlist`.
-- `version`: монотонно растущая для конкретного устройства.
+Метаданные:
+- `version`: монотонно растущая версия для конкретного устройства.
 - `hash`: `sha256:<hex>` хеш канонического JSON.
 - `extensions`: произвольные будущие расширения (обе стороны должны игнорировать неизвестные поля).
 
-#### Тип `single`
-`single` объект описывает одну «карточку» данных.
-- `name`: строка (тикер / имя / метка портфеля).
-- `price`: число (double) текущая цена/значение.
-- `currencySymbol`: символ валюты например `$`.
-- `timestamp`: ISO8601 время данных.
-- `ledColor`: enum `blue|green|red|yellow|purple` (подсветка).
-- `beep`: boolean (однократный звуковой сигнал при получении обновления).
-- `flashCount`: int количество вспышек экрана/LED.
-- `ledBrightness`: enum `off|low|mid|high`.
-- `portfolioValue`: число — общая стоимость портфеля.
-- `portfolioChangeAbsolute`: абсолютное изменение.
-- `portfolioChangePercent`: процент изменения (5 = +5%).
-- `extensions`: future-proof контейнер.
-
-#### Тип `playlist`
-`playlist` объект:
-- `items`: массив элементов формата `single` (без вложенных плейлистов).
-- `displaySeconds`: int — сколько секунд показывать каждый элемент.
-- `extensions`: future-proof.
+Поля отображения:
+- `symbol` (обязательно): короткий идентификатор (тикер).
+- `mainText` (обязательно): основной текст по центру.
+- `topLine`: текст верхней строки.
+- `topLineFontSize`: enum `small|mid|large` (по умолчанию `small`).
+- `topLineAlign`: enum `left|center|right` (по умолчанию `center`).
+- `topLineShowDate`: boolean — показывать текущее время вместо topLine.
+- `mainTextFontSize`: enum `small|mid|large` (по умолчанию `large`).
+- `mainTextAlign`: enum `left|center|right` (по умолчанию `center`).
+- `bottomLine`: текст нижней строки.
+- `bottomLineFontSize`: enum `small|mid|large` (по умолчанию `small`).
+- `bottomLineAlign`: enum `left|center|right` (по умолчанию `center`).
+- `ledColor`: enum `blue|green|red|yellow|purple` (подсветка, по умолчанию `green`).
+- `ledBrightness`: enum `off|low|mid|high` (по умолчанию `mid`).
+- `beep`: boolean — однократный звуковой сигнал (one-time).
+- `flashCount`: int — количество вспышек LED (one-time).
+- `refreshInterval`: int — интервал опроса API в секундах (по умолчанию 30).
+- `extensions`: future-proof контейнер для расширений.
 
 ### Правила формирования `hash`
 1. Строим объект инструкции (включая вложенные объекты) с отсортированными ключами (канонический JSON).
@@ -281,7 +285,7 @@ HMAC_SHA256(device_hmac_key, mac || firmwareVersion || timestampRoundedToMinute)
 - `lastSeen` — timestamp последнего успешного heartbeat.
 - `secretExpiresAt` — когда истечёт текущий секрет.
 - `deviceSecretHash` (только админ) — хеш секрета (никогда не plaintext).
-- `currentDisplayType` — single или playlist (инференс из последней инструкции).
+- `currentDisplayType` — тип последней инструкции.
 - `displayHash` — последний сохранённый хеш.
 
 ### Конфиденциальность и минимизация
@@ -356,15 +360,13 @@ curl -s "$BASE/api/devices/$DID/display" \
   -H 'content-type: application/json' \
   -X PUT \
   -d '{
-    "type":"single",
     "version":1,
     "hash":"sha256:draft",
-    "single":{
-      "name":"BTC",
-      "price":63250.45,
-      "currencySymbol":"$",
-      "timestamp":"2025-09-14T09:30:00Z"
-    }
+    "symbol":"BTC",
+    "mainText":"$98,500",
+    "topLine":"Bitcoin",
+    "bottomLine":"+2.5%",
+    "ledColor":"green"
   }' | jq .
 ```
 

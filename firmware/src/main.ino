@@ -1,56 +1,126 @@
-// Global firmware version, shared with CaptivePortal.cpp
-extern const int CURRENT_FIRMWARE_VERSION = 2;
+// Include common types first (needed for Arduino preprocessor)
+#include "types.h"
 
+// Global firmware version, passed via build flags (-D FW_VERSION=X)
+#ifndef FW_VERSION
+#define FW_VERSION 0  // Default if not set
+#endif
+extern const int CURRENT_FIRMWARE_VERSION = FW_VERSION;
+
+// ============== MINIMAL TEST MODE ==============
+#ifdef MINIMAL_TEST
+#include "Display.h"
+
+void setup() {
+    Serial.begin(115200);
+    delay(100);
+    Serial.println("[Minimal] Starting...");
+    
+    // Init display
+    Serial.println("[Minimal] Initializing display...");
+    display.begin();
+    Serial.println("[Minimal] Display initialized");
+    
+    // Draw test screen
+    Serial.println("[Minimal] Drawing...");
+    display.clear();
+    display.setFont(FONT_SIZE_MEDIUM);
+    display.setTextColor(true);
+    display.drawText(10, 50, "Hello World");
+    display.drawText(10, 100, "TigerMeter - Привет!");
+    
+    // Display
+    Serial.println("[Minimal] Sending to display...");
+    display.refresh();
+    Serial.println("[Minimal] Done!");
+    
+    while(1) { delay(1000); }
+}
+
+void loop() {}
+
+#elif defined(API_MODE)
 // ============== API MODE ==============
-#ifdef API_MODE
 #include <WiFiManager.h>
-#include "DEV_Config.h"
-#include "EPD.h"
-#include "GUI_Paint.h"
+#include "Display.h"
 #include <stdlib.h>
 #include <time.h>
 #include <WiFi.h>
 #include "CaptivePortal.h"
 #include "utility/LedColorsAndNoises.h"
 #include "utility/ApiClient.h"
+#include "utility/FirmwareUpdate.h"
+#include "BinanceLogo.h"
+#include "DEV_Config.h"
 
-// Display geometry (GDEY029T71H 384x168)
-const int DISPLAY_WIDTH = EPD_GDEY029T71H_WIDTH;
-const int DISPLAY_HEIGHT = EPD_GDEY029T71H_HEIGHT;
-const int VISUAL_WIDTH = DISPLAY_HEIGHT;   // 384
-const int VISUAL_HEIGHT = DISPLAY_WIDTH;   // 168
+// Display geometry (after rotation: 384x168)
+const int VISUAL_WIDTH = DISPLAY_WIDTH;    // 384
+const int VISUAL_HEIGHT = DISPLAY_HEIGHT;  // 168
 const int RECT_WIDTH = 135;
 const int RECT_HEIGHT = VISUAL_HEIGHT;
 
-// API configuration - CHANGE THIS to your computer's IP
+// API configuration
 #ifndef API_BASE_URL
-#define API_BASE_URL "http://192.168.1.100:3001/api"
+#define API_BASE_URL "https://tigermeter-api.fly.dev/api"
 #endif
 
 // Timing
-const unsigned long POLL_INTERVAL_MS = 3000;      // Poll every 3 seconds
-const unsigned long HEARTBEAT_INTERVAL_MS = 30000; // Heartbeat every 30 seconds
+const unsigned long POLL_INTERVAL_MS = 3000;
+const unsigned long HEARTBEAT_INTERVAL_MS = 30000;
 const unsigned long WIFI_CHECK_INTERVAL_MS = 60000;
+const unsigned long OTA_CHECK_INTERVAL_MS = 3600000;
+const unsigned long FIRST_OTA_CHECK_DELAY_MS = 60000; // First OTA check 60s after boot
 
 // Global state
 ApiClient apiClient(API_BASE_URL);
-UBYTE *BlackImage = NULL;
 DeviceState currentState = STATE_UNCLAIMED;
 unsigned long lastPollTime = 0;
 unsigned long lastHeartbeatTime = 0;
+unsigned long lastOtaCheckTime = 0;
 unsigned long startTime = 0;
+bool firstOtaCheckDone = false;
 String currentClaimCode = "";
 
 // Current display data
-String displayName = "";
-float displayPrice = 0.0f;
-String displayCurrency = "$";
-String displayLedColor = "";
-float displayPortfolioValue = 0.0f;
-float displayChangePercent = 0.0f;
+String displaySymbol = "";
+int displaySymbolFontSize = 24;        // Font size in pixels (10-40) for symbol
+String displayTopLine = "";
+int displayTopLineFontSize = 16;       // Font size in pixels (10-40)
+TextAlignType displayTopLineAlign = ALIGN_CENTER;
+bool displayTopLineShowDate = false;
+String displayMainText = "";
+int displayMainTextFontSize = 32;      // Font size in pixels (8-40)
+TextAlignType displayMainTextAlign = ALIGN_CENTER;
+String displayBottomLine = "";
+int displayBottomLineFontSize = 16;    // Font size in pixels (8-40)
+TextAlignType displayBottomLineAlign = ALIGN_CENTER;
+String displayLedColor = "green";
+String displayLedBrightness = "mid";
+int displayRefreshInterval = 30;
+float displayTimezoneOffset = 3.0f;
+String lastDisplayedError = "";
+
+// Battery reading
+const float BATTERY_MULTIPLIER = 2.19f;
+
+int getBatteryPercent() {
+    int raw = analogRead(35);
+    float voltage = (raw / 4095.0f) * 3.3f * BATTERY_MULTIPLIER;
+    int percent = (int)((voltage - 3.0f) / (4.1f - 3.0f) * 100.0f);
+    if (percent < 0) percent = 0;
+    if (percent > 100) percent = 100;
+    return percent;
+}
+
+// Draw battery icon (white on black background)
+void drawBatteryIcon(int x, int y) {
+    display.drawRect(x, y, 24, 12, false);        // Battery body (white outline)
+    display.fillRect(x + 24, y + 3, 3, 6, false); // Battery tip (white)
+    display.fillRect(x + 2, y + 2, 2, 8, false);  // Low level (white bar ~10%)
+}
 
 // Function prototypes
-void initializeEPaper();
+void initializeDisplay();
 void drawRectangleAndText(const char *Text);
 void displayClaimCode(const char *code);
 void displayApiData();
@@ -62,48 +132,96 @@ void led_Green();
 void led_Red();
 void led_Yellow();
 void led_Blue();
+void led_Off();
+void setLedBrightness(const String& brightness);
 void playBuzzerPositive();
 void playBuzzerNegative();
 void initializePins();
+
+// Demo mode functions
+void renderDemoHeader();
+void renderDemoUptime();
+void runDemoLoop();
+void demoLedTask(void *pvParameters);
+
+// Demo mode state
+bool localDemoMode = false;
+
+// Note: toDisplayFontSize is no longer needed since we use numeric pixel sizes directly
+
+// Convert API TextAlignType to Display TextAlign
+static DisplayTextAlign toDisplayAlign(TextAlignType type) {
+    switch (type) {
+        case ALIGN_LEFT: return DISPLAY_ALIGN_LEFT;
+        case ALIGN_RIGHT: return DISPLAY_ALIGN_RIGHT;
+        case ALIGN_CENTER: 
+        default: return DISPLAY_ALIGN_CENTER;
+    }
+}
 
 void setup()
 {
     Serial.begin(115200);
     delay(100);
-    Debug("Starting TigerMeter (API MODE)...\r\n");
+    Serial.println("[Main] Starting TigerMeter (API MODE)...");
     
     startTime = millis();
 
     // Initialize pins and buzzer
     initializePins();
-    led_Purple();
-    playBuzzerPositive();
+    led_Yellow();
 
     // Initialize e-paper display
-    initializeEPaper();
+    Serial.println("[Main] Initializing e-paper display...");
+    initializeDisplay();
+    Serial.println("[Main] Display initialized");
 
-    // Allocate memory for the image
-    UWORD Imagesize = ((DISPLAY_WIDTH % 8 == 0) ? (DISPLAY_WIDTH / 8) : (DISPLAY_WIDTH / 8 + 1)) * DISPLAY_HEIGHT;
-    if ((BlackImage = (UBYTE *)malloc(Imagesize)) == NULL)
-    {
-        Debug("Failed to apply for black memory...\r\n");
-        while (1);
-    }
-
-    // Show logo
-    Paint_NewImage(BlackImage, DISPLAY_WIDTH, DISPLAY_HEIGHT, 270, WHITE);
-    Paint_SelectImage(BlackImage);
-    Paint_Clear(WHITE);
-    Paint_DrawString_EN(45, 40, "TIGERMETER", &Font38, WHITE, BLACK);
-    EPD_Display(BlackImage);
+    // Show logo with Binance logo and TIGERMETER text
+    display.clear();
+    
+    // Draw Binance logo centered
+    int logoX = (VISUAL_WIDTH - BINANCE_LOGO_WIDTH) / 2;
+    int logoY = 25;
+    display.drawBitmap(logoX, logoY, Binance_Logo, BINANCE_LOGO_WIDTH, BINANCE_LOGO_HEIGHT, true);
+    
+    // Draw "TIGER" in gray + "METER" in black
+    display.setFont(FONT_SIZE_LARGE);
+    int tigerW = display.getTextWidth("TIGER");
+    int meterW = display.getTextWidth("METER");
+    int totalW = tigerW + meterW;
+    int textX = (VISUAL_WIDTH - totalW) / 2;
+    int textY = logoY + BINANCE_LOGO_HEIGHT + 12;
+    display.drawTextGray(textX, textY, "TIGER");
+    display.setTextColor(true);
+    display.drawText(textX + tigerW, textY, "METER");
+    
+    display.refresh();
+    Serial.println("[Main] Logo displayed");
     delay(2000);
 
     // Start captive portal AP + OTA
     startCaptivePortal();
 
+    // Check if demo mode is enabled locally
+    {
+        Preferences demoPrefs;
+        demoPrefs.begin("tigermeter", true);
+        localDemoMode = demoPrefs.getBool("demoMode", false);
+        demoPrefs.end();
+    }
+    
+    if (localDemoMode) {
+        Serial.println("[Main] Demo mode enabled, starting demo loop...");
+        playBuzzerPositive();
+        xTaskCreatePinnedToCore(demoLedTask, "demoLed", 2048, NULL, 1, NULL, 1);
+        runDemoLoop();
+        // runDemoLoop never returns
+    }
+
     // Show WiFi message
     displayWifiMessage();
-    EPD_Display(BlackImage);
+    display.refresh();
+    Serial.println("[Main] WiFi message displayed");
 
     // Try to connect using stored credentials
     led_Yellow();
@@ -112,11 +230,28 @@ void setup()
     while (WiFi.status() != WL_CONNECTED && millis() - startAttemptTime < connectionTimeout)
     {
         captivePortalLoop();
-        DEV_Delay_ms(100);
+        delay(100);
     }
 
     // Initialize API client
     apiClient.begin();
+    
+    // Initialize NTP time if WiFi is connected
+    if (WiFi.status() == WL_CONNECTED) {
+        Serial.println("[Main] WiFi connected, initializing NTP...");
+        int tzOffsetSec = (int)(displayTimezoneOffset * 3600);
+        configTime(tzOffsetSec, 0, "pool.ntp.org", "time.nist.gov");
+        int ntpWait = 0;
+        while (time(nullptr) < 1000000000 && ntpWait < 50) {
+            delay(100);
+            ntpWait++;
+        }
+        if (time(nullptr) > 1000000000) {
+            Serial.println("[Main] NTP time synchronized");
+        } else {
+            Serial.println("[Main] NTP sync timeout, will retry later");
+        }
+    }
     
     // Check if we have stored credentials
     if (apiClient.hasCredentials()) {
@@ -128,12 +263,12 @@ void setup()
         Serial.println("[Main] No credentials, entering UNCLAIMED state");
     }
 
-    // Main loop runs in setup() for API mode
+    // Main loop
     while (1)
     {
         captivePortalLoop();
         handleApiStateMachine();
-        DEV_Delay_ms(50);
+        delay(50);
     }
 }
 
@@ -149,9 +284,9 @@ void handleApiStateMachine()
     // Check WiFi periodically
     if (WiFi.status() != WL_CONNECTED)
     {
-        led_Purple();
+        led_Yellow();
         displayWifiMessage();
-        EPD_Display_Partial(BlackImage);
+        display.refresh();
         return;
     }
 
@@ -160,7 +295,9 @@ void handleApiStateMachine()
     case STATE_UNCLAIMED:
     {
         Serial.println("[Main] STATE_UNCLAIMED - issuing claim...");
-        led_Blue();
+        if (lastDisplayedError.isEmpty()) {
+            led_Blue();
+        }
         
         ClaimResult result = apiClient.issueClaim();
         
@@ -168,32 +305,35 @@ void handleApiStateMachine()
         {
             currentClaimCode = result.code;
             currentState = STATE_CLAIMING;
+            lastDisplayedError = "";
+            led_Blue();
             displayClaimCode(result.code.c_str());
-            EPD_Display(BlackImage);
+            display.refresh();
             Serial.println("[Main] Got claim code: " + result.code);
             playBuzzerPositive();
         }
         else
         {
             Serial.println("[Main] Claim failed: " + result.errorMessage);
-            displayError(result.errorMessage.c_str());
-            EPD_Display_Partial(BlackImage);
-            led_Red();
-            DEV_Delay_ms(5000);
-            currentState = STATE_UNCLAIMED; // Retry
+            if (lastDisplayedError != result.errorMessage) {
+                lastDisplayedError = result.errorMessage;
+                displayError(result.errorMessage.c_str());
+                display.refresh();
+            }
+            led_Yellow();
+            delay(5000);
+            currentState = STATE_UNCLAIMED;
         }
         break;
     }
     
     case STATE_CLAIMING:
-        // Show code and transition to waiting
         currentState = STATE_WAITING_ATTACH;
         lastPollTime = now;
         break;
     
     case STATE_WAITING_ATTACH:
     {
-        // Poll for attach
         if (now - lastPollTime >= POLL_INTERVAL_MS)
         {
             lastPollTime = now;
@@ -203,36 +343,32 @@ void handleApiStateMachine()
             
             if (result.claimed)
             {
-                // Got secret!
                 currentState = STATE_ACTIVE;
                 Serial.println("[Main] Claimed! Device ID: " + result.deviceId);
                 led_Green();
                 playBuzzerPositive();
                 
-                // Show success message briefly
-                Paint_NewImage(BlackImage, DISPLAY_WIDTH, DISPLAY_HEIGHT, 270, WHITE);
-                Paint_SelectImage(BlackImage);
-                Paint_Clear(WHITE);
+                // Show success message
+                display.clear();
                 drawRectangleAndText("OK");
-                Paint_DrawString_EN(150, 60, "Connected!", &Font24, WHITE, BLACK);
-                EPD_Display(BlackImage);
-                DEV_Delay_ms(2000);
+                display.setFont(FONT_SIZE_MEDIUM);
+                display.setTextColor(true);
+                display.drawText(150, 72, "Connected!");
+                display.refresh();
+                delay(2000);
                 
-                lastHeartbeatTime = 0; // Force immediate heartbeat
+                lastHeartbeatTime = 0;
             }
             else if (result.pending)
             {
-                // Still waiting - blink LED
-                static bool ledOn = false;
-                ledOn = !ledOn;
-                if (ledOn) led_Blue(); else led_Purple();
+                led_Blue();
             }
             else if (result.expired || result.notFound)
             {
-                // Code expired or consumed - get new one
                 Serial.println("[Main] Claim expired/consumed, restarting...");
                 currentClaimCode = "";
                 currentState = STATE_UNCLAIMED;
+                lastDisplayedError = "Claim expired";
                 led_Yellow();
             }
         }
@@ -241,291 +377,616 @@ void handleApiStateMachine()
     
     case STATE_ACTIVE:
     {
+        // Retry NTP sync if time is still invalid
+        static bool ntpSynced = false;
+        if (!ntpSynced && WiFi.status() == WL_CONNECTED && time(nullptr) < 1000000000) {
+            int tzOffsetSec = (int)(displayTimezoneOffset * 3600);
+            configTime(tzOffsetSec, 0, "pool.ntp.org", "time.nist.gov");
+        }
+        if (time(nullptr) > 1000000000) {
+            ntpSynced = true;
+        }
+        
         // Send heartbeats
-        if (now - lastHeartbeatTime >= HEARTBEAT_INTERVAL_MS || lastHeartbeatTime == 0)
+        unsigned long heartbeatIntervalMs = (displayRefreshInterval > 0) 
+            ? (displayRefreshInterval * 1000UL) 
+            : HEARTBEAT_INTERVAL_MS;
+        if (now - lastHeartbeatTime >= heartbeatIntervalMs || lastHeartbeatTime == 0)
         {
             lastHeartbeatTime = now;
             
             int uptimeSeconds = (now - startTime) / 1000;
             int rssi = WiFi.RSSI();
-            int battery = 100; // Mock battery
+            int battery = getBatteryPercent();
             
-            HeartbeatResult result = apiClient.sendHeartbeat(battery, rssi, uptimeSeconds);
+            bool forceRefresh = (displaySymbol.length() == 0);
+            HeartbeatResult result = apiClient.sendHeartbeat(battery, rssi, uptimeSeconds, forceRefresh);
+            
+            // Check for remote factory reset command
+            if (result.factoryReset)
+            {
+                Serial.println("[Main] Remote factory reset requested!");
+                led_Red();
+                playBuzzerNegative();
+                
+                display.clear();
+                drawRectangleAndText("RST");
+                display.setFont(FONT_SIZE_MEDIUM);
+                display.setTextColor(true);
+                display.drawText(150, 50, "Factory Reset");
+                display.setFont(FONT_SIZE_SMALL);
+                display.drawText(150, 85, "Rebooting...");
+                display.refresh();
+                
+                delay(2000);
+                
+                Preferences prefs;
+                prefs.begin("tigermeter", false);
+                prefs.clear();
+                prefs.end();
+                
+                Serial.println("[Main] All data cleared, rebooting...");
+                ESP.restart();
+            }
+            
+            // Check for remote demo mode toggle
+            if (result.demoMode != localDemoMode)
+            {
+                Serial.printf("[Main] Demo mode changed remotely: %s\n", result.demoMode ? "ON" : "OFF");
+                
+                Preferences prefs;
+                prefs.begin("tigermeter", false);
+                prefs.putBool("demoMode", result.demoMode);
+                prefs.end();
+                
+                display.clear();
+                drawRectangleAndText("DEMO");
+                display.setFont(FONT_SIZE_MEDIUM);
+                display.setTextColor(true);
+                display.drawText(150, 50, result.demoMode ? "Demo Enabled" : "Demo Disabled");
+                display.setFont(FONT_SIZE_SMALL);
+                display.drawText(150, 85, "Rebooting...");
+                display.refresh();
+                
+                if (result.demoMode) {
+                    playBuzzerPositive();
+                }
+                delay(2000);
+                ESP.restart();
+            }
             
             if (result.success)
             {
+                OtaUpdate::setAutoUpdate(result.autoUpdate);
+                OtaUpdate::setLatestVersion(result.latestFirmwareVersion);
+                if (result.firmwareDownloadUrl.length() > 0) {
+                    OtaUpdate::setFirmwareUrl(result.firmwareDownloadUrl);
+                }
+                
                 if (result.hasInstruction)
                 {
-                    // Update display with new data
-                    displayName = result.name;
-                    displayPrice = result.price;
-                    displayCurrency = result.currencySymbol;
+                    bool symbolChanged = (displaySymbol != result.symbol) || (displaySymbol.length() == 0);
+                    
+                    displaySymbol = result.symbol;
+                    displaySymbolFontSize = result.symbolFontSize;
+                    displayTopLine = result.topLine;
+                    displayTopLineFontSize = result.topLineFontSize;
+                    displayTopLineAlign = result.topLineAlign;
+                    displayTopLineShowDate = result.topLineShowDate;
+                    displayMainText = result.mainText;
+                    displayMainTextFontSize = result.mainTextFontSize;
+                    displayMainTextAlign = result.mainTextAlign;
+                    displayBottomLine = result.bottomLine;
+                    displayBottomLineFontSize = result.bottomLineFontSize;
+                    displayBottomLineAlign = result.bottomLineAlign;
                     displayLedColor = result.ledColor;
-                    displayPortfolioValue = result.portfolioValue;
-                    displayChangePercent = result.portfolioChangePercent;
+                    displayLedBrightness = result.ledBrightness;
+                    displayRefreshInterval = result.refreshInterval;
+                    
+                    if (displayTimezoneOffset != result.timezoneOffset) {
+                        displayTimezoneOffset = result.timezoneOffset;
+                        int tzOffsetSec = (int)(displayTimezoneOffset * 3600);
+                        configTime(tzOffsetSec, 0, "pool.ntp.org", "time.nist.gov");
+                        Serial.printf("[Main] Timezone updated to UTC%+.1f\n", displayTimezoneOffset);
+                    }
                     
                     displayApiData();
-                    EPD_Display(BlackImage);
+                    if (symbolChanged) {
+                        display.refresh();
+                        Serial.println("[Main] Full refresh (symbol changed)");
+                    } else {
+                        display.refreshPartial();
+                    }
                     
-                    // Set LED color
-                    if (displayLedColor == "green") led_Green();
+                    setLedBrightness(displayLedBrightness);
+                    if (displayLedBrightness == "off") {
+                        led_Off();
+                    } else if (displayLedColor == "green") led_Green();
                     else if (displayLedColor == "red") led_Red();
                     else if (displayLedColor == "blue") led_Blue();
                     else if (displayLedColor == "yellow") led_Yellow();
                     else if (displayLedColor == "purple") led_Purple();
                     
-                    playBuzzerPositive();
+                    if (result.beep) {
+                        playBuzzerPositive();
+                    }
+                    
+                    if (result.flashCount > 0) {
+                        for (int i = 0; i < result.flashCount; i++) {
+                            delay(200);
+                            led_Off();
+                            delay(200);
+                            if (displayLedBrightness == "off") {
+                                led_Off();
+                            } else if (displayLedColor == "green") led_Green();
+                            else if (displayLedColor == "red") led_Red();
+                            else if (displayLedColor == "blue") led_Blue();
+                            else if (displayLedColor == "yellow") led_Yellow();
+                            else if (displayLedColor == "purple") led_Purple();
+                        }
+                    }
                 }
                 else
                 {
-                    // No changes - show current data if we have any
-                    if (displayName.length() > 0)
+                    if (displaySymbol.length() > 0)
                     {
                         displayApiData();
-                        EPD_Display_Partial(BlackImage);
+                        display.refreshPartial();
                     }
                     else
                     {
-                        // Waiting for first instruction
-                        Paint_NewImage(BlackImage, DISPLAY_WIDTH, DISPLAY_HEIGHT, 270, WHITE);
-                        Paint_SelectImage(BlackImage);
-                        Paint_Clear(WHITE);
+                        display.clear();
                         drawRectangleAndText("...");
-                        Paint_DrawString_EN(150, 50, "Waiting for", &Font16, WHITE, BLACK);
-                        Paint_DrawString_EN(150, 75, "display data", &Font16, WHITE, BLACK);
-                        EPD_Display_Partial(BlackImage);
+                        display.setFont(FONT_SIZE_SMALL);
+                        display.setTextColor(true);
+                        display.drawText(150, 66, "Waiting for");
+                        display.drawText(150, 88, "display data");
+                        display.refresh();
                     }
                 }
             }
             else if (result.httpCode == 401)
             {
-                // Secret revoked - go back to claim
                 Serial.println("[Main] Secret revoked, restarting claim...");
                 currentState = STATE_UNCLAIMED;
                 currentClaimCode = "";
+                lastDisplayedError = "Auth revoked";
                 led_Yellow();
+            }
+        }
+        
+        // Tick seconds
+        static unsigned long lastTimeUpdate = 0;
+        if (displayTopLineShowDate && displaySymbol.length() > 0) {
+            if (now - lastTimeUpdate >= 1000) {
+                lastTimeUpdate = now;
+                displayApiData();
+                display.refreshPartial();
+            }
+        }
+        
+        // Check for OTA updates
+        // First check 60s after boot (if we have version info), then every hour
+        bool shouldCheckOta = false;
+        if (!firstOtaCheckDone && OtaUpdate::getLatestVersion() > 0) {
+            if (now - startTime >= FIRST_OTA_CHECK_DELAY_MS) {
+                shouldCheckOta = true;
+                firstOtaCheckDone = true;
+                Serial.println("[OTA] First check (60s after boot)");
+            }
+        } else if (now - lastOtaCheckTime >= OTA_CHECK_INTERVAL_MS) {
+            shouldCheckOta = true;
+        }
+        
+        if (shouldCheckOta) {
+            lastOtaCheckTime = now;
+            
+            if (OtaUpdate::isUpdateAvailable()) {
+                Serial.printf("[Main] OTA update available: v%d -> v%d\n", 
+                              OtaUpdate::getCurrentVersion(), 
+                              OtaUpdate::getLatestVersion());
+                
+                OtaResult otaResult = OtaUpdate::checkAndUpdate();
+                
+                if (otaResult.success) {
+                    display.clear();
+                    drawRectangleAndText("OTA");
+                    display.setFont(FONT_SIZE_MEDIUM);
+                    display.setTextColor(true);
+                    display.drawText(150, 50, "Update OK!");
+                    display.setFont(FONT_SIZE_SMALL);
+                    display.drawText(150, 85, "Rebooting...");
+                    display.refresh();
+                    
+                    led_Green();
+                    playBuzzerPositive();
+                    delay(2000);
+                    ESP.restart();
+                } else if (otaResult.updateAvailable && otaResult.errorMessage.length() > 0) {
+                    Serial.printf("[Main] OTA update failed: %s\n", otaResult.errorMessage.c_str());
+                }
             }
         }
         break;
     }
     
     case STATE_ERROR:
-        led_Red();
-        DEV_Delay_ms(5000);
+        led_Yellow();
+        lastDisplayedError = "Error";
+        delay(5000);
         currentState = STATE_UNCLAIMED;
         break;
     }
 }
 
-void initializeEPaper()
+void initializeDisplay()
 {
-    Debug("e-Paper Init and Clear...\r\n");
-    DEV_Module_Init();
-    EPD_Init();
-    EPD_Clear();
+    Serial.println("[Display] e-Paper Init...");
+    display.begin();
+    display.clear();
+    display.refresh();
 }
 
 void drawRectangleAndText(const char *Text)
 {
-    Paint_DrawRectangle(0, 0, RECT_WIDTH, RECT_HEIGHT, BLACK, DOT_PIXEL_1X1, DRAW_FILL_FULL);
-    int textX = (RECT_WIDTH - Font32.Width * strlen(Text)) / 2;
-    int textY = (RECT_HEIGHT - Font32.Height) / 2 - 2;
-    Paint_DrawString_EN(textX, textY, Text, &Font32, BLACK, WHITE);
+    // Draw black rectangle on left side
+    display.fillRect(0, 0, RECT_WIDTH, RECT_HEIGHT, true);
+    
+    // Draw text centered in rectangle (white on black)
+    // Use configured symbol font size (defaults to 24px)
+    display.setFontSize(displaySymbolFontSize);
+    display.setTextColor(false);  // White text
+    int textW = display.getTextWidth(Text);
+    int textH = display.getFontHeight();
+    int textX = (RECT_WIDTH - textW) / 2;
+    int textY = (RECT_HEIGHT - textH) / 2;
+    display.drawText(textX, textY, Text);
 }
 
 void displayClaimCode(const char *code)
 {
-    Paint_NewImage(BlackImage, DISPLAY_WIDTH, DISPLAY_HEIGHT, 270, WHITE);
-    Paint_SelectImage(BlackImage);
-    Paint_Clear(WHITE);
-    
-    // Left bar with "CODE"
+    display.clear();
     drawRectangleAndText("CODE");
     
-    // Display the 6-digit code large and centered in the right area
-    const sFONT *fontCode = &Font40;
+    // Display code in right area
+    display.setFont(FONT_SIZE_LARGE);
+    display.setTextColor(true);
     int rightAreaStart = RECT_WIDTH;
     int rightAreaWidth = VISUAL_WIDTH - RECT_WIDTH;
-    int codeWidth = fontCode->Width * strlen(code);
-    int codeX = rightAreaStart + (rightAreaWidth - codeWidth) / 2;
-    int codeY = (VISUAL_HEIGHT - fontCode->Height) / 2;
-    
-    Paint_DrawString_EN(codeX, codeY, code, (sFONT *)fontCode, WHITE, BLACK);
-    
-    // Instructions below
-    const sFONT *fontSmall = &Font16;
-    Paint_DrawString_EN(rightAreaStart + 10, codeY + fontCode->Height + 15, 
-                       "Enter code in portal", (sFONT *)fontSmall, WHITE, BLACK);
+    int codeW = display.getTextWidth(code);
+    int codeH = display.getFontHeight();
+    int codeX = rightAreaStart + (rightAreaWidth - codeW) / 2;
+    int codeY = (VISUAL_HEIGHT - codeH) / 2;
+    display.drawText(codeX, codeY, code);
 }
 
 void displayApiData()
 {
-    Paint_NewImage(BlackImage, DISPLAY_WIDTH, DISPLAY_HEIGHT, 270, WHITE);
-    Paint_SelectImage(BlackImage);
-    Paint_Clear(WHITE);
+    display.clear();
     
-    // Left bar with ticker name
-    char ticker[8];
-    strncpy(ticker, displayName.c_str(), 7);
-    ticker[7] = '\0';
-    drawRectangleAndText(ticker);
+    // Left bar with symbol
+    char symbolStr[8];
+    strncpy(symbolStr, displaySymbol.c_str(), 7);
+    symbolStr[7] = '\0';
+    drawRectangleAndText(symbolStr);
     
-    // Price
-    char priceStr[16];
-    snprintf(priceStr, sizeof(priceStr), "%s%.2f", displayCurrency.c_str(), displayPrice);
-    const sFONT *fontPrice = &Font40;
-    int rightAreaStart = RECT_WIDTH + 10;
-    Paint_DrawString_EN(rightAreaStart, 30, priceStr, (sFONT *)fontPrice, WHITE, BLACK);
+    // Right area dimensions
+    int rightAreaStart = RECT_WIDTH + 5;
+    int rightAreaWidth = VISUAL_WIDTH - RECT_WIDTH - 10;
     
-    // Portfolio value and change
-    char portfolioStr[32];
-    snprintf(portfolioStr, sizeof(portfolioStr), "%s%.0f", displayCurrency.c_str(), displayPortfolioValue);
-    Paint_DrawString_EN(rightAreaStart, 85, portfolioStr, &Font24, WHITE, BLACK);
+    // Top line
+    char topStr[32];
+    if (displayTopLineShowDate) {
+        time_t now = time(NULL);
+        struct tm *t = localtime(&now);
+        strftime(topStr, sizeof(topStr), "%H:%M:%S %d %b", t);
+    } else {
+        strncpy(topStr, displayTopLine.c_str(), 31);
+        topStr[31] = '\0';
+    }
+    if (strlen(topStr) > 0) {
+        display.setFontSize(displayTopLineFontSize);  // Use numeric pixel size
+        display.setTextColor(true);
+        display.drawTextAligned(rightAreaStart, 8, rightAreaWidth, topStr, toDisplayAlign(displayTopLineAlign));
+    }
     
-    // Change percent
-    char changeStr[16];
-    const char *sign = displayChangePercent >= 0 ? "+" : "";
-    snprintf(changeStr, sizeof(changeStr), "%s%.2f%%", sign, displayChangePercent);
-    Paint_DrawString_EN(rightAreaStart, 120, changeStr, &Font24, WHITE, BLACK);
+    // Main text
+    char mainStr[32];
+    strncpy(mainStr, displayMainText.c_str(), 31);
+    mainStr[31] = '\0';
+    display.setFontSize(displayMainTextFontSize);  // Use numeric pixel size
+    display.setTextColor(true);
+    int mainH = display.getFontHeight();
+    int mainY = (VISUAL_HEIGHT - mainH) / 2;
+    display.drawTextAligned(rightAreaStart, mainY, rightAreaWidth, mainStr, toDisplayAlign(displayMainTextAlign));
     
-    // Timestamp
-    time_t now = time(NULL);
-    struct tm *current_time = localtime(&now);
-    char timeStr[16];
-    strftime(timeStr, sizeof(timeStr), "%H:%M", current_time);
-    Paint_DrawString_EN(VISUAL_WIDTH - 70, 5, timeStr, &Font16, WHITE, BLACK);
+    // Bottom line
+    char bottomStr[32];
+    strncpy(bottomStr, displayBottomLine.c_str(), 31);
+    bottomStr[31] = '\0';
+    if (strlen(bottomStr) > 0) {
+        display.setFontSize(displayBottomLineFontSize);  // Use numeric pixel size
+        display.setTextColor(true);
+        int bottomH = display.getFontHeight();
+        int bottomY = VISUAL_HEIGHT - bottomH - 8;
+        display.drawTextAligned(rightAreaStart, bottomY, rightAreaWidth, bottomStr, toDisplayAlign(displayBottomLineAlign));
+    }
+    
+    // Low battery warning
+    int batteryLevel = getBatteryPercent();
+    if (batteryLevel < 10) {
+        drawBatteryIcon(5, 5);
+    }
 }
 
 void displayWifiMessage()
 {
-    Paint_NewImage(BlackImage, DISPLAY_WIDTH, DISPLAY_HEIGHT, 270, WHITE);
-    Paint_SelectImage(BlackImage);
-    Paint_Clear(WHITE);
-    
+    display.clear();
     drawRectangleAndText("WiFi");
     
-    const sFONT *fontNetwork = &Font24;
-    Paint_DrawString_EN(150, 55, "tigermeter", (sFONT *)fontNetwork, WHITE, BLACK);
-    Paint_DrawString_EN(150, 100, "192.168.4.1", &Font16, WHITE, BLACK);
+    display.setFont(FONT_SIZE_MEDIUM);
+    display.setTextColor(true);
+    display.drawText(150, 55, "tigermeter");
+    display.setFont(FONT_SIZE_SMALL);
+    display.drawText(150, 100, "192.168.4.1");
 }
 
 void displayError(const char *msg)
 {
-    Paint_NewImage(BlackImage, DISPLAY_WIDTH, DISPLAY_HEIGHT, 270, WHITE);
-    Paint_SelectImage(BlackImage);
-    Paint_Clear(WHITE);
-    
+    display.clear();
     drawRectangleAndText("ERR");
     
-    // Truncate message if too long
     char truncMsg[24];
     strncpy(truncMsg, msg, 23);
     truncMsg[23] = '\0';
     
-    Paint_DrawString_EN(150, 70, truncMsg, &Font16, WHITE, BLACK);
+    display.setFont(FONT_SIZE_SMALL);
+    display.setTextColor(true);
+    display.drawText(150, 75, truncMsg);
+}
+
+// ============== DEMO MODE FUNCTIONS ==============
+void getBatteryInfo(float &voltage, int &percent) {
+    int raw = analogRead(35);
+    voltage = (raw / 4095.0f) * 3.3f * BATTERY_MULTIPLIER;
+    percent = (int)((voltage - 3.0f) / (4.1f - 3.0f) * 100.0f);
+    if (percent < 0) percent = 0;
+    if (percent > 100) percent = 100;
+}
+
+void renderDemoHeader()
+{
+    display.clear();
+    drawRectangleAndText("DEMO");
+}
+
+void renderDemoUptime()
+{
+    unsigned long seconds = millis() / 1000UL;
+    unsigned int hh = (seconds / 3600UL) % 100U;
+    unsigned int mm = (seconds / 60UL) % 60U;
+    unsigned int ss = seconds % 60U;
+
+    char timeStr[9];
+    snprintf(timeStr, sizeof(timeStr), "%02u:%02u:%02u", hh, mm, ss);
+
+    int rightAreaStart = RECT_WIDTH;
+    int rightAreaWidth = VISUAL_WIDTH - RECT_WIDTH;
+    
+    // Clear right area
+    display.fillRect(rightAreaStart, 0, rightAreaWidth, VISUAL_HEIGHT, false);
+    
+    // Draw timer centered
+    display.setFont(FONT_SIZE_LARGE);
+    display.setTextColor(true);
+    int textW = display.getTextWidth(timeStr);
+    int x = rightAreaStart + (rightAreaWidth - textW) / 2;
+    int y = (VISUAL_HEIGHT - display.getFontHeight()) / 2;
+    display.drawText(x, y, timeStr);
+    
+    // Battery info
+    float battVoltage;
+    int battPercent;
+    getBatteryInfo(battVoltage, battPercent);
+    
+    char battStr[16];
+    snprintf(battStr, sizeof(battStr), "%.2fV %d%%", battVoltage, battPercent);
+    
+    display.setFont(FONT_SIZE_SMALL);
+    int infoX = rightAreaStart + 5;
+    display.drawText(infoX, 3, battStr);
+    
+    // WiFi status
+    char wifiStr[28];
+    if (WiFi.status() == WL_CONNECTED) {
+        String ssid = WiFi.SSID();
+        snprintf(wifiStr, sizeof(wifiStr), "WiFi: %.12s OK", ssid.c_str());
+    } else {
+        snprintf(wifiStr, sizeof(wifiStr), "WiFi: -- (no conn)");
+    }
+    int line2Y = 3 + display.getFontHeight() + 2;
+    display.drawText(infoX, line2Y, wifiStr);
+    
+    // IP address
+    char ipStr[24];
+    if (WiFi.status() == WL_CONNECTED) {
+        snprintf(ipStr, sizeof(ipStr), "IP: %s", WiFi.localIP().toString().c_str());
+    } else {
+        snprintf(ipStr, sizeof(ipStr), "AP: %s", WiFi.softAPIP().toString().c_str());
+    }
+    display.drawText(infoX, line2Y + display.getFontHeight() + 2, ipStr);
+    
+    // Firmware version
+    char fwStr[16];
+    snprintf(fwStr, sizeof(fwStr), "FW: v%d", CURRENT_FIRMWARE_VERSION);
+    int fwY = VISUAL_HEIGHT - (display.getFontHeight() + 2) * 3 - 3;
+    display.drawText(infoX, fwY, fwStr);
+    
+    // MAC address
+    String mac = WiFi.macAddress();
+    char macStr[24];
+    snprintf(macStr, sizeof(macStr), "MAC: %s", mac.c_str());
+    int macY = VISUAL_HEIGHT - (display.getFontHeight() + 2) * 2 - 3;
+    display.drawText(infoX, macY, macStr);
+    
+    // Date
+    int dateY = VISUAL_HEIGHT - display.getFontHeight() - 3;
+    if (WiFi.status() == WL_CONNECTED) {
+        time_t now = time(NULL);
+        if (now > 1000000000) {
+            struct tm *t = localtime(&now);
+            char dateStr[20];
+            strftime(dateStr, sizeof(dateStr), "%d %b %Y", t);
+            display.drawText(infoX, dateY, dateStr);
+        }
+    }
+}
+
+void runDemoLoop()
+{
+    renderDemoHeader();
+    renderDemoUptime();
+    display.refresh();
+
+    unsigned long lastUpdate = millis();
+    unsigned long lastMacPrint = 0;
+    const unsigned long MAC_PRINT_INTERVAL = 5000;
+    static bool ntpInitialized = false;
+    
+    while (1)
+    {
+        if (!ntpInitialized && WiFi.status() == WL_CONNECTED) {
+            int tzOffsetSec = (int)(displayTimezoneOffset * 3600);
+            configTime(tzOffsetSec, 0, "pool.ntp.org", "time.nist.gov");
+            ntpInitialized = true;
+            Serial.println("[DEMO] NTP time initialized");
+        }
+        captivePortalLoop();
+        
+        unsigned long now = millis();
+        
+        if (now - lastMacPrint >= MAC_PRINT_INTERVAL)
+        {
+            lastMacPrint = now;
+            
+            unsigned long uptimeSec = now / 1000;
+            unsigned int hh = (uptimeSec / 3600) % 100;
+            unsigned int mm = (uptimeSec / 60) % 60;
+            unsigned int ss = uptimeSec % 60;
+            
+            Serial.println("\n===== [DEMO] Debug Info =====");
+            Serial.printf("[DEMO] Uptime: %02u:%02u:%02u\r\n", hh, mm, ss);
+            Serial.println("[DEMO] MAC: " + WiFi.macAddress());
+            Serial.printf("[DEMO] AP IP: %s\r\n", WiFi.softAPIP().toString().c_str());
+            Serial.printf("[DEMO] Free Heap: %u bytes\r\n", ESP.getFreeHeap());
+            Serial.printf("[DEMO] Connected clients: %d\r\n", WiFi.softAPgetStationNum());
+            
+            int batteryRaw = analogRead(35);
+            float batteryVoltage = (batteryRaw / 4095.0) * 3.3;
+            Serial.printf(" %.2fV (raw: %d)\r\n", batteryVoltage, batteryRaw);
+            Serial.println("=============================");
+        }
+        
+        if (now - lastUpdate >= 1000)
+        {
+            lastUpdate = now;
+            renderDemoHeader();
+            renderDemoUptime();
+            display.refreshPartial();
+        }
+        
+        delay(50);
+    }
+}
+
+void demoLedTask(void *pvParameters)
+{
+    (void)pvParameters;
+    const uint16_t pulseDuration = 3000;
+    for (;;)
+    {
+        for (int i = 0; i < 7; i++)
+        {
+            pulseRainbowColor(i, pulseDuration);
+        }
+    }
 }
 
 #elif defined(GXEPD2_TEST)
 // ============== GxEPD2 TEST MODE ==============
-// GxEPD2 includes all drivers in the main header
-#include <GxEPD2_BW.h>
-#include <Fonts/FreeMonoBold9pt7b.h>
-
-// Using custom SPI pins
-#define EPD_SCK_PIN 33
-#define EPD_MOSI_PIN 32
-#define EPD_CS_PIN 26
-#define EPD_RST_PIN 14
-#define EPD_DC_PIN 27
-#define EPD_BUSY_PIN 13
-
-// GxEPD2 display object - using T94 driver (similar to GDEY029T71H)
-GxEPD2_BW<GxEPD2_290_T94, GxEPD2_290_T94::HEIGHT> display(
-    GxEPD2_290_T94(EPD_CS_PIN, EPD_DC_PIN, EPD_RST_PIN, EPD_BUSY_PIN));
-
-SPIClass hspi(HSPI);
+#include "Display.h"
 
 void setup()
 {
     Serial.begin(115200);
     delay(100);
     Serial.println();
-    Serial.println("GxEPD2 Test for GDEY029T71H");
+    Serial.println("GxEPD2 + U8g2 Test for GDEY029T71H");
 
-    // Initialize custom SPI
-    hspi.begin(EPD_SCK_PIN, -1, EPD_MOSI_PIN, EPD_CS_PIN);
-    display.epd2.selectSPI(hspi, SPISettings(4000000, MSBFIRST, SPI_MODE0));
-
-    display.init(115200);
-    display.setRotation(1);  // Landscape
-    display.setFont(&FreeMonoBold9pt7b);
-    display.setTextColor(GxEPD_BLACK);
-
-    // Full window test
-    display.setFullWindow();
-    display.firstPage();
-    do {
-        display.fillScreen(GxEPD_WHITE);
-        display.setCursor(10, 30);
-        display.print("GxEPD2 Test");
-        display.setCursor(10, 60);
-        display.print("GDEY029T71H");
-        display.setCursor(10, 90);
-        display.print("384 x 168");
-        // Draw a rectangle
-        display.drawRect(5, 5, 200, 100, GxEPD_BLACK);
-    } while (display.nextPage());
-
+    display.begin();
+    
+    // Test screen with Cyrillic
+    display.clear();
+    
+    display.setFont(FONT_SIZE_MEDIUM);
+    display.setTextColor(true);
+    display.drawText(10, 30, "GxEPD2 + U8g2 Test");
+    display.drawText(10, 60, "Привет мир!");
+    
+    display.setFont(FONT_SIZE_SMALL);
+    display.drawText(10, 90, "GDEY029T71H 384x168");
+    display.drawText(10, 110, "UTF-8: Тест кириллицы");
+    
+    // Draw a rectangle
+    display.drawRect(5, 5, 200, 130, true);
+    
+    display.refresh();
     Serial.println("Display test complete!");
 }
 
 void loop()
 {
-    // Nothing to do
     delay(1000);
 }
 
 #else
-// ============== NORMAL MODE ==============
-#include <WiFiManager.h> // https://github.com/tzapu/WiFiManager
-#include "DEV_Config.h"
-#include "EPD.h"
-#include "GUI_Paint.h"
+// ============== NORMAL MODE / DEMO MODE ==============
+#include <WiFiManager.h>
+#include "Display.h"
 #include <stdlib.h>
-#include <time.h> // For time-related functions
+#include <time.h>
 #include <HTTPClient.h>
-#include <ArduinoJson.h> // Include the necessary header file for DynamicJsonDocument
+#include <ArduinoJson.h>
 #include "utility/FirmwareUpdate.h"
 #include "utility/LedColorsAndNoises.h"
 #include <WiFi.h>
 #include "CaptivePortal.h"
-
-// Display geometry (GDEY029T71H 384x168)
-const int DISPLAY_WIDTH = EPD_GDEY029T71H_WIDTH;
-const int DISPLAY_HEIGHT = EPD_GDEY029T71H_HEIGHT;
+#include "BinanceLogo.h"
+#include "DEV_Config.h"
 
 // Layout constants
-// With 270° rotation: visual display is DISPLAY_HEIGHT × DISPLAY_WIDTH (384 × 168)
-const int VISUAL_WIDTH = DISPLAY_HEIGHT;   // 384
-const int VISUAL_HEIGHT = DISPLAY_WIDTH;   // 168
-const int RECT_WIDTH = 135;                // Left black bar width (50% wider)
-const int RECT_HEIGHT = VISUAL_HEIGHT;     // Left black bar height (full visual height)
-const int DATE_TIME_X = 102;               // Start of right content area
+const int VISUAL_WIDTH = DISPLAY_WIDTH;
+const int VISUAL_HEIGHT = DISPLAY_HEIGHT;
+const int RECT_WIDTH = 135;
+const int RECT_HEIGHT = VISUAL_HEIGHT;
+const int DATE_TIME_X = 145;
 const int DATE_TIME_Y = 0;
 const int UPDATE_INTERVAL_MS = 1000;
 const int FULL_UPDATE_INTERVAL = 20;
 const char *firmware_bin_url = "https://github.com/Pavel-Demidyuk/tigermeter_releases/releases/latest";
+float displayTimezoneOffset = 3.0f;
 
 // Function Prototypes
 void initializePins();
-void initializeEPaper();
-void drawInitialScreen(UBYTE *BlackImage, const char *Text);
-void updateDisplay(UBYTE *BlackImage, int iteration);
+void initializeDisplay();
+void drawLogoScreen();
+void drawInitialScreen(const char *Text);
+void updateDisplay(int iteration);
 void drawRectangleAndText(const char *Text);
-void displayDateTime(UBYTE *BlackImage);
-void displayRandomNumber(UBYTE *BlackImage);
-void displayProfitOrLoss(UBYTE *BlackImage);
-void displayConnectToWifiMessage(UBYTE *BlackImage);
+void displayDateTime();
+void displayRandomNumber();
+void displayProfitOrLoss();
+void displayConnectToWifiMessage();
 void playBuzzerPositive();
 void playBuzzerNegative();
 void led_Purple();
@@ -534,91 +995,60 @@ void led_Green();
 void led_Yellow();
 void pulseRainbowColor(int colorIndex, uint16_t durationMs);
 void updateFirmware();
+void initNTPTime();
 
 // Demo helpers
-void showStrongestWifi(UBYTE *BlackImage);
-void renderDemoHeader(UBYTE *BlackImage);
-void renderUptime(UBYTE *BlackImage);
-void runDemoLoop(UBYTE *BlackImage);
+void showStrongestWifi();
+void renderDemoHeader();
+void renderUptime();
+void runDemoLoop();
 void ledBlinkTask(void *pvParameters);
 
 void setup()
 {
 #ifdef DEMO_MODE
-    Debug("Starting TigerMeter (DEMO)...\r\n");
+    Serial.begin(115200);
+    Serial.println("Starting TigerMeter (DEMO)...");
 
-    // Initialize pins and buzzer
     initializePins();
     led_Purple();
-    playBuzzerPositive();
-
-    // Initialize e-paper display
-    initializeEPaper();
-
-    // Allocate memory for the image
-    UBYTE *BlackImage;
-    UWORD Imagesize = ((DISPLAY_WIDTH % 8 == 0) ? (DISPLAY_WIDTH / 8) : (DISPLAY_WIDTH / 8 + 1)) * DISPLAY_HEIGHT;
-    if ((BlackImage = (UBYTE *)malloc(Imagesize)) == NULL)
-    {
-        Debug("Failed to apply for black memory...\r\n");
-        while (1)
-            ;
-    }
+    initializeDisplay();
 
     // Step 1: Show strongest WiFi network for 10 seconds
-    showStrongestWifi(BlackImage);
+    showStrongestWifi();
 
     // Start captive portal AP + OTA
     startCaptivePortal();
 
-    // Start background LED blink task (runs independently)
+    // Start background LED blink task
     xTaskCreatePinnedToCore(ledBlinkTask, "ledBlink", 2048, NULL, 1, NULL, 1);
 
-    // Step 2: Show main demo screen (DEMO bar + timer) and loop
-    runDemoLoop(BlackImage);
+    // Step 2: Show main demo screen and loop
+    runDemoLoop();
 #else
+    Serial.begin(115200);
+    Serial.println("Starting TigerMeter...");
 
-    Debug("Starting TigerMeter...\r\n");
-
-    // Initialize pins and buzzer
     initializePins();
+    led_Purple();
+    initializeDisplay();
 
-    led_Purple(); // Turn on purple LED on load
-    playBuzzerPositive();
-
-    // Initialize e-paper display
-    initializeEPaper();
-
-    // Allocate memory for the image
-    UBYTE *BlackImage;
-    UWORD Imagesize = ((DISPLAY_WIDTH % 8 == 0) ? (DISPLAY_WIDTH / 8) : (DISPLAY_WIDTH / 8 + 1)) * DISPLAY_HEIGHT;
-    if ((BlackImage = (UBYTE *)malloc(Imagesize)) == NULL)
-    {
-        Debug("Failed to apply for black memory...\r\n");
-        while (1)
-            ;
-    }
-
-    drawLogoScreen(BlackImage);
+    drawLogoScreen();
     delay(500);
-    // return;
 
-    // Start captive portal AP + OTA
     startCaptivePortal();
 
-    // Display initial WiFi message
-    drawInitialScreen(BlackImage, "WiFi");
-    displayConnectToWifiMessage(BlackImage);
-    EPD_Display_Partial(BlackImage);
+    drawInitialScreen("WiFi");
+    displayConnectToWifiMessage();
+    display.refreshPartial();
 
-    // Try to connect using any stored credentials while keeping AP active
     led_Yellow();
     unsigned long startAttemptTime = millis();
     const unsigned long connectionTimeout = 15000;
     while (WiFi.status() != WL_CONNECTED && millis() - startAttemptTime < connectionTimeout)
     {
         captivePortalLoop();
-        DEV_Delay_ms(100);
+        delay(100);
     }
 
     static bool timeInitialized = false;
@@ -628,201 +1058,178 @@ void setup()
         timeInitialized = true;
     }
 
-    // Display main screen (will show BTC data once WiFi/NTP are ready)
-    drawInitialScreen(BlackImage, "BTC");
+    drawInitialScreen("BTC");
     int iteration = 0;
     while (1)
     {
         captivePortalLoop();
-        // Initialize time later if WiFi becomes available after user configures it
         if (!timeInitialized && WiFi.status() == WL_CONNECTED)
         {
             initNTPTime();
             timeInitialized = true;
         }
-        updateDisplay(BlackImage, iteration);
+        updateDisplay(iteration);
         iteration++;
-        DEV_Delay_ms(UPDATE_INTERVAL_MS);
+        delay(UPDATE_INTERVAL_MS);
     }
 #endif
 }
 
 void loop()
 {
-    // put your main code here, to run repeatedly:
+    // Not used
 }
 
-void initializeEPaper()
+void initializeDisplay()
 {
-    Debug("e-Paper Init and Clear...\r\n");
-    DEV_Module_Init();
-    EPD_Init();
-    EPD_Clear();
+    Serial.println("e-Paper Init...");
+    display.begin();
+    display.clear();
+    display.refresh();
 }
 
-void drawLogoScreen(UBYTE *BlackImage)
+void drawLogoScreen()
 {
-    initializeEPaper();
-    Paint_NewImage(BlackImage, DISPLAY_WIDTH, DISPLAY_HEIGHT, 270, WHITE);
-    Paint_SelectImage(BlackImage);
-    Paint_Clear(WHITE);
-    int textX = 45;
-    int textY = 40;
-    Paint_DrawString_EN(textX, textY, "TIGERMETER", &Font38, WHITE, BLACK);
-    EPD_Display(BlackImage);
+    display.clear();
+    
+    // Draw Binance logo centered
+    int logoX = (VISUAL_WIDTH - BINANCE_LOGO_WIDTH) / 2;
+    int logoY = 25;
+    display.drawBitmap(logoX, logoY, Binance_Logo, BINANCE_LOGO_WIDTH, BINANCE_LOGO_HEIGHT, true);
+    
+    // Draw "TIGER" in gray + "METER" in black
+    display.setFont(FONT_SIZE_LARGE);
+    int tigerW = display.getTextWidth("TIGER");
+    int meterW = display.getTextWidth("METER");
+    int totalW = tigerW + meterW;
+    int textX = (VISUAL_WIDTH - totalW) / 2;
+    int textY = logoY + BINANCE_LOGO_HEIGHT + 12;
+    display.drawTextGray(textX, textY, "TIGER");
+    display.setTextColor(true);
+    display.drawText(textX + tigerW, textY, "METER");
+    
+    display.refresh();
 }
 
-void drawInitialScreen(UBYTE *BlackImage, const char *Text)
+void drawInitialScreen(const char *Text)
 {
-    initializeEPaper();
-    Paint_NewImage(BlackImage, DISPLAY_WIDTH, DISPLAY_HEIGHT, 270, WHITE);
-    Paint_SelectImage(BlackImage);
-    Paint_Clear(WHITE);
+    display.clear();
     drawRectangleAndText(Text);
-    // EPD_Display(BlackImage);
 }
 
 void drawRectangleAndText(const char *Text)
 {
-    Paint_DrawRectangle(0, 0, RECT_WIDTH, RECT_HEIGHT, BLACK, DOT_PIXEL_1X1, DRAW_FILL_FULL);
-    int textX = (RECT_WIDTH - Font40.Width * strlen(Text)) / 2;
-    int textY = (RECT_HEIGHT - Font40.Height) / 2 - 2;
-    Paint_DrawString_EN(textX, textY, Text, &Font40, BLACK, WHITE);
+    display.fillRect(0, 0, RECT_WIDTH, RECT_HEIGHT, true);
+    
+    display.setFont(FONT_SIZE_SYMBOL);  // Symbol font (~25px) for black bg
+    display.setTextColor(false);
+    int textW = display.getTextWidth(Text);
+    int textH = display.getFontHeight();
+    int textX = (RECT_WIDTH - textW) / 2;
+    int textY = (RECT_HEIGHT - textH) / 2 - 2;
+    display.drawText(textX, textY, Text);
 }
 
-void updateDisplay(UBYTE *BlackImage, int iteration)
+void updateDisplay(int iteration)
 {
-    // Check WiFi connection every minute
     if (iteration % (60000 / UPDATE_INTERVAL_MS) == 0)
     {
         if (WiFi.status() != WL_CONNECTED)
         {
-            // Display "Connect to WiFi" message
-            drawInitialScreen(BlackImage, "WiFi");
-            displayConnectToWifiMessage(BlackImage);
-            EPD_Display_Partial(BlackImage);
+            drawInitialScreen("WiFi");
+            displayConnectToWifiMessage();
+            display.refreshPartial();
             led_Purple();
 
-            // Attempt to reconnect to WiFi
             WiFiManager wm;
-            bool res = wm.autoConnect("TIGERMETER", ""); // password protected ap
+            bool res = wm.autoConnect("TIGERMETER", "");
 
             if (!res)
             {
-                // If reconnection fails, continue displaying the message
                 return;
             }
             else
             {
-                // If reconnected, display the main screen
-                drawInitialScreen(BlackImage, "BTC");
+                drawInitialScreen("BTC");
             }
         }
     }
 
-    // Regular display update
     if (iteration % FULL_UPDATE_INTERVAL == 0)
     {
-        drawInitialScreen(BlackImage, "BTC");
+        drawInitialScreen("BTC");
     }
     else
     {
-        displayDateTime(BlackImage);
-        displayRandomNumber(BlackImage);
-        displayProfitOrLoss(BlackImage);
-        EPD_Display_Partial(BlackImage);
+        displayDateTime();
+        displayRandomNumber();
+        displayProfitOrLoss();
+        display.refreshPartial();
     }
 }
 
-void displayDateTime(UBYTE *BlackImage)
+void displayDateTime()
 {
     time_t now = time(NULL);
     struct tm *current_time = localtime(&now);
 
     char dateTimeBuffer[30];
-    // Changed here: %H for 24-hour format instead of %I for 12-hour format
-    strftime(dateTimeBuffer, sizeof(dateTimeBuffer), "%H %M %d %b %Y", current_time);
+    strftime(dateTimeBuffer, sizeof(dateTimeBuffer), "%H:%M %d %b %Y", current_time);
 
-    const sFONT *fontDate = &Font16;
-    Paint_ClearWindows(DATE_TIME_X, DATE_TIME_Y, DATE_TIME_X + fontDate->Width * strlen(dateTimeBuffer), DATE_TIME_Y + fontDate->Height, WHITE);
-    Paint_DrawString_EN(DATE_TIME_X, DATE_TIME_Y, dateTimeBuffer, (sFONT *)fontDate, WHITE, BLACK);
-
-    // Blink the ":" symbol
-    static bool blink = true;
-    if (blink)
-    {
-        Paint_DrawChar(DATE_TIME_X + fontDate->Width * 2, DATE_TIME_Y, ':', (sFONT *)fontDate, BLACK, WHITE);
-    }
-    blink = !blink;
+    display.setFont(FONT_SIZE_SMALL);
+    display.setTextColor(true);
+    display.fillRect(DATE_TIME_X, DATE_TIME_Y, 240, 20, false);
+    display.drawText(DATE_TIME_X, DATE_TIME_Y, dateTimeBuffer);
 }
 
-void displayConnectToWifiMessage(UBYTE *BlackImage)
+void displayConnectToWifiMessage()
 {
-    const sFONT *fontNetwork = &Font24;
-    const sFONT *fontIp = &Font8;
-    int xNet = 102;
-    int yNet = 55;
-
-    Paint_ClearWindows(xNet, yNet, xNet + fontNetwork->Width * 11, yNet + fontNetwork->Height, WHITE);
-    Paint_DrawString_EN(xNet, yNet, "tigermeter", (sFONT *)fontNetwork, WHITE, BLACK);
-
-    int xIp = xNet;
-    int yIp = DISPLAY_HEIGHT - fontIp->Height;
-
-    Paint_ClearWindows(xIp, yIp, xIp + fontIp->Width * 16, yIp + fontIp->Height, WHITE);
-    Paint_DrawString_EN(xIp, yIp, "192.168.4.1", (sFONT *)fontIp, WHITE, BLACK);
+    display.setFont(FONT_SIZE_MEDIUM);
+    display.setTextColor(true);
+    display.drawText(145, 55, "tigermeter");
+    
+    display.setFont(FONT_SIZE_SMALL);
+    display.drawText(145, 140, "192.168.4.1");
 }
-void displayRandomNumber(UBYTE *BlackImage)
+
+void displayRandomNumber()
 {
-    int randomNumber = rand() % 3001 + 58999; // Generate random number between 58999 and 61999 char randomNumberStr[7]; sprintf(randomNumberStr, "$%d", randomNumber);
+    int randomNumber = rand() % 3001 + 58999;
     char randomNumberStr[7];
     sprintf(randomNumberStr, "$%d", randomNumber);
-    const sFONT *fontNums = &Font40;
+    
+    display.setFont(FONT_SIZE_LARGE);
+    display.setTextColor(true);
     int numsX = DATE_TIME_X;
     int numsY = DATE_TIME_Y + 43;
-    Paint_ClearWindows(numsX, numsY, numsX + fontNums->Width * 7, numsY + fontNums->Height, WHITE);
-    Paint_DrawString_EN(numsX, numsY, randomNumberStr, (sFONT *)fontNums, WHITE, BLACK);
+    display.fillRect(numsX, numsY, 200, 45, false);
+    display.drawText(numsX, numsY, randomNumberStr);
 }
 
-void displayProfitOrLoss(UBYTE *BlackImage)
+void displayProfitOrLoss()
 {
     const char *sign = (rand() % 2 == 0) ? "+" : "-";
-    float randomPercentage = (rand() % 500 + 1) / 100.0; // Generates a number between 0.01 and 5.00
-    char randomPercentageStr[7];                         // Buffer to hold the percentage string
-    snprintf(randomPercentageStr, sizeof(randomPercentageStr), "%s%.2f%%", sign, randomPercentage);
+    float randomPercentage = (rand() % 500 + 1) / 100.0;
+    char displayStr[20];
+    snprintf(displayStr, sizeof(displayStr), "1 day %s%.2f%%", sign, randomPercentage);
 
-    char displayStr[20]; // Buffer to hold the final display string
-    snprintf(displayStr, sizeof(displayStr), "1 day %s", randomPercentageStr);
-
-    const sFONT *fontProfit = &Font24;
+    display.setFont(FONT_SIZE_MEDIUM);
+    display.setTextColor(true);
     int profitX = DATE_TIME_X;
-    int profitY = DISPLAY_HEIGHT - fontProfit->Height;
+    int profitY = VISUAL_HEIGHT - 30;
+    display.fillRect(profitX, profitY, 200, 30, false);
+    display.drawText(profitX, profitY, displayStr);
 
-    // Debugging statements
-    // Debug("Updating profit/loss display: %s\n", displayStr);
-
-    Paint_ClearWindows(profitX, profitY, profitX + fontProfit->Width * strlen(displayStr), profitY + fontProfit->Height, WHITE);
-    Paint_DrawString_EN(profitX, profitY, displayStr, (sFONT *)fontProfit, WHITE, BLACK);
-
-    // Switch LEDs based on sign
-    if (strcmp(sign, "+") == 0)
-    {
+    if (strcmp(sign, "+") == 0) {
         led_Green();
-    }
-    else
-    {
+    } else {
         led_Red();
     }
 
-    // Play buzzer with 10% chance
-    if (rand() % 10 == 0)
-    {
-        if (strcmp(sign, "+") == 0)
-        {
+    if (rand() % 10 == 0) {
+        if (strcmp(sign, "+") == 0) {
             playBuzzerPositive();
-        }
-        else
-        {
+        } else {
             playBuzzerNegative();
         }
     }
@@ -830,8 +1237,8 @@ void displayProfitOrLoss(UBYTE *BlackImage)
 
 void initNTPTime()
 {
-    // Moscow Time Zone "MSK", UTC offset is +3:00, no daylight saving
-    configTime(3 * 3600, 0, "pool.ntp.org", "time.nist.gov");
+    int tzOffsetSec = (int)(displayTimezoneOffset * 3600);
+    configTime(tzOffsetSec, 0, "pool.ntp.org", "time.nist.gov");
 
     Serial.println("\nWaiting for time");
     while (!time(nullptr))
@@ -851,19 +1258,23 @@ void initNTPTime()
 }
 
 #ifdef DEMO_MODE
-// Show strongest WiFi network full-screen for 10 seconds
-void showStrongestWifi(UBYTE *BlackImage)
-{
-    // Prepare canvas (with 270° rotation: visual is 384 wide x 168 tall)
-    Paint_NewImage(BlackImage, DISPLAY_WIDTH, DISPLAY_HEIGHT, 270, WHITE);
-    Paint_SelectImage(BlackImage);
-    Paint_Clear(WHITE);
+const float BATTERY_MULTIPLIER = 2.19f;
 
-    // Perform WiFi scan
-    Debug("Scanning WiFi networks...\r\n");
+void getBatteryInfo(float &voltage, int &percent) {
+    int raw = analogRead(35);
+    voltage = (raw / 4095.0f) * 3.3f * BATTERY_MULTIPLIER;
+    percent = (int)((voltage - 3.0f) / (4.1f - 3.0f) * 100.0f);
+    if (percent < 0) percent = 0;
+    if (percent > 100) percent = 100;
+}
+
+void showStrongestWifi()
+{
+    display.clear();
+
+    Serial.println("Scanning WiFi networks...");
     int n = WiFi.scanNetworks();
 
-    // Pick strongest non-empty SSID
     int bestIdx = -1;
     int bestRssi = -1000;
     for (int i = 0; i < n; i++)
@@ -878,64 +1289,54 @@ void showStrongestWifi(UBYTE *BlackImage)
         }
     }
 
-    const sFONT *fontTitle = &Font24;
-    const sFONT *fontSsid = &Font32;
-
-    // Draw title "WiFi:" at top
+    // Draw title
+    display.setFont(FONT_SIZE_MEDIUM);
+    display.setTextColor(true);
     const char *title = "WiFi:";
-    int titleX = (VISUAL_WIDTH - fontTitle->Width * strlen(title)) / 2;
-    Paint_DrawString_EN(titleX, 20, title, (sFONT *)fontTitle, WHITE, BLACK);
+    int titleW = display.getTextWidth(title);
+    display.drawText((VISUAL_WIDTH - titleW) / 2, 20, title);
 
-    // Draw SSID centered
+    // Draw SSID
     if (bestIdx >= 0)
     {
         String ssid = WiFi.SSID(bestIdx);
         char ssidStr[32];
         snprintf(ssidStr, sizeof(ssidStr), "%.20s", ssid.c_str());
         
-        int ssidW = fontSsid->Width * strlen(ssidStr);
+        display.setFont(FONT_SIZE_LARGE);
+        int ssidW = display.getTextWidth(ssidStr);
         int ssidX = (VISUAL_WIDTH - ssidW) / 2;
         if (ssidX < 0) ssidX = 0;
-        int ssidY = (VISUAL_HEIGHT - fontSsid->Height) / 2;
-        
-        Paint_DrawString_EN(ssidX, ssidY, ssidStr, (sFONT *)fontSsid, WHITE, BLACK);
+        int ssidY = (VISUAL_HEIGHT - display.getFontHeight()) / 2;
+        display.drawText(ssidX, ssidY, ssidStr);
 
-        // Draw signal strength below
+        // Draw signal strength
         char rssiStr[16];
         snprintf(rssiStr, sizeof(rssiStr), "%d dBm", bestRssi);
-        int rssiW = fontTitle->Width * strlen(rssiStr);
-        int rssiX = (VISUAL_WIDTH - rssiW) / 2;
-        Paint_DrawString_EN(rssiX, ssidY + fontSsid->Height + 10, rssiStr, (sFONT *)fontTitle, WHITE, BLACK);
+        display.setFont(FONT_SIZE_MEDIUM);
+        int rssiW = display.getTextWidth(rssiStr);
+        display.drawText((VISUAL_WIDTH - rssiW) / 2, ssidY + 40, rssiStr);
     }
     else
     {
+        display.setFont(FONT_SIZE_LARGE);
         const char *noWifi = "No WiFi found";
-        int noWifiW = fontSsid->Width * strlen(noWifi);
-        int noWifiX = (VISUAL_WIDTH - noWifiW) / 2;
-        int noWifiY = (VISUAL_HEIGHT - fontSsid->Height) / 2;
-        Paint_DrawString_EN(noWifiX, noWifiY, noWifi, (sFONT *)fontSsid, WHITE, BLACK);
+        int noWifiW = display.getTextWidth(noWifi);
+        display.drawText((VISUAL_WIDTH - noWifiW) / 2, (VISUAL_HEIGHT - display.getFontHeight()) / 2, noWifi);
     }
 
-    // Full refresh
-    EPD_Display(BlackImage);
-
-    // Wait 10 seconds
-    DEV_Delay_ms(10000);
+    display.refresh();
+    delay(10000);
 }
 
-// Draw the demo header: black bar on left with "DEMO" text
-void renderDemoHeader(UBYTE *BlackImage)
+void renderDemoHeader()
 {
-    Paint_NewImage(BlackImage, DISPLAY_WIDTH, DISPLAY_HEIGHT, 270, WHITE);
-    Paint_SelectImage(BlackImage);
-    Paint_Clear(WHITE);
+    display.clear();
     drawRectangleAndText("DEMO");
 }
 
-// Render the uptime timer in the right area
-void renderUptime(UBYTE *BlackImage)
+void renderUptime()
 {
-    // Compute uptime in hours, minutes, seconds
     unsigned long seconds = millis() / 1000UL;
     unsigned int hh = (seconds / 3600UL) % 100U;
     unsigned int mm = (seconds / 60UL) % 60U;
@@ -944,53 +1345,105 @@ void renderUptime(UBYTE *BlackImage)
     char timeStr[9];
     snprintf(timeStr, sizeof(timeStr), "%02u:%02u:%02u", hh, mm, ss);
 
-    const sFONT *font = &Font40;
-    
-    // Calculate position to center in the right area (after RECT_WIDTH)
     int rightAreaStart = RECT_WIDTH;
     int rightAreaWidth = VISUAL_WIDTH - RECT_WIDTH;
-    int textWidth = font->Width * strlen(timeStr);
-    int x = rightAreaStart + (rightAreaWidth - textWidth) / 2;
-    int y = (VISUAL_HEIGHT - font->Height) / 2;
-
-    // Clear the timer area and draw
-    Paint_ClearWindows(rightAreaStart, 0, VISUAL_WIDTH, VISUAL_HEIGHT, WHITE);
-    Paint_DrawString_EN(x, y, timeStr, (sFONT *)font, WHITE, BLACK);
+    
+    // Clear right area
+    display.fillRect(rightAreaStart, 0, rightAreaWidth, VISUAL_HEIGHT, false);
+    
+    // Draw timer centered
+    display.setFont(FONT_SIZE_LARGE);
+    display.setTextColor(true);
+    int textW = display.getTextWidth(timeStr);
+    int x = rightAreaStart + (rightAreaWidth - textW) / 2;
+    int y = (VISUAL_HEIGHT - display.getFontHeight()) / 2;
+    display.drawText(x, y, timeStr);
+    
+    // Battery info
+    float battVoltage;
+    int battPercent;
+    getBatteryInfo(battVoltage, battPercent);
+    
+    char battStr[16];
+    snprintf(battStr, sizeof(battStr), "%.2fV %d%%", battVoltage, battPercent);
+    
+    display.setFont(FONT_SIZE_SMALL);
+    int infoX = rightAreaStart + 5;
+    display.drawText(infoX, 3, battStr);
+    
+    // WiFi status
+    char wifiStr[28];
+    if (WiFi.status() == WL_CONNECTED) {
+        String ssid = WiFi.SSID();
+        snprintf(wifiStr, sizeof(wifiStr), "WiFi: %.12s OK", ssid.c_str());
+    } else {
+        snprintf(wifiStr, sizeof(wifiStr), "WiFi: -- (no conn)");
+    }
+    int line2Y = 3 + display.getFontHeight() + 2;
+    display.drawText(infoX, line2Y, wifiStr);
+    
+    // IP address
+    char ipStr[24];
+    if (WiFi.status() == WL_CONNECTED) {
+        snprintf(ipStr, sizeof(ipStr), "IP: %s", WiFi.localIP().toString().c_str());
+    } else {
+        snprintf(ipStr, sizeof(ipStr), "AP: %s", WiFi.softAPIP().toString().c_str());
+    }
+    display.drawText(infoX, line2Y + display.getFontHeight() + 2, ipStr);
+    
+    // Firmware version
+    char fwStr[16];
+    snprintf(fwStr, sizeof(fwStr), "FW: v%d", CURRENT_FIRMWARE_VERSION);
+    int fwY = VISUAL_HEIGHT - (display.getFontHeight() + 2) * 3 - 3;
+    display.drawText(infoX, fwY, fwStr);
+    
+    // MAC address
+    String mac = WiFi.macAddress();
+    char macStr[24];
+    snprintf(macStr, sizeof(macStr), "MAC: %s", mac.c_str());
+    int macY = VISUAL_HEIGHT - (display.getFontHeight() + 2) * 2 - 3;
+    display.drawText(infoX, macY, macStr);
+    
+    // Date
+    int dateY = VISUAL_HEIGHT - display.getFontHeight() - 3;
+    if (WiFi.status() == WL_CONNECTED) {
+        time_t now = time(NULL);
+        if (now > 1000000000) {
+            struct tm *t = localtime(&now);
+            char dateStr[20];
+            strftime(dateStr, sizeof(dateStr), "%d %b %Y", t);
+            display.drawText(infoX, dateY, dateStr);
+        }
+    }
 }
 
-// Main demo loop: show DEMO bar + timer, update every second
-void runDemoLoop(UBYTE *BlackImage)
+void runDemoLoop()
 {
-    // Draw initial screen with DEMO bar
-    renderDemoHeader(BlackImage);
-    renderUptime(BlackImage);
+    renderDemoHeader();
+    renderUptime();
+    display.refresh();
 
-    // Full refresh to establish baseline
-    EPD_Display_Base(BlackImage);
-
-    // Loop: update timer every second with partial refresh
     unsigned long lastUpdate = millis();
     unsigned long lastMacPrint = 0;
-    const unsigned long MAC_PRINT_INTERVAL = 5000; // Print MAC every 5 seconds
+    const unsigned long MAC_PRINT_INTERVAL = 5000;
+    static bool ntpInitialized = false;
     
     while (1)
     {
-        // #region agent log [Hypothesis A]
-        Serial.print("."); Serial.flush(); // Tick marker - if stops here, captivePortalLoop hung
-        // #endregion
+        if (!ntpInitialized && WiFi.status() == WL_CONNECTED) {
+            int tzOffsetSec = (int)(displayTimezoneOffset * 3600);
+            configTime(tzOffsetSec, 0, "pool.ntp.org", "time.nist.gov");
+            ntpInitialized = true;
+            Serial.println("[DEMO] NTP time initialized");
+        }
         captivePortalLoop();
-        // #region agent log [Hypothesis A]
-        Serial.print("c"); Serial.flush(); // After captive portal
-        // #endregion
         
         unsigned long now = millis();
         
-        // Print debug info every 5 seconds
         if (now - lastMacPrint >= MAC_PRINT_INTERVAL)
         {
             lastMacPrint = now;
             
-            // Uptime
             unsigned long uptimeSec = now / 1000;
             unsigned int hh = (uptimeSec / 3600) % 100;
             unsigned int mm = (uptimeSec / 60) % 60;
@@ -1000,49 +1453,33 @@ void runDemoLoop(UBYTE *BlackImage)
             Serial.printf("[DEMO] Uptime: %02u:%02u:%02u\r\n", hh, mm, ss);
             Serial.println("[DEMO] MAC: " + WiFi.macAddress());
             Serial.printf("[DEMO] AP IP: %s\r\n", WiFi.softAPIP().toString().c_str());
-            // #region agent log [Hypothesis E]
-            Serial.printf("[DEMO] Free Heap: %u bytes\r\n", ESP.getFreeHeap()); Serial.flush();
-            // #endregion
+            Serial.printf("[DEMO] Free Heap: %u bytes\r\n", ESP.getFreeHeap());
             Serial.printf("[DEMO] Connected clients: %d\r\n", WiFi.softAPgetStationNum());
             
-            // #region agent log [Hypothesis D]
-            Serial.print("[DEMO] Reading battery..."); Serial.flush();
-            // #endregion
-            // Battery voltage on GPIO 35
             int batteryRaw = analogRead(35);
             float batteryVoltage = (batteryRaw / 4095.0) * 3.3;
             Serial.printf(" %.2fV (raw: %d)\r\n", batteryVoltage, batteryRaw);
             Serial.println("=============================");
         }
         
-        // Update display every 1000ms, accounting for refresh time
         if (now - lastUpdate >= 1000)
         {
-            // #region agent log [Hypothesis B,C]
-            Serial.print("R"); Serial.flush(); // Before renderUptime
-            // #endregion
             lastUpdate = now;
-            renderUptime(BlackImage);
-            // #region agent log [Hypothesis B]
-            Serial.print("E"); Serial.flush(); // Before EPD_Display_Partial
-            // #endregion
-            EPD_Display_Partial(BlackImage);
-            // #region agent log [Hypothesis B]
-            Serial.print("D"); Serial.flush(); // After display update complete
-            // #endregion
+            renderDemoHeader();
+            renderUptime();
+            display.refreshPartial();
         }
         
-        DEV_Delay_ms(50);  // Small delay to prevent busy loop
+        delay(50);
     }
 }
 
 void ledBlinkTask(void *pvParameters)
 {
     (void)pvParameters;
-    const uint16_t pulseDuration = 3000; // 3 seconds per color pulse
+    const uint16_t pulseDuration = 3000;
     for (;;)
     {
-        // Cycle through 7 rainbow colors: Red, Orange, Yellow, Green, Cyan, Blue, Violet
         for (int i = 0; i < 7; i++)
         {
             pulseRainbowColor(i, pulseDuration);

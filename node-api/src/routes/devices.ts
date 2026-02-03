@@ -40,6 +40,19 @@ export default async function deviceRoutes(app: FastifyInstance) {
     const device = await app.requireDevice(id, request.headers['authorization']);
     const body = HeartbeatSchema.parse(request.body ?? {});
 
+    // Check for pending factory reset
+    if (device.pendingFactoryReset) {
+      // Clear the flag and return reset command
+      await app.prisma.device.update({
+        where: { id: device.id },
+        data: {
+          pendingFactoryReset: false,
+          lastSeen: new Date(),
+        },
+      });
+      return { factoryReset: true };
+    }
+
     // update telemetry
     await app.prisma.device.update({
       where: { id: device.id },
@@ -52,15 +65,28 @@ export default async function deviceRoutes(app: FastifyInstance) {
       },
     });
 
+    // Base response with OTA info
+    const baseResponse = {
+      ok: true,
+      autoUpdate: device.autoUpdate,
+      demoMode: device.demoMode,
+      latestFirmwareVersion: config.latestFirmwareVersion,
+      firmwareDownloadUrl: config.firmwareDownloadUrl,
+    };
+
     if (body.displayHash && device.displayHash && body.displayHash === device.displayHash) {
-      return { ok: true };
+      return baseResponse;
     }
 
     if (device.displayInstructionJson && device.displayHash) {
-      return { instruction: JSON.parse(device.displayInstructionJson), displayHash: device.displayHash };
+      return { 
+        ...baseResponse,
+        instruction: JSON.parse(device.displayInstructionJson), 
+        displayHash: device.displayHash 
+      };
     }
 
-    return { ok: true };
+    return baseResponse;
   });
 
   app.get('/devices/:id/display/hash', async (request, reply) => {

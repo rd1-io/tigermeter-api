@@ -23,7 +23,7 @@ Open: http://localhost:5175
 1. Poll endpoint integration & lazy secret capture
 2. Persist state (MAC, claim code, secret) in localStorage
 3. Heartbeat loop with display hash comparison
-4. Display instruction rendering (single → playlist)
+4. Display instruction rendering
 5. Secret refresh & revoke handling (state transitions)
 6. Network simulation (latency, jitter, offline, rate limit responses)
 7. Visual debug overlay (FPS, timings, request log)

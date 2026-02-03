@@ -5,11 +5,24 @@ import { config } from '../config.js';
 
 export const canonicalJson = (obj: unknown): string => JSON.stringify(obj, Object.keys(obj as object).sort(), 0).replace(/\s+/g, '');
 
+// Recursively sort all keys in an object for deterministic JSON
+const sortObjectKeys = (obj: unknown): unknown => {
+  if (obj === null || typeof obj !== 'object') return obj;
+  if (Array.isArray(obj)) return obj.map(sortObjectKeys);
+  const sorted: Record<string, unknown> = {};
+  for (const key of Object.keys(obj as Record<string, unknown>).sort()) {
+    sorted[key] = sortObjectKeys((obj as Record<string, unknown>)[key]);
+  }
+  return sorted;
+};
+
 export const instructionHash = (obj: unknown): string => {
   // Create a copy without the hash field to avoid circular dependency
   const copy = { ...(obj as Record<string, unknown>) };
   delete copy.hash;
-  const json = JSON.stringify(copy, Object.keys(copy).sort());
+  // Sort ALL keys recursively for deterministic hashing
+  const sorted = sortObjectKeys(copy);
+  const json = JSON.stringify(sorted);
   const hash = createHash('sha256').update(json).digest('hex');
   return `sha256:${hash}`;
 };

@@ -10,7 +10,7 @@
 
 // API Configuration - change API_BASE_URL to your computer's IP
 #ifndef API_BASE_URL
-#define API_BASE_URL "http://192.168.1.100:3001/api"
+#define API_BASE_URL "https://tigermeter-api.fly.dev/api"
 #endif
 
 #ifndef HMAC_KEY
@@ -22,6 +22,8 @@
 #endif
 
 // Device states
+#ifndef DEVICESTATE_DEFINED
+#define DEVICESTATE_DEFINED
 enum DeviceState {
     STATE_UNCLAIMED,        // No credentials stored
     STATE_CLAIMING,         // Got claim code, showing on screen
@@ -29,6 +31,7 @@ enum DeviceState {
     STATE_ACTIVE,           // Got secret, heartbeat mode
     STATE_ERROR             // Error state
 };
+#endif
 
 // Claim result structure
 struct ClaimResult {
@@ -54,21 +57,62 @@ struct PollResult {
     int httpCode;
 };
 
+// Font size is now an integer (8-40 pixels)
+// Legacy enum kept for backward compatibility during transition
+#ifndef FONTSIZETYPE_DEFINED
+#define FONTSIZETYPE_DEFINED
+// Legacy font size enum (deprecated, kept for compatibility)
+enum FontSizeType {
+    FONT_SMALL,
+    FONT_MID,
+    FONT_LARGE
+};
+#endif
+
+// Text alignment enum
+#ifndef TEXTALIGNTYPE_DEFINED
+#define TEXTALIGNTYPE_DEFINED
+enum TextAlignType {
+    ALIGN_LEFT,
+    ALIGN_CENTER,
+    ALIGN_RIGHT
+};
+#endif
+
 // Heartbeat result structure
 struct HeartbeatResult {
     bool success;
     bool hasInstruction;
+    bool factoryReset;      // Server requests device to factory reset
+    bool demoMode;          // Server requests demo mode
     String displayHash;
     String errorMessage;
     int httpCode;
+    
+    // OTA update fields
+    bool autoUpdate;
+    int latestFirmwareVersion;
+    String firmwareDownloadUrl;
+    
     // Display instruction fields (if hasInstruction)
-    String instructionType;  // "single" or "playlist"
-    String name;
-    float price;
-    String currencySymbol;
+    String symbol;
+    int symbolFontSize;             // Font size in pixels (10-40) for symbol
+    String topLine;
+    int topLineFontSize;            // Font size in pixels (10-40)
+    TextAlignType topLineAlign;
+    bool topLineShowDate;
+    String mainText;
+    int mainTextFontSize;           // Font size in pixels (10-40)
+    TextAlignType mainTextAlign;
+    String bottomLine;
+    int bottomLineFontSize;         // Font size in pixels (10-40)
+    TextAlignType bottomLineAlign;
     String ledColor;
-    float portfolioValue;
-    float portfolioChangePercent;
+    String ledBrightness;
+    bool beep;
+    int flashCount;
+    int refreshInterval;
+    float timezoneOffset; // Hours from UTC (can be fractional like 5.5 for India)
 };
 
 // NVS storage keys
@@ -329,9 +373,65 @@ public:
         return result;
     }
     
+    // Helper to parse font size - handles both numeric and legacy string values
+    int parseFontSize(JsonVariant value, int defaultSize = 16) {
+        if (value.is<int>()) {
+            // New numeric format (10-40)
+            int size = value.as<int>();
+            if (size < 10) size = 10;
+            if (size > 40) size = 40;
+            return size;
+        } else if (value.is<const char*>()) {
+            // Legacy string format
+            String size = value.as<String>();
+            if (size == "mid") return 20;
+            if (size == "large") return 32;
+            return 16; // "small" or default
+        }
+        return defaultSize;
+    }
+    
+    // Helper to parse text alignment
+    TextAlignType parseTextAlign(const String& align) {
+        if (align == "left") return ALIGN_LEFT;
+        if (align == "right") return ALIGN_RIGHT;
+        return ALIGN_CENTER;
+    }
+    
     // Send heartbeat
-    HeartbeatResult sendHeartbeat(int battery = -1, int rssi = -1, int uptimeSeconds = -1) {
-        HeartbeatResult result = {false, false, "", "", 0, "", "", 0.0f, "", "", 0.0f, 0.0f};
+    // forceRefresh: if true, sends empty displayHash to force server to return instruction
+    HeartbeatResult sendHeartbeat(int battery = -1, int rssi = -1, int uptimeSeconds = -1, bool forceRefresh = false) {
+        HeartbeatResult result;
+        result.success = false;
+        result.hasInstruction = false;
+        result.factoryReset = false;
+        result.demoMode = false;
+        result.displayHash = "";
+        result.errorMessage = "";
+        result.httpCode = 0;
+        // OTA fields defaults
+        result.autoUpdate = true;
+        result.latestFirmwareVersion = 0;
+        result.firmwareDownloadUrl = "";
+        // Display fields
+        result.symbol = "";
+        result.symbolFontSize = 24;   // Default 24px for symbol
+        result.topLine = "";
+        result.topLineFontSize = 16;  // Default 16px
+        result.topLineAlign = ALIGN_CENTER;
+        result.topLineShowDate = false;
+        result.mainText = "";
+        result.mainTextFontSize = 32; // Default 32px
+        result.mainTextAlign = ALIGN_CENTER;
+        result.bottomLine = "";
+        result.bottomLineFontSize = 16; // Default 16px
+        result.bottomLineAlign = ALIGN_CENTER;
+        result.ledColor = "green";
+        result.ledBrightness = "mid";
+        result.beep = false;
+        result.flashCount = 0;
+        result.refreshInterval = 30;
+        result.timezoneOffset = 3.0f; // Default Moscow UTC+3
         
         if (!hasCredentials()) {
             result.errorMessage = "No credentials";
@@ -358,7 +458,8 @@ public:
         doc["ip"] = WiFi.localIP().toString();
         doc["firmwareVersion"] = _firmwareVersion;
         if (uptimeSeconds >= 0) doc["uptimeSeconds"] = uptimeSeconds;
-        doc["displayHash"] = _displayHash;
+        // Send empty hash on forceRefresh to get instruction even if hash matches
+        doc["displayHash"] = forceRefresh ? "" : _displayHash;
         
         String body;
         serializeJson(doc, body);
@@ -374,6 +475,28 @@ public:
             
             JsonDocument respDoc;
             if (deserializeJson(respDoc, response) == DeserializationError::Ok) {
+                // Check for factory reset command
+                if (respDoc.containsKey("factoryReset") && respDoc["factoryReset"].as<bool>()) {
+                    result.factoryReset = true;
+                    Serial.println("[ApiClient] Factory reset requested by server!");
+                    http.end();
+                    return result;
+                }
+                
+                // Parse OTA update fields
+                if (respDoc.containsKey("autoUpdate")) {
+                    result.autoUpdate = respDoc["autoUpdate"].as<bool>();
+                }
+                if (respDoc.containsKey("demoMode")) {
+                    result.demoMode = respDoc["demoMode"].as<bool>();
+                }
+                if (respDoc.containsKey("latestFirmwareVersion")) {
+                    result.latestFirmwareVersion = respDoc["latestFirmwareVersion"].as<int>();
+                }
+                if (respDoc.containsKey("firmwareDownloadUrl")) {
+                    result.firmwareDownloadUrl = respDoc["firmwareDownloadUrl"].as<String>();
+                }
+                
                 if (respDoc.containsKey("instruction")) {
                     result.hasInstruction = true;
                     result.displayHash = respDoc["displayHash"].as<String>();
@@ -382,22 +505,42 @@ public:
                     _displayHash = result.displayHash;
                     _prefs.putString(NVS_DISPLAY_HASH, _displayHash);
                     
-                    // Parse instruction
-                    JsonObject instruction = respDoc["instruction"];
-                    result.instructionType = instruction["type"].as<String>();
+                    // Parse instruction fields
+                    JsonObject instr = respDoc["instruction"];
                     
-                    if (result.instructionType == "single" && instruction.containsKey("single")) {
-                        JsonObject single = instruction["single"];
-                        result.name = single["name"].as<String>();
-                        result.price = single["price"].as<float>();
-                        result.currencySymbol = single["currencySymbol"].as<String>();
-                        result.ledColor = single["ledColor"].as<String>();
-                        result.portfolioValue = single["portfolioValue"].as<float>();
-                        result.portfolioChangePercent = single["portfolioChangePercent"].as<float>();
-                        
-                        Serial.println("[ApiClient] New instruction: " + result.name + " " + 
-                                     result.currencySymbol + String(result.price, 2));
-                    }
+                    // Required fields
+                    result.symbol = instr["symbol"].as<String>();
+                    result.symbolFontSize = parseFontSize(instr["symbolFontSize"], 24);
+                    result.mainText = instr["mainText"].as<String>();
+                    
+                    // Top line
+                    result.topLine = instr["topLine"] | "";
+                    result.topLineFontSize = parseFontSize(instr["topLineFontSize"], 16);
+                    result.topLineAlign = parseTextAlign(instr["topLineAlign"] | "center");
+                    result.topLineShowDate = instr["topLineShowDate"] | false;
+                    
+                    // Main text
+                    result.mainTextFontSize = parseFontSize(instr["mainTextFontSize"], 32);
+                    result.mainTextAlign = parseTextAlign(instr["mainTextAlign"] | "center");
+                    
+                    // Bottom line
+                    result.bottomLine = instr["bottomLine"] | "";
+                    result.bottomLineFontSize = parseFontSize(instr["bottomLineFontSize"], 16);
+                    result.bottomLineAlign = parseTextAlign(instr["bottomLineAlign"] | "center");
+                    
+                    // LED control
+                    result.ledColor = instr["ledColor"] | "green";
+                    result.ledBrightness = instr["ledBrightness"] | "mid";
+                    
+                    // One-time actions
+                    result.beep = instr["beep"] | false;
+                    result.flashCount = instr["flashCount"] | 0;
+                    
+                    // Device behavior
+                    result.refreshInterval = instr["refreshInterval"] | 30;
+                    result.timezoneOffset = instr["timezoneOffset"] | 3.0f;
+                    
+                    Serial.println("[ApiClient] New instruction: " + result.symbol + " - " + result.mainText);
                 } else {
                     // No change
                     result.displayHash = _displayHash;

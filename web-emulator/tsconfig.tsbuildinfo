@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/env.d.ts","./src/main.tsx","./src/api/client.ts","./src/api/logstore.ts","./src/components/adminpanel.tsx","./src/components/logpanel.tsx","./src/components/macinput.tsx","./src/components/screen.tsx","./src/components/wifitoggle.tsx","./src/types/display.ts","./src/utils/jwt.ts"],"version":"5.9.2"}

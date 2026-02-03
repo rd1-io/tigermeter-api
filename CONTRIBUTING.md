@@ -121,7 +121,7 @@ Optional body with rationale / migration notes.
 ```
 Examples:
 ```
-routes: add playlist display pre-request hash generation
+routes: add display pre-request hash generation
 prisma: add ledBrightness column and persist on display update
 postman: add admin filter examples & rate limit notes
 ```
