@@ -189,18 +189,18 @@ prod-upload:
 firmware-release:
 	@echo "==> Building production firmware..."
 	@FW_ENV=esp32api $(MAKE) fw-build
-	@echo "==> Deploying to GitHub Pages..."
-	@git add docs/firmware/prod/
-	@git commit -m "chore(firmware): update firmware" || echo "No changes to commit"
+	@echo "==> Committing all changes and deploying..."
+	@git add -A
+	@git commit -m "chore(firmware): release firmware update" || echo "No changes to commit"
 	@git push
-	@echo "==> Done! Firmware deployed"
+	@echo "==> Done! Firmware and pages deployed"
 	@echo ""
 	@echo "📄 Page URL: https://rd1-io.github.io/tigermeter-api/"
 
 pages-release:
-	@echo "==> Deploying docs/ to GitHub Pages..."
+	@echo "==> Committing docs/ and deploying to GitHub Pages..."
 	@git add docs/
-	@git commit -m "chore(pages): update flash page" || echo "No changes to commit"
+	@git commit -m "chore(pages): update flash page" || echo "No docs/ changes to commit"
 	@git push
 	@echo "==> Done! Pages deployed"
 	@echo ""
