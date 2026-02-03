@@ -32,8 +32,8 @@ void Display::begin()
     _spi.begin(EPD_SCK_PIN, -1, EPD_MOSI_PIN, EPD_CS_PIN);
     _display.epd2.selectSPI(_spi, SPISettings(4000000, MSBFIRST, SPI_MODE0));
     
-    // Initialize display with reset
-    _display.init(115200, true, 50, false);  // initial=true, reset_duration=50ms, pulldown_rst_mode=false
+    // Initialize display with reset (0 = disable diagnostic output)
+    _display.init(0, true, 50, false);  // initial=true, reset_duration=50ms, pulldown_rst_mode=false
     _display.setRotation(1);  // Landscape mode
     _display.setTextWrap(false);
     
