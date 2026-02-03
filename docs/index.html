@@ -338,7 +338,7 @@
         </esp-web-install-button>
       </div>
 
-      <div class="flash-card prod disabled">
+      <div class="flash-card prod">
         <div class="card-header">
           <span class="card-icon">🚀</span>
           <h2 class="card-title">Production <span class="version" id="prod-version"></span></h2>
@@ -346,8 +346,9 @@
         <p class="card-description">
           Полная версия с API
         </p>
-        <button disabled>Прошить Production</button>
-        <p class="coming-soon">Скоро</p>
+        <esp-web-install-button manifest="manifest-prod.json">
+          <button slot="activate">Прошить Production</button>
+        </esp-web-install-button>
       </div>
     </div>
 
