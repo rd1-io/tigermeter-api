@@ -9,9 +9,9 @@
 // Exposed from main.ino
 extern const int CURRENT_FIRMWARE_VERSION;
 
-// Default GitHub releases URL (can be overridden from API)
+// Default GitHub Pages URL (can be overridden from API)
 #ifndef FIRMWARE_DOWNLOAD_URL
-#define FIRMWARE_DOWNLOAD_URL "https://github.com/Pavel-Demidyuk/tigermeter_releases/releases/download"
+#define FIRMWARE_DOWNLOAD_URL "https://rd1-io.github.io/tigermeter-api/firmware/prod"
 #endif
 
 // OTA update result structure
@@ -111,8 +111,8 @@ namespace OtaUpdate {
         
         result.updateAvailable = true;
         
-        // Build firmware URL: {baseUrl}/{version}/firmware-ota.bin
-        String firmwareUrl = firmwareBaseUrl + "/" + String(targetVersion) + "/firmware-ota.bin";
+        // Build firmware URL: {baseUrl}/firmware-ota.bin (single file, always latest)
+        String firmwareUrl = firmwareBaseUrl + "/firmware-ota.bin";
         Serial.printf("[OTA] Downloading firmware from: %s\n", firmwareUrl.c_str());
         
         // Follow redirects to get final download URL (GitHub uses redirects)

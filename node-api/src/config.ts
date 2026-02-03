@@ -10,7 +10,7 @@ export const config = {
   
   // OTA firmware settings
   latestFirmwareVersion: parseInt(process.env.LATEST_FIRMWARE_VERSION ?? '3', 10),
-  firmwareDownloadUrl: process.env.FIRMWARE_DOWNLOAD_URL ?? 'https://github.com/Pavel-Demidyuk/tigermeter_releases/releases/download',
+  firmwareDownloadUrl: process.env.FIRMWARE_DOWNLOAD_URL ?? 'https://rd1-io.github.io/tigermeter-api/firmware/prod',
 };
 
 
