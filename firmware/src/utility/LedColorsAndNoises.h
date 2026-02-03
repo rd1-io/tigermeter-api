@@ -286,3 +286,12 @@ void led_Off()
     currentG = 255;
     currentB = 255;
 }
+
+// Pulse yellow LED slowly N times (for startup animation)
+void pulseYellowSlow(int times = 2, uint16_t pulseDuration = 800, uint16_t pauseBetween = 200)
+{
+    for (int i = 0; i < times; i++) {
+        pulseColor(0, 180, 255, pulseDuration);  // Yellow: Red ON, Green partial, Blue OFF
+        if (i < times - 1) delay(pauseBetween);  // Pause between pulses (not after last)
+    }
+}
