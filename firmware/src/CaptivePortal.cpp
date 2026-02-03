@@ -416,7 +416,7 @@ namespace
             page += F("</head><body><div class='box'>"
                       "<div class='icon warn'>&#10007;</div>"
                       "<h1>Update Failed</h1>"
-                      "<p>Please check the firmware file and try again.</p>"
+                            "<p>Please check the firmware file and try again.</p>"
                       "<a href='/'>&larr; Back to portal</a>"
                       "</div></body></html>");
             server.send(500, "text/html", page);

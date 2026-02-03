@@ -189,13 +189,18 @@ prod-upload:
 firmware-release:
 	@echo "==> Building production firmware..."
 	@FW_ENV=esp32api $(MAKE) fw-build
+	@VERSION=$$(cat firmware/version_prod.txt); \
+	echo "==> Updating Fly.io to v$$VERSION..."; \
+	fly secrets set LATEST_FIRMWARE_VERSION=$$VERSION -a tigermeter-api
 	@echo "==> Committing all changes and deploying..."
 	@git add -A
-	@git commit -m "chore(firmware): release firmware update" || echo "No changes to commit"
+	@VERSION=$$(cat firmware/version_prod.txt); \
+	git commit -m "chore(firmware): release firmware v$$VERSION" || echo "No changes to commit"
 	@git push
-	@echo "==> Done! Firmware and pages deployed"
-	@echo ""
-	@echo "📄 Page URL: https://rd1-io.github.io/tigermeter-api/"
+	@VERSION=$$(cat firmware/version_prod.txt); \
+	echo "==> Done! Firmware v$$VERSION deployed"; \
+	echo ""; \
+	echo "📄 Page URL: https://rd1-io.github.io/tigermeter-api/"
 
 pages-release:
 	@echo "==> Committing docs/ and deploying to GitHub Pages..."
