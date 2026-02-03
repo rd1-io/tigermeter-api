@@ -586,6 +586,18 @@ void handleApiStateMachine()
                               OtaUpdate::getCurrentVersion(), 
                               OtaUpdate::getLatestVersion());
                 
+                // Show "Updating" message on display before starting OTA
+                display.clear();
+                drawRectangleAndText("OTA");
+                display.setFont(FONT_SIZE_MEDIUM);
+                display.setTextColor(true);
+                char updateMsg[32];
+                snprintf(updateMsg, sizeof(updateMsg), "Updating to v%d", OtaUpdate::getLatestVersion());
+                display.drawText(150, 50, updateMsg);
+                display.setFont(FONT_SIZE_SMALL);
+                display.drawText(150, 85, "Please wait...");
+                display.refresh();
+                
                 OtaResult otaResult = OtaUpdate::checkAndUpdate();
                 
                 if (otaResult.success) {
