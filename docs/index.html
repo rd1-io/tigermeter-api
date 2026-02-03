@@ -101,14 +101,6 @@
       transform: translateY(-2px);
     }
 
-    .flash-card.demo {
-      border-color: rgba(0, 212, 170, 0.3);
-    }
-
-    .flash-card.demo:hover {
-      box-shadow: 0 8px 32px var(--accent-cyan-glow);
-    }
-
     .flash-card.prod {
       border-color: rgba(255, 107, 53, 0.3);
     }
@@ -167,17 +159,6 @@
       transition: all 0.2s ease;
       text-transform: uppercase;
       letter-spacing: 0.05em;
-    }
-
-    .demo esp-web-install-button button {
-      background: linear-gradient(135deg, var(--accent-cyan) 0%, #00b090 100%);
-      color: #000;
-      box-shadow: 0 4px 15px var(--accent-cyan-glow);
-    }
-
-    .demo esp-web-install-button button:hover {
-      box-shadow: 0 6px 25px var(--accent-cyan-glow);
-      transform: translateY(-2px);
     }
 
     .prod esp-web-install-button button {
@@ -325,29 +306,16 @@
     </div>
 
     <div class="flash-cards">
-      <div class="flash-card demo">
-        <div class="card-header">
-          <span class="card-icon">⚡</span>
-          <h2 class="card-title">Демо <span class="version" id="demo-version"></span></h2>
-        </div>
-        <p class="card-description">
-          Тестовые данные без сервера
-        </p>
-        <esp-web-install-button manifest="manifest-demo.json">
-          <button slot="activate">Прошить Demo</button>
-        </esp-web-install-button>
-      </div>
-
       <div class="flash-card prod">
         <div class="card-header">
           <span class="card-icon">🚀</span>
-          <h2 class="card-title">Production <span class="version" id="prod-version"></span></h2>
+          <h2 class="card-title">TigerMeter <span class="version" id="prod-version"></span></h2>
         </div>
         <p class="card-description">
-          Полная версия с API
+          Полная версия с API и Demo режимом
         </p>
         <esp-web-install-button manifest="manifest-prod.json">
-          <button slot="activate">Прошить Production</button>
+          <button slot="activate">Прошить</button>
         </esp-web-install-button>
       </div>
     </div>
@@ -359,11 +327,8 @@
         в браузере и загрузите скачанный файл.
       </p>
       <div class="ota-links">
-        <a href="firmware/demo/firmware-ota.bin" class="ota-link" download>
-          ⬇ Demo OTA <span id="demo-ota-version"></span>
-        </a>
         <a href="firmware/prod/firmware-ota.bin" class="ota-link prod" download>
-          ⬇ Prod OTA <span id="prod-ota-version"></span>
+          ⬇ Скачать OTA <span id="prod-ota-version"></span>
         </a>
       </div>
     </div>
@@ -378,17 +343,8 @@
       document.getElementById('unsupported').classList.add('show');
     }
     
-    // Load firmware versions
+    // Load firmware version
     async function loadVersions() {
-      try {
-        const demoRes = await fetch('firmware/demo/version.json');
-        if (demoRes.ok) {
-          const data = await demoRes.json();
-          const v = 'v' + data.version;
-          document.getElementById('demo-version').textContent = v;
-          document.getElementById('demo-ota-version').textContent = v;
-        }
-      } catch (e) {}
       try {
         const prodRes = await fetch('firmware/prod/version.json');
         if (prodRes.ok) {
