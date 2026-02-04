@@ -131,13 +131,17 @@ void setup()
 {
     Serial.begin(115200);
     delay(100);
+    
     Serial.println("[Main] Starting TigerMeter (API MODE)...");
     
     startTime = millis();
 
-    // Initialize pins and buzzer
+    // Initialize LEDC for LED PWM control
     initializePins();
-    led_Yellow();
+    
+    // Immediately set LED to dim yellow (20% brightness)
+    // This gives instant visual feedback during boot
+    setLedPWM(204, 240, 255);
 
     // Initialize e-paper display
     Serial.println("[Main] Initializing e-paper display...");
@@ -165,7 +169,9 @@ void setup()
     
     display.refresh();
     Serial.println("[Main] Logo displayed");
-    delay(2000);
+    
+    // Fade in yellow LED from 20% to 100% while logo is shown
+    fadeInYellow(2000);
 
     // Start captive portal AP + OTA
     startCaptivePortal();
@@ -191,11 +197,7 @@ void setup()
     display.refresh();
     Serial.println("[Main] WiFi message displayed");
 
-    // Pulse yellow LED slowly twice on startup
-    pulseYellowSlow(2, 800, 200);
-
-    // Try to connect using stored credentials
-    led_Yellow();
+    // Try to connect using stored credentials (LED already yellow from fade in)
     unsigned long startAttemptTime = millis();
     const unsigned long connectionTimeout = 20000;
     while (WiFi.status() != WL_CONNECTED && millis() - startAttemptTime < connectionTimeout)

@@ -143,10 +143,6 @@ fw:
 	EXTRA=""; if [ -n "$(UPLOAD_PORT)" ]; then EXTRA="--upload-port $(UPLOAD_PORT)"; fi; \
 	pio run -e $(FW_ENV) -t upload $$EXTRA
 
-minimal-demo:
-	@FW_ENV=esp32minimal $(MAKE) fw $(if $(UPLOAD_PORT),UPLOAD_PORT=$(UPLOAD_PORT),)
-	@$(MAKE) log $(if $(UPLOAD_PORT),UPLOAD_PORT=$(UPLOAD_PORT),)
-
 fw-build:
 	@VERSION_FILE=""; \
 	if [ "$(FW_ENV)" = "esp32api" ]; then VERSION_FILE="$(FW_DIR)/version_prod.txt"; fi; \

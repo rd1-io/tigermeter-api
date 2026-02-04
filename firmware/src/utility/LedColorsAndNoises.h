@@ -287,11 +287,38 @@ void led_Off()
     currentB = 255;
 }
 
-// Pulse yellow LED slowly N times (for startup animation)
-void pulseYellowSlow(int times = 2, uint16_t pulseDuration = 800, uint16_t pauseBetween = 200)
+// Fade in yellow LED from 20% to full brightness over durationMs
+// Used during startup logo screen
+void fadeInYellow(uint16_t durationMs = 2000)
 {
-    for (int i = 0; i < times; i++) {
-        pulseColor(0, 180, 255, pulseDuration);  // Yellow: Red ON, Green partial, Blue OFF
-        if (i < times - 1) delay(pauseBetween);  // Pause between pulses (not after last)
+    const int steps = 80;  // 80 steps for 20%->100% range
+    const int stepDelay = durationMs / steps;
+    
+    // Yellow target: R=0 (full on), G=180 (partial), B=255 (off)
+    const uint8_t targetR = 0;
+    const uint8_t targetG = 180;
+    const uint8_t targetB = 255;
+    
+    // Start at 20% brightness (80% of the way from target to OFF)
+    // For common anode: closer to 255 = dimmer
+    const uint8_t startR = targetR + (255 - targetR) * 80 / 100;  // 204
+    const uint8_t startG = targetG + (255 - targetG) * 80 / 100;  // 240
+    const uint8_t startB = targetB;  // Already 255 (off)
+    
+    // Set initial 20% brightness immediately
+    setLedPWM(startR, startG, startB);
+    
+    // Fade from 20% to 100%
+    for (int i = 1; i <= steps; i++)
+    {
+        uint8_t r = startR - ((startR - targetR) * i) / steps;
+        uint8_t g = startG - ((startG - targetG) * i) / steps;
+        uint8_t b = startB - ((startB - targetB) * i) / steps;
+        
+        setLedPWM(r, g, b);
+        delay(stepDelay);
     }
+    
+    // Ensure full yellow at the end
+    setLedPWM(targetR, targetG, targetB);
 }
