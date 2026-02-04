@@ -68,6 +68,11 @@ int displayRefreshInterval = 30;
 float displayTimezoneOffset = 3.0f;
 String lastDisplayedError = "";
 
+// Server connection tracking
+int consecutiveHeartbeatFailures = 0;
+bool isReconnecting = false;
+TaskHandle_t amberPulseTaskHandle = NULL;
+
 // Battery reading
 const float BATTERY_MULTIPLIER = 2.19f;
 
@@ -111,6 +116,12 @@ void renderDemoHeader();
 void renderDemoUptime();
 void runDemoLoop();
 void demoLedTask(void *pvParameters);
+
+// Reconnecting state functions
+void displayReconnecting();
+void amberPulseTask(void *pvParameters);
+void startAmberPulse();
+void stopAmberPulse();
 
 // Demo mode state
 bool localDemoMode = false;
@@ -372,7 +383,8 @@ void handleApiStateMachine()
             int rssi = WiFi.RSSI();
             int battery = getBatteryPercent();
             
-            bool forceRefresh = (displaySymbol.length() == 0);
+            // Force refresh if no data yet, or if recovering from reconnecting state
+            bool forceRefresh = (displaySymbol.length() == 0) || isReconnecting;
             HeartbeatResult result = apiClient.sendHeartbeat(battery, rssi, uptimeSeconds, forceRefresh);
             
             // Check for remote factory reset command
@@ -430,6 +442,16 @@ void handleApiStateMachine()
             
             if (result.success)
             {
+                // Reset failure counter on success
+                consecutiveHeartbeatFailures = 0;
+                
+                // If we were in reconnecting state, stop the amber pulse
+                if (isReconnecting) {
+                    Serial.println("[Main] Connection restored!");
+                    stopAmberPulse();
+                    isReconnecting = false;
+                }
+                
                 OtaUpdate::setAutoUpdate(result.autoUpdate);
                 OtaUpdate::setLatestVersion(result.latestFirmwareVersion);
                 if (result.firmwareDownloadUrl.length() > 0) {
@@ -521,10 +543,32 @@ void handleApiStateMachine()
             else if (result.httpCode == 401)
             {
                 Serial.println("[Main] Secret revoked, restarting claim...");
+                consecutiveHeartbeatFailures = 0;
+                if (isReconnecting) {
+                    stopAmberPulse();
+                    isReconnecting = false;
+                }
                 currentState = STATE_UNCLAIMED;
                 currentClaimCode = "";
                 lastDisplayedError = "Auth revoked";
                 led_Yellow();
+            }
+            else
+            {
+                // Server connection failed (not 401)
+                consecutiveHeartbeatFailures++;
+                Serial.printf("[Main] Heartbeat failed (%d consecutive failures): %s\n", 
+                              consecutiveHeartbeatFailures, result.errorMessage.c_str());
+                
+                // After 2 consecutive failures, enter reconnecting state
+                // Only if device had display data (was working before)
+                if (consecutiveHeartbeatFailures >= 2 && displaySymbol.length() > 0 && !isReconnecting)
+                {
+                    Serial.println("[Main] Server connection lost, entering reconnecting state");
+                    isReconnecting = true;
+                    displayReconnecting();
+                    startAmberPulse();
+                }
             }
         }
         
@@ -728,6 +772,58 @@ void displayError(const char *msg)
     display.setFont(FONT_SIZE_SMALL);
     display.setTextColor(true);
     display.drawText(150, 75, truncMsg);
+}
+
+// Display reconnecting state (server connection lost)
+void displayReconnecting()
+{
+    display.clear();
+    drawRectangleAndText("ERR");
+    
+    display.setFont(FONT_SIZE_MEDIUM);
+    display.setTextColor(true);
+    display.drawText(150, 72, "Reconnecting...");
+    display.refresh();
+}
+
+// Amber pulse task for reconnecting state
+void amberPulseTask(void *pvParameters)
+{
+    (void)pvParameters;
+    for (;;)
+    {
+        if (!isReconnecting) {
+            // Exit task when no longer reconnecting
+            amberPulseTaskHandle = NULL;
+            vTaskDelete(NULL);
+            return;
+        }
+        pulseAmberSlow();  // One 3-second cycle
+    }
+}
+
+// Start amber pulse task
+void startAmberPulse()
+{
+    if (amberPulseTaskHandle == NULL) {
+        xTaskCreatePinnedToCore(amberPulseTask, "amberPulse", 2048, NULL, 1, &amberPulseTaskHandle, 1);
+        Serial.println("[Main] Started amber pulse task");
+    }
+}
+
+// Stop amber pulse task
+void stopAmberPulse()
+{
+    if (amberPulseTaskHandle != NULL) {
+        isReconnecting = false;  // Signal task to exit
+        // Give task time to finish current cycle and delete itself
+        delay(100);
+        if (amberPulseTaskHandle != NULL) {
+            vTaskDelete(amberPulseTaskHandle);
+            amberPulseTaskHandle = NULL;
+        }
+        Serial.println("[Main] Stopped amber pulse task");
+    }
 }
 
 // ============== DEMO MODE FUNCTIONS ==============

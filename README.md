@@ -1,11 +1,8 @@
 # TigerMeter
 
-ESP32-based e-ink display device with cloud API for real-time data visualization.
-
 ## Quick Links
 
 - **Flash Firmware**: https://rd1-io.github.io/tigermeter-api/
-- **Web Emulator**: `make emulator` → http://localhost:5175
 - **API Docs**: `docs/overview.md`
 
 ## Основные команды

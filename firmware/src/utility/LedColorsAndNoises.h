@@ -287,6 +287,14 @@ void led_Off()
     currentB = 255;
 }
 
+// Slow amber pulse: one cycle of fade in -> fade out over ~3 seconds
+// Used for reconnecting state indication
+// Amber color: R=0 (full on), G=180 (partial), B=255 (off)
+void pulseAmberSlow()
+{
+    pulseColor(0, 180, 255, 3000);  // 3 second cycle
+}
+
 // Fade in yellow LED from 20% to full brightness over durationMs
 // Used during startup logo screen
 void fadeInYellow(uint16_t durationMs = 2000)
