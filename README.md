@@ -102,7 +102,6 @@ Welcome → Claim Code → (Low Battery / No Network как межсостоян
   - [Источники телеметрии](#источники-телеметрии)
   - [Поля, которые устройство отправляет](#поля-которые-устройство-отправляет)
   - [Поля, которые портал/бэкенд хранит или выводит](#поля-которые-порталбэкенд-хранит-или-выводит)
-  - [Конфиденциальность и минимизация](#конфиденциальность-и-минимизация)
   - [Использование телеметрии порталом](#использование-телеметрии-порталом)
 
 ---
@@ -329,10 +328,6 @@ HMAC_SHA256(device_hmac_key, mac || firmwareVersion || timestampRoundedToMinute)
 - `autoUpdate` — включено ли автообновление.
 - `demoMode` — включён ли демо режим.
 
-### Конфиденциальность и минимизация
-- Не собирать лишние сетевые метаданные (геолокация, hostnames) без явной необходимости.
-- IP хранить только последний (перезапись) для диагностики; опционально — усечение до /24 для приватности.
-
 ### Использование телеметрии порталом
 - Отображение состояния онлайн / офлайн (`lastSeen` > threshold → offline).
 - Показ заряда батареи и сигнала.
@@ -462,6 +457,36 @@ curl -s "$BASE/api/admin/devices/$DID/settings" \
   -H 'content-type: application/json' \
   -X PATCH \
   -d '{"autoUpdate":false}' | jq .
+```
+
+- **12) Admin: factory reset / удаление устройства**:
+```bash
+# Удалённый Factory Reset (устройство сбросится при следующем heartbeat)
+curl -s "$BASE/api/admin/devices/$DID/factory-reset" \
+  -H "authorization: Bearer $ADMIN_TOKEN" \
+  -X POST | jq .
+
+# Удалить устройство из БД
+curl -s "$BASE/api/admin/devices/$DID" \
+  -H "authorization: Bearer $ADMIN_TOKEN" \
+  -X DELETE | jq .
+```
+
+- **13) Admin: управление pending устройствами**:
+```bash
+# Список устройств ожидающих одобрения
+curl -s "$BASE/api/admin/pending-devices" \
+  -H "authorization: Bearer $ADMIN_TOKEN" | jq .
+
+# Одобрить устройство (создаёт Device запись)
+curl -s "$BASE/api/admin/pending-devices/$PENDING_ID/approve" \
+  -H "authorization: Bearer $ADMIN_TOKEN" \
+  -X POST | jq .
+
+# Отклонить устройство
+curl -s "$BASE/api/admin/pending-devices/$PENDING_ID/reject" \
+  -H "authorization: Bearer $ADMIN_TOKEN" \
+  -X POST | jq .
 ```
 
 Примечания:
