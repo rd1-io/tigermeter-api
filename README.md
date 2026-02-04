@@ -28,14 +28,6 @@ make prod-build     # Только собрать
 make firmware-release  # Собрать, запушить и обновить Fly.io
 ```
 
-## Demo Mode
-
-Production прошивка включает встроенный Demo режим. Включить можно:
-- **Captive Portal**: http://192.168.4.1 → карточка "Demo Mode"
-- **Admin Panel**: web-emulator → колонка "Demo" в таблице устройств
-
-В Demo режиме устройство показывает тестовый экран с rainbow LED эффектом.
-
 ## OTA обновления
 
 Устройство автоматически проверяет обновления:
@@ -82,13 +74,6 @@ Welcome → Claim Code → (Low Battery / No Network как межсостоян
 - `docs/claim-flow.md` — детальный flow привязки и одноразовой выдачи секрета
 - `docs/errors.md` — каталог типовых ошибок и обработка на клиенте
 
-### Web Emulator
-Папка `web-emulator/` содержит веб-эмулятор устройства (экран 384x168). Можно использовать для отладки API flows (claim → poll → heartbeat) и визуальных инструкций отображения.
-
-```bash
-make emulator
-```
-Откроется Vite dev server (по умолчанию http://localhost:5175). Введите MAC и включите WiFi чтобы инициировать начальный запрос claim.
 
 ---
 
