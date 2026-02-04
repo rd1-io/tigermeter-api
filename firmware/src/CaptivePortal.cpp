@@ -13,9 +13,11 @@
 // Exposed from main.ino
 extern const int CURRENT_FIRMWARE_VERSION;
 
+// Module-level variable for unique SSID (generated at runtime from MAC)
+String apSsid;
+
 namespace
 {
-    const char *AP_SSID = "tigermeter";
     const IPAddress AP_IP(192, 168, 4, 1);
     const IPAddress AP_NETMASK(255, 255, 255, 0);
 
@@ -613,18 +615,19 @@ void startCaptivePortal()
 
     Serial.println("[CaptivePortal] Setting WiFi mode to AP_STA");
     
-    // Set unique hostname using last 4 chars of MAC (e.g. "tigermeter-A1B2")
+    // Generate unique SSID and hostname using last 4 chars of MAC (e.g. "tigermeter-A1B2")
     String mac = WiFi.macAddress();
     mac.replace(":", "");
-    String hostname = "tigermeter-" + mac.substring(mac.length() - 4);
-    WiFi.setHostname(hostname.c_str());
-    Serial.printf("[CaptivePortal] Hostname: %s\n", hostname.c_str());
+    String suffix = mac.substring(mac.length() - 4);
+    apSsid = "tigermeter-" + suffix;
+    WiFi.setHostname(apSsid.c_str());
+    Serial.printf("[CaptivePortal] SSID/Hostname: %s\n", apSsid.c_str());
     
     WiFi.mode(WIFI_AP_STA);
     WiFi.softAPConfig(AP_IP, AP_IP, AP_NETMASK);
     
-    bool apStarted = WiFi.softAP(AP_SSID);
-    Serial.printf("[CaptivePortal] softAP('%s') = %s\n", AP_SSID, apStarted ? "OK" : "FAILED");
+    bool apStarted = WiFi.softAP(apSsid.c_str());
+    Serial.printf("[CaptivePortal] softAP('%s') = %s\n", apSsid.c_str(), apStarted ? "OK" : "FAILED");
     
     if (apStarted) {
         Serial.printf("[CaptivePortal] AP IP: %s\n", WiFi.softAPIP().toString().c_str());
@@ -669,6 +672,11 @@ void webLog(const char *format, ...)
     
     Serial.println(buf);  // Also print to serial
     addWebLog(String(buf));
+}
+
+const String& getApSsid()
+{
+    return apSsid;
 }
 
 

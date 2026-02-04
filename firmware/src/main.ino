@@ -711,7 +711,7 @@ void displayWifiMessage()
     
     display.setFont(FONT_SIZE_MEDIUM);
     display.setTextColor(true);
-    display.drawText(150, 55, "tigermeter");
+    display.drawText(150, 55, getApSsid().c_str());
     display.setFont(FONT_SIZE_SMALL);
     display.drawText(150, 100, "192.168.4.1");
 }

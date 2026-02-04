@@ -44,6 +44,12 @@ interface AdminPanelProps {
 
 const POLL_INTERVAL_MS = 5000;
 
+// Derive WiFi SSID from MAC address (same logic as firmware)
+const getWifiSsid = (mac: string) => {
+  const suffix = mac.replace(/:/g, "").slice(-4);
+  return `tigermeter-${suffix}`;
+};
+
 // Form state for display settings
 interface DisplayForm {
   symbol: string;
@@ -563,6 +569,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             <thead>
               <tr className="border-b">
                 <th className="text-left py-2 px-1">MAC</th>
+                <th className="text-left py-2 px-1">WiFi</th>
                 <th className="text-left py-2 px-1">Status</th>
                 <th className="text-left py-2 px-1">Firmware</th>
                 <th className="text-left py-2 px-1">Auto-Update</th>
@@ -574,7 +581,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             </thead>
             <tbody>
               {devices.length === 0 && !loading && (
-                <tr><td colSpan={8} className="py-4 text-center text-neutral-500">No devices found</td></tr>
+                <tr><td colSpan={9} className="py-4 text-center text-neutral-500">No devices found</td></tr>
               )}
               {devices.map((device) => (
                 <tr
@@ -583,6 +590,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   onClick={() => onSelectDevice(device)}
                 >
                   <td className="py-2 px-1 font-mono">{device.mac}</td>
+                  <td className="py-2 px-1 font-mono text-[10px]">{getWifiSsid(device.mac)}</td>
                   <td className="py-2 px-1">
                     <span className={`px-2 py-0.5 rounded-full text-[10px] ${getStatusColor(device.status)}`}>{device.status}</span>
                   </td>
