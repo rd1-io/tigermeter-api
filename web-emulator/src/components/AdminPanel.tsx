@@ -853,7 +853,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 value={form.flashCount} 
                 onChange={(e) => {
                   const val = e.target.value.replace(/\D/g, "");
-                  updateForm({ flashCount: val ? Math.min(10, parseInt(val)) : 0 });
+                  updateForm({ flashCount: val ? Math.min(100, parseInt(val)) : 0 });
                 }} 
                 className={inputClass} 
               />

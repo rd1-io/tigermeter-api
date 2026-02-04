@@ -508,17 +508,20 @@ void handleApiStateMachine()
                     
                     if (result.flashCount > 0) {
                         for (int i = 0; i < result.flashCount; i++) {
-                            delay(200);
-                            led_Off();
-                            delay(200);
-                            if (displayLedBrightness == "off") {
-                                led_Off();
-                            } else if (displayLedColor == "green") led_Green();
-                            else if (displayLedColor == "red") led_Red();
-                            else if (displayLedColor == "blue") led_Blue();
-                            else if (displayLedColor == "yellow") led_Yellow();
-                            else if (displayLedColor == "purple") led_Purple();
+                            pulseColorByName(displayLedColor, 800);
+                            if (i < result.flashCount - 1) {
+                                delay(100); // Small gap between pulses
+                            }
                         }
+                        // Restore LED to steady state after pulsing
+                        setLedBrightness(displayLedBrightness);
+                        if (displayLedBrightness == "off") {
+                            led_Off();
+                        } else if (displayLedColor == "green") led_Green();
+                        else if (displayLedColor == "red") led_Red();
+                        else if (displayLedColor == "blue") led_Blue();
+                        else if (displayLedColor == "yellow") led_Yellow();
+                        else if (displayLedColor == "purple") led_Purple();
                     }
                 }
                 else

@@ -614,16 +614,38 @@ void startCaptivePortal()
     preferences.begin("tigermeter", false);
 
     Serial.println("[CaptivePortal] Setting WiFi mode to AP_STA");
+    WiFi.mode(WIFI_AP_STA);
     
-    // Generate unique SSID and hostname using last 4 chars of MAC (e.g. "tigermeter-A1B2")
-    String mac = WiFi.macAddress();
-    mac.replace(":", "");
-    String suffix = mac.substring(mac.length() - 4);
-    apSsid = "tigermeter-" + suffix;
+    // #region agent log - Debug: Use ESP.getEfuseMac() - hardware MAC always available
+    // ESP32 has MAC burned into eFuse, WiFi APIs return 00:00:00:00:00:00 before fully initialized
+    uint64_t efuseMac = ESP.getEfuseMac();
+    Serial.printf("[DEBUG] eFuse MAC raw: 0x%llX\n", efuseMac);
+    
+    // Extract bytes and format as MAC string (eFuse MAC is in reverse byte order)
+    uint8_t macBytes[6];
+    macBytes[0] = (efuseMac >> 0) & 0xFF;
+    macBytes[1] = (efuseMac >> 8) & 0xFF;
+    macBytes[2] = (efuseMac >> 16) & 0xFF;
+    macBytes[3] = (efuseMac >> 24) & 0xFF;
+    macBytes[4] = (efuseMac >> 32) & 0xFF;
+    macBytes[5] = (efuseMac >> 40) & 0xFF;
+    
+    char macStr[18];
+    snprintf(macStr, sizeof(macStr), "%02X:%02X:%02X:%02X:%02X:%02X",
+             macBytes[0], macBytes[1], macBytes[2], macBytes[3], macBytes[4], macBytes[5]);
+    Serial.printf("[DEBUG] eFuse MAC formatted: '%s'\n", macStr);
+    
+    // Get last 4 hex chars for suffix (last 2 bytes = 4 hex chars)
+    char suffix[5];
+    snprintf(suffix, sizeof(suffix), "%02X%02X", macBytes[4], macBytes[5]);
+    Serial.printf("[DEBUG] Generated suffix: '%s'\n", suffix);
+    // #endregion
+    
+    // Generate unique SSID and hostname using last 4 chars of hardware MAC (e.g. "tigermeter-54D8")
+    apSsid = "tigermeter-" + String(suffix);
     WiFi.setHostname(apSsid.c_str());
     Serial.printf("[CaptivePortal] SSID/Hostname: %s\n", apSsid.c_str());
     
-    WiFi.mode(WIFI_AP_STA);
     WiFi.softAPConfig(AP_IP, AP_IP, AP_NETMASK);
     
     bool apStarted = WiFi.softAP(apSsid.c_str());

@@ -129,32 +129,24 @@ void setLedPWM(uint8_t r, uint8_t g, uint8_t b)
     ledc_update_duty(LED_SPEED_MODE, BLUE_CHANNEL);
 }
 
-// Pulse a single color: off -> on -> off over durationMs
+// Pulse a single color: off -> on -> off over durationMs using smooth sine wave
 // targetR, targetG, targetB: target values when fully ON (0 = full brightness for common anode)
+// Uses sinusoidal interpolation for natural "breathing" effect
 void pulseColor(uint8_t targetR, uint8_t targetG, uint8_t targetB, uint16_t durationMs)
 {
-    const int steps = 50; // Steps per half-cycle (fade in or fade out)
-    const int stepDelay = durationMs / (steps * 2); // Total duration split between fade in and fade out
+    const int totalSteps = 100; // Total steps for full cycle
+    const int stepDelay = durationMs / totalSteps;
     
-    // Phase 1: Fade in (255 -> target, i.e. off -> on)
-    for (int i = 1; i <= steps; i++)
+    for (int i = 0; i <= totalSteps; i++)
     {
-        // Linear interpolation from OFF (255) to ON (target)
-        uint8_t r = 255 - ((255 - targetR) * i) / steps;
-        uint8_t g = 255 - ((255 - targetG) * i) / steps;
-        uint8_t b = 255 - ((255 - targetB) * i) / steps;
+        float t = (float)i / totalSteps;
+        // Sine wave: 0 -> 1 -> 0 over one cycle (smooth breathing)
+        float brightness = sin(t * PI);
         
-        setLedPWM(r, g, b);
-        delay(stepDelay);
-    }
-    
-    // Phase 2: Fade out (target -> 255, i.e. on -> off)
-    for (int i = 1; i <= steps; i++)
-    {
-        // Linear interpolation from ON (target) to OFF (255)
-        uint8_t r = targetR + ((255 - targetR) * i) / steps;
-        uint8_t g = targetG + ((255 - targetG) * i) / steps;
-        uint8_t b = targetB + ((255 - targetB) * i) / steps;
+        // Interpolate from OFF (255) toward ON (target) based on brightness
+        uint8_t r = 255 - (uint8_t)((255 - targetR) * brightness);
+        uint8_t g = 255 - (uint8_t)((255 - targetG) * brightness);
+        uint8_t b = 255 - (uint8_t)((255 - targetB) * brightness);
         
         setLedPWM(r, g, b);
         delay(stepDelay);
@@ -285,6 +277,27 @@ void led_Off()
     currentR = 255;
     currentG = 255;
     currentB = 255;
+}
+
+// Pulse LED by color name with smooth breathing effect
+// color: "green", "red", "blue", "yellow", "purple"
+// durationMs: total duration for one pulse cycle (default 800ms)
+void pulseColorByName(const String& color, uint16_t durationMs = 800)
+{
+    if (color == "green") {
+        pulseColor(255, 0, 255, durationMs);      // Green ON
+    } else if (color == "red") {
+        pulseColor(0, 255, 255, durationMs);      // Red ON
+    } else if (color == "blue") {
+        pulseColor(255, 255, 0, durationMs);      // Blue ON
+    } else if (color == "yellow") {
+        pulseColor(0, 180, 255, durationMs);      // Amber (Red + partial Green)
+    } else if (color == "purple") {
+        pulseColor(0, 255, 0, durationMs);        // Purple (Red + Blue)
+    } else {
+        // Default to green for unknown colors
+        pulseColor(255, 0, 255, durationMs);
+    }
 }
 
 // Slow amber pulse: one cycle of fade in -> fade out over ~3 seconds
