@@ -1,3 +1,55 @@
+# TigerMeter
+
+ESP32-based e-ink display device with cloud API for real-time data visualization.
+
+## Quick Links
+
+- **Flash Firmware**: https://rd1-io.github.io/tigermeter-api/
+- **Web Emulator**: `make emulator` → http://localhost:5175
+- **API Docs**: `docs/overview.md`
+
+## Основные команды
+
+```bash
+make setup            # Установить зависимости и настроить БД
+make dev              # Запустить API локально
+make emulator         # Запустить web-emulator
+make prod             # Собрать и прошить firmware
+make deploy m="msg"   # Закоммитить и запушить все изменения
+make firmware-release # Релиз прошивки + обновление Fly.io
+```
+
+## Прошивка устройства
+
+### Через браузер (рекомендуется)
+Откройте https://rd1-io.github.io/tigermeter-api/ и следуйте инструкциям.
+
+### Через PlatformIO
+```bash
+make prod           # Собрать и прошить
+make prod-build     # Только собрать
+make firmware-release  # Собрать, запушить и обновить Fly.io
+```
+
+## Demo Mode
+
+Production прошивка включает встроенный Demo режим. Включить можно:
+- **Captive Portal**: http://192.168.4.1 → карточка "Demo Mode"
+- **Admin Panel**: web-emulator → колонка "Demo" в таблице устройств
+
+В Demo режиме устройство показывает тестовый экран с rainbow LED эффектом.
+
+## OTA обновления
+
+Устройство автоматически проверяет обновления:
+- Первая проверка через 60 секунд после старта
+- Последующие проверки каждый час
+
+Управление через Admin Panel (колонка Auto-Update).
+
+---
+
+## Экраны устройства
 
 ### Основной Экран
 ![Основной Экран](./images/screen3-main.svg)
@@ -11,37 +63,39 @@
 ### Экран 3: Низкий заряд батареи
 ![Экран 3](./images/screen4-low-battery.svg)
 
-
 ### Экран 4: Нет сети
 ![Экран 4](./images/screen5-no-internet.svg)
 
+### Поля отображения
+- (1) symbol — короткий идентификатор
+- (2) topLine — верхняя строка текста, или дата/время если `topLineShowDate=true`
+- (3) mainText — основной текст по центру с настраиваемым размером
+- (4) bottomLine — нижняя строка текста
+- (5) ledColor / trend bar — динамическая полоса или LED (green/red/purple/blue/yellow)
+
+### Flow экранов
+Welcome → Claim Code → (Low Battery / No Network как межсостояния) → Main Display. LED пульсирует на первых двух экранах, затем заменяется столбцом тренда. Low Battery полностью перекрывает контент. No Network сохраняет последние данные (монохром).
+
+---
 
 ## Документация
+
 Дополнительно к этому README доступны структурированные файлы:
 - `docs/overview.md` — обзор, иерархия источников истины, быстрый старт
 - `docs/claim-flow.md` — детальный flow привязки и одноразовой выдачи секрета
 - `docs/errors.md` — каталог типовых ошибок и обработка на клиенте
 
-### Web Emulator (Experimental)
+### Web Emulator
 Папка `web-emulator/` содержит веб-эмулятор устройства (экран 384x168). Можно использовать для отладки API flows (claim → poll → heartbeat) и визуальных инструкций отображения.
 
-Быстрый старт:
 ```bash
 make emulator
 ```
 Откроется Vite dev server (по умолчанию http://localhost:5175). Введите MAC и включите WiFi чтобы инициировать начальный запрос claim.
 
+---
 
-
-- (1) symbol — короткий идентификатор.
-- (2) topLine — верхняя строка текста, или дата/время если `topLineShowDate=true`.
-- (3) mainText — основной текст по центру с настраиваемым размером.
-- (4) bottomLine — нижняя строка текста.
-- (5) ledColor / trend bar — динамическая полоса или LED (green/red/purple/blue/yellow).
-
-
-
-Кратко: Welcome → Claim Code → (Low Battery / No Network как межсостояния) → Main Display. LED пульсирует на первых двух экранах, затем заменяется столбцом тренда. Low Battery полностью перекрывает контент. No Network сохраняет последние данные (монохром).
+## Содержание
 
 - [Этапы](#этапы)
 - [Ключевые принципы](#ключевые-принципы)
@@ -68,6 +122,8 @@ make emulator
   - [Поля, которые портал/бэкенд хранит или выводит](#поля-которые-порталбэкенд-хранит-или-выводит)
   - [Конфиденциальность и минимизация](#конфиденциальность-и-минимизация)
   - [Использование телеметрии порталом](#использование-телеметрии-порталом)
+
+---
 
 ## Этапы
 1. Device Claim (устройство просит код)
@@ -155,6 +211,7 @@ Bearer Authorization: секрет устройства.
 - `POST /devices/{id}/heartbeat` {battery, rssi, ip, fwVersion, uptime, displayHash} (operationId: heartbeat)
     - Валидация секрета → обновление телеметрии → сравнение displayHash
     - Если hash отличается: возвращается {instruction, displayHash}; иначе {ok:true}
+    - Возвращает `demoMode` и `autoUpdate` флаги для управления устройством
 - `GET /devices/{id}/display/hash` → быстрый опрос хеша (operationId: getDisplayHash)
 - `GET /devices/{id}/display/full` → получение инструкции при изменении (operationId: getDisplayInstruction)
 - `POST /devices/{id}/secret/refresh` → выдаёт новый секрет (старый действует ещё ~5 мин) (operationId: refreshSecret)
@@ -287,6 +344,8 @@ HMAC_SHA256(device_hmac_key, mac || firmwareVersion || timestampRoundedToMinute)
 - `deviceSecretHash` (только админ) — хеш секрета (никогда не plaintext).
 - `currentDisplayType` — тип последней инструкции.
 - `displayHash` — последний сохранённый хеш.
+- `autoUpdate` — включено ли автообновление.
+- `demoMode` — включён ли демо режим.
 
 ### Конфиденциальность и минимизация
 - Не собирать лишние сетевые метаданные (геолокация, hostnames) без явной необходимости.
@@ -297,8 +356,9 @@ HMAC_SHA256(device_hmac_key, mac || firmwareVersion || timestampRoundedToMinute)
 - Показ заряда батареи и сигнала.
 - Диагностика при support (MAC, fwVersion, RSSI).
 
+---
 
-### Локальный запуск API (Node/Fastify) и примеры curl
+## Локальный запуск API (Node/Fastify) и примеры curl
 
 - **Старт локально**:
 ```bash
@@ -405,6 +465,23 @@ curl -s "$BASE/api/admin/devices/$DID/revoke" -H "authorization: Bearer $ADMIN_T
 curl -s "$BASE/api/admin/device-claims/$CODE" -H "authorization: Bearer $ADMIN_TOKEN" | jq .
 ```
 
+- **11) Admin: изменить настройки устройства (demoMode, autoUpdate)**:
+```bash
+# Включить Demo Mode
+curl -s "$BASE/api/admin/devices/$DID/settings" \
+  -H "authorization: Bearer $ADMIN_TOKEN" \
+  -H 'content-type: application/json' \
+  -X PATCH \
+  -d '{"demoMode":true}' | jq .
+
+# Выключить Auto-Update
+curl -s "$BASE/api/admin/devices/$DID/settings" \
+  -H "authorization: Bearer $ADMIN_TOKEN" \
+  -H 'content-type: application/json' \
+  -X PATCH \
+  -d '{"autoUpdate":false}' | jq .
+```
+
 Примечания:
 - Хеш инструкции вычисляется на бэкенде (канонический JSON → SHA-256), поле `hash` в теле запроса может быть любым/черновым.
 - Для простоты примеров используется SQLite (`node-api/dev.db`) и секрет JWT по умолчанию `change-me-dev` (см. `make setup`). В проде замените секрет и СУБД.
@@ -418,6 +495,3 @@ curl -s "$BASE/api/admin/device-claims/$CODE" -H "authorization: Bearer $ADMIN_T
 - Выберите окружение "TigerMeter Local" и нажмите "Auth / Generate User Token", затем "Auth / Generate Admin Token" — это заполнит переменные `userToken` и `adminToken`.
 - Выполняйте запросы по порядку: Issue Claim → Attach → Poll → Heartbeat → Set Display → Get Hash/Full → Refresh → Portal/Admin.
 - Переменные (`claimCode`, `deviceId`, `deviceSecret`, `displayHash`) будут сохраняться автоматически между запросами.
-
-
-
