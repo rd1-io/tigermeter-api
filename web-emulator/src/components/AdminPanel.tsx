@@ -502,6 +502,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     return new Date(dateStr).toLocaleString();
   };
 
+  const isOnline = (lastSeen: string | null) => {
+    if (!lastSeen) return false;
+    return Date.now() - new Date(lastSeen).getTime() < 2 * 60 * 1000;
+  };
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case "active": return "bg-green-100 text-green-800";
@@ -589,8 +594,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   className={`border-b hover:bg-neutral-50 cursor-pointer ${selectedDevice?.id === device.id ? "bg-blue-50" : ""}`}
                   onClick={() => onSelectDevice(device)}
                 >
-                  <td className="py-2 px-1 font-mono">{device.mac}</td>
-                  <td className="py-2 px-1 font-mono text-[10px]">{getWifiSsid(device.mac)}</td>
+                  <td className="py-2 px-1 font-mono"><span className={`inline-block w-2 h-2 rounded-full mr-1.5 ${isOnline(device.lastSeen) ? 'bg-green-500' : 'bg-neutral-300'}`} />{device.mac}</td>
+                  <td className="py-2 px-1 font-mono text-[10px] whitespace-nowrap">{getWifiSsid(device.mac)}</td>
                   <td className="py-2 px-1">
                     <span className={`px-2 py-0.5 rounded-full text-[10px] ${getStatusColor(device.status)}`}>{device.status}</span>
                   </td>
@@ -629,35 +634,41 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         </div>
       </div>
 
-      {/* Provision Form */}
-      <div className="bg-white rounded-md border p-4 shadow-sm">
-        <h2 className="text-sm font-semibold mb-3">Provision New Device</h2>
-        <div className="flex gap-2 items-end">
-          <div className="flex-1">
-            <label className={labelClass}>MAC Address</label>
-            <input type="text" value={provisionMac} onChange={(e) => setProvisionMac(e.target.value.toUpperCase())} placeholder="AA:BB:CC:DD:EE:FF" className={`${inputClass} font-mono`} maxLength={17} />
+      {/* Provision Form - collapsible */}
+      <details className="bg-white rounded-md border shadow-sm">
+        <summary className="px-4 py-2 text-xs text-neutral-500 cursor-pointer hover:text-neutral-700 select-none">Provision New Device</summary>
+        <div className="px-4 pb-4 pt-2">
+          <div className="flex gap-2 items-end">
+            <div className="flex-1">
+              <label className={labelClass}>MAC Address</label>
+              <input type="text" value={provisionMac} onChange={(e) => setProvisionMac(e.target.value.toUpperCase())} placeholder="AA:BB:CC:DD:EE:FF" className={`${inputClass} font-mono`} maxLength={17} />
+            </div>
+            <div className="w-24">
+              <label className={labelClass}>Firmware</label>
+              <input type="text" value={provisionFw} onChange={(e) => setProvisionFw(e.target.value)} className={inputClass} />
+            </div>
+            <button onClick={handleProvision} className="px-3 py-1 bg-neutral-800 text-white text-xs rounded hover:bg-black">Provision</button>
           </div>
-          <div className="w-24">
-            <label className={labelClass}>Firmware</label>
-            <input type="text" value={provisionFw} onChange={(e) => setProvisionFw(e.target.value)} className={inputClass} />
-          </div>
-          <button onClick={handleProvision} className="px-3 py-1 bg-neutral-800 text-white text-xs rounded hover:bg-black">Provision</button>
+          {provisionStatus && <div className="text-[10px] mt-2 text-neutral-600">{provisionStatus}</div>}
         </div>
-        {provisionStatus && <div className="text-[10px] mt-2 text-neutral-600">{provisionStatus}</div>}
-      </div>
+      </details>
 
-      {/* Attach Form */}
-      <div className="bg-white rounded-md border p-4 shadow-sm">
-        <h2 className="text-sm font-semibold mb-3">Attach Claim Code</h2>
-        <div className="flex gap-2 items-end">
-          <div className="flex-1">
-            <label className={labelClass}>6-Digit Code</label>
-            <input type="text" value={attachCode} onChange={(e) => setAttachCode(e.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="123456" className={`${inputClass} font-mono tracking-widest text-center`} maxLength={6} />
+      {/* Attach Form - only for awaiting_claim devices */}
+      {selectedDevice && selectedDevice.status === 'awaiting_claim' && (
+        <div className="bg-white rounded-md border border-blue-200 p-4 shadow-sm">
+          <h2 className="text-sm font-semibold mb-3">
+            Attach Claim Code <span className="font-normal text-neutral-500">— {selectedDevice.mac}</span>
+          </h2>
+          <div className="flex gap-2 items-end">
+            <div className="flex-1">
+              <label className={labelClass}>6-Digit Code</label>
+              <input type="text" value={attachCode} onChange={(e) => setAttachCode(e.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="123456" className={`${inputClass} font-mono tracking-widest text-center`} maxLength={6} />
+            </div>
+            <button onClick={handleAttach} className="px-3 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700">Attach</button>
           </div>
-          <button onClick={handleAttach} className="px-3 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700">Attach</button>
+          {attachStatus && <div className="text-[10px] mt-2 text-neutral-600">{attachStatus}</div>}
         </div>
-        {attachStatus && <div className="text-[10px] mt-2 text-neutral-600">{attachStatus}</div>}
-      </div>
+      )}
 
       {/* Display Editor - Only shown when device selected */}
       {selectedDevice && (

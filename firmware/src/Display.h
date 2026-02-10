@@ -86,6 +86,10 @@ public:
     // Drawing primitives
     void fillRect(int16_t x, int16_t y, int16_t w, int16_t h, bool black = true);
     void drawRect(int16_t x, int16_t y, int16_t w, int16_t h, bool black = true);
+    void fillRoundRect(int16_t x, int16_t y, int16_t w, int16_t h, int16_t radius, bool black = true);
+    void drawRoundRect(int16_t x, int16_t y, int16_t w, int16_t h, int16_t radius, bool black = true);
+    void fillCircle(int16_t x, int16_t y, int16_t r, bool black = true);
+    void drawCircle(int16_t x, int16_t y, int16_t r, bool black = true);
     void setPixel(int16_t x, int16_t y, bool black = true);
     
     // Text drawing with UTF-8/Cyrillic support

@@ -67,7 +67,11 @@ export default async function deviceClaimsRoutes(app: FastifyInstance) {
       return reply.code(404).send({ message: 'device not found' });
     }
     if (device.status !== 'awaiting_claim') {
-      return reply.code(409).send({ message: 'device not in awaiting_claim' });
+      // Device lost credentials (factory reset, revoke, etc.) — reset to awaiting_claim
+      await app.prisma.device.update({
+        where: { id: device.id },
+        data: { status: 'awaiting_claim', userId: null },
+      });
     }
 
     const code = generateCode();

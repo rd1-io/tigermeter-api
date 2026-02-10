@@ -98,7 +98,18 @@ export default async function portalRoutes(app: FastifyInstance) {
     const d = await app.prisma.device.findUnique({ where: { id } });
     if (!d) return reply.code(404).send({ message: 'Not found' });
     if (d.userId !== userId) return reply.code(403).send({ message: 'Forbidden' });
-    await app.prisma.device.update({ where: { id }, data: { status: 'revoked' } });
+    await app.prisma.device.update({
+      where: { id },
+      data: {
+        status: 'revoked',
+        displayInstructionJson: null,
+        displayHash: null,
+        currentSecretHash: null,
+        currentSecretExpiresAt: null,
+        previousSecretHash: null,
+        previousSecretExpiresAt: null,
+      }
+    });
     return { status: 'revoked' };
   });
 

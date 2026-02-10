@@ -71,6 +71,7 @@ String lastDisplayedError = "";
 // Server connection tracking
 int consecutiveHeartbeatFailures = 0;
 bool isReconnecting = false;
+bool wifiDisconnectedDisplayed = false;
 TaskHandle_t amberPulseTaskHandle = NULL;
 
 // Battery reading
@@ -87,9 +88,9 @@ int getBatteryPercent() {
 
 // Draw battery icon (white on black background)
 void drawBatteryIcon(int x, int y) {
-    display.drawRect(x, y, 24, 12, false);        // Battery body (white outline)
-    display.fillRect(x + 24, y + 3, 3, 6, false); // Battery tip (white)
-    display.fillRect(x + 2, y + 2, 2, 8, false);  // Low level (white bar ~10%)
+    display.drawRoundRect(x, y, 24, 12, 2, false);        // Battery body (white outline, rounded)
+    display.fillRect(x + 24, y + 3, 3, 6, false);         // Battery tip (white, simple rect)
+    display.fillRoundRect(x + 2, y + 2, 2, 8, 1, false);  // Low level (white bar ~10%, rounded)
 }
 
 // Function prototypes
@@ -268,11 +269,16 @@ void handleApiStateMachine()
     // Check WiFi periodically
     if (WiFi.status() != WL_CONNECTED)
     {
-        led_Yellow();
-        displayWifiMessage();
-        display.refresh();
+        if (!wifiDisconnectedDisplayed) {
+            led_Yellow();
+            displayWifiMessage();
+            display.refresh();
+            wifiDisconnectedDisplayed = true;
+        }
         return;
     }
+    // WiFi reconnected — reset flag so we redraw if it drops again
+    wifiDisconnectedDisplayed = false;
 
     switch (currentState)
     {
@@ -543,9 +549,10 @@ void handleApiStateMachine()
                     }
                 }
             }
-            else if (result.httpCode == 401)
+            else if (result.httpCode == 401 || result.httpCode == 403)
             {
-                Serial.println("[Main] Secret revoked, restarting claim...");
+                const char* reason = result.httpCode == 403 ? "Device revoked" : "Auth expired";
+                Serial.printf("[Main] %s, restarting claim...\n", reason);
                 consecutiveHeartbeatFailures = 0;
                 if (isReconnecting) {
                     stopAmberPulse();
@@ -553,7 +560,7 @@ void handleApiStateMachine()
                 }
                 currentState = STATE_UNCLAIMED;
                 currentClaimCode = "";
-                lastDisplayedError = "Auth revoked";
+                lastDisplayedError = reason;
                 led_Yellow();
             }
             else

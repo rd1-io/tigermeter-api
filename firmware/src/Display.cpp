@@ -101,6 +101,26 @@ void Display::drawRect(int16_t x, int16_t y, int16_t w, int16_t h, bool black)
     _display.drawRect(x, y, w, h, black ? GxEPD_BLACK : GxEPD_WHITE);
 }
 
+void Display::fillRoundRect(int16_t x, int16_t y, int16_t w, int16_t h, int16_t radius, bool black)
+{
+    _display.fillRoundRect(x, y, w, h, radius, black ? GxEPD_BLACK : GxEPD_WHITE);
+}
+
+void Display::drawRoundRect(int16_t x, int16_t y, int16_t w, int16_t h, int16_t radius, bool black)
+{
+    _display.drawRoundRect(x, y, w, h, radius, black ? GxEPD_BLACK : GxEPD_WHITE);
+}
+
+void Display::fillCircle(int16_t x, int16_t y, int16_t r, bool black)
+{
+    _display.fillCircle(x, y, r, black ? GxEPD_BLACK : GxEPD_WHITE);
+}
+
+void Display::drawCircle(int16_t x, int16_t y, int16_t r, bool black)
+{
+    _display.drawCircle(x, y, r, black ? GxEPD_BLACK : GxEPD_WHITE);
+}
+
 void Display::setPixel(int16_t x, int16_t y, bool black)
 {
     _display.drawPixel(x, y, black ? GxEPD_BLACK : GxEPD_WHITE);

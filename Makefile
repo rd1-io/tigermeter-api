@@ -22,7 +22,7 @@ help:
 	@echo "  clean      - Remove node_modules and generated client"
 	@echo "  emulator   - Start web emulator (Vite dev server)"
 	@echo "  fw         - Build and upload firmware (usage: make fw [FW_ENV=esp32dev] [UPLOAD_PORT=/dev/cu.*])"
-	@echo "  fw-build   - Build firmware only (usage: make fw-build [FW_ENV=esp32dev])"
+	@echo "  fw-build   - Build firmware only (usage: make fw-build [FW_ENV=esp32dev])"m
 	@echo "  fw-upload  - Upload firmware only (usage: make fw-upload [FW_ENV=esp32dev] [UPLOAD_PORT=/dev/cu.*])"
 	@echo "  log        - Read serial logs from device (usage: make log [UPLOAD_PORT=/dev/cu.*])"
 	@echo "  prod       - Build+upload production firmware (FW_ENV=esp32api)"

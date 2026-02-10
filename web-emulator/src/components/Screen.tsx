@@ -27,9 +27,9 @@ interface ScreenProps {
 // Battery icon SVG for low battery warning
 const LowBatteryIcon: React.FC = () => (
   <svg width="20" height="10" viewBox="0 0 20 10" fill="currentColor">
-    <rect x="0" y="0" width="17" height="10" rx="1" stroke="currentColor" strokeWidth="1" fill="none" />
-    <rect x="17" y="3" width="3" height="4" rx="0.5" fill="currentColor" />
-    <rect x="2" y="2" width="3" height="6" fill="currentColor" />
+    <rect x="0" y="0" width="17" height="10" rx="2" stroke="currentColor" strokeWidth="1" fill="none" />
+    <rect x="17" y="3" width="3" height="4" fill="currentColor" />
+    <rect x="2" y="2" width="3" height="6" rx="1" fill="currentColor" />
   </svg>
 );
 

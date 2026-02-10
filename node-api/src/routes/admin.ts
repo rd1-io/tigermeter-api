@@ -38,7 +38,18 @@ export default async function adminRoutes(app: FastifyInstance) {
     const { id } = request.params as any;
     const d = await app.prisma.device.findUnique({ where: { id } });
     if (!d) return reply.code(404).send({ message: 'Not found' });
-    await app.prisma.device.update({ where: { id }, data: { status: 'revoked' } });
+    await app.prisma.device.update({
+      where: { id },
+      data: {
+        status: 'revoked',
+        displayInstructionJson: null,
+        displayHash: null,
+        currentSecretHash: null,
+        currentSecretExpiresAt: null,
+        previousSecretHash: null,
+        previousSecretExpiresAt: null,
+      }
+    });
     return { status: 'revoked' };
   });
 
@@ -63,7 +74,17 @@ export default async function adminRoutes(app: FastifyInstance) {
     }
     await app.prisma.device.update({
       where: { id },
-      data: { pendingFactoryReset: true }
+      data: {
+        pendingFactoryReset: true,
+        status: 'awaiting_claim',
+        userId: null,
+        displayInstructionJson: null,
+        displayHash: null,
+        currentSecretHash: null,
+        currentSecretExpiresAt: null,
+        previousSecretHash: null,
+        previousSecretExpiresAt: null,
+      }
     });
     return { queued: true };
   });

@@ -32,6 +32,7 @@ export default async function deviceRoutes(app: FastifyInstance) {
     const validCurrent = ok && !!device.currentSecretExpiresAt && device.currentSecretExpiresAt > now;
     const validPrev = okPrev && !!device.previousSecretExpiresAt && device.previousSecretExpiresAt > now;
     if (!validCurrent && !validPrev) throw (app as any).httpErrors.unauthorized('Invalid or expired secret');
+    if (device.status === 'revoked') throw (app as any).httpErrors.forbidden('Device revoked');
     return device;
   });
 
@@ -79,9 +80,24 @@ export default async function deviceRoutes(app: FastifyInstance) {
     }
 
     if (device.displayInstructionJson && device.displayHash) {
+      const instruction = JSON.parse(device.displayInstructionJson);
+      
+      // Clear one-time actions after sending (so they don't repeat on reboot)
+      if (instruction.beep || instruction.flashCount) {
+        const cleanedInstruction = { ...instruction };
+        delete cleanedInstruction.beep;
+        delete cleanedInstruction.flashCount;
+        
+        // Update DB without changing hash (so device doesn't see it as "new")
+        await app.prisma.device.update({
+          where: { id: device.id },
+          data: { displayInstructionJson: JSON.stringify(cleanedInstruction) }
+        });
+      }
+      
       return { 
         ...baseResponse,
-        instruction: JSON.parse(device.displayInstructionJson), 
+        instruction, 
         displayHash: device.displayHash 
       };
     }

@@ -547,8 +547,12 @@ public:
                 }
             }
         } else if (httpCode == 401) {
-            // Secret expired or revoked - need to re-claim
+            // Secret expired - need to re-claim
             result.errorMessage = "Unauthorized - secret may be expired";
+            clearCredentials();
+        } else if (httpCode == 403) {
+            // Device revoked by admin - need to re-provision
+            result.errorMessage = "Device revoked";
             clearCredentials();
         } else {
             JsonDocument doc;
