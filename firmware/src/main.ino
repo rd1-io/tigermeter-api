@@ -558,6 +558,12 @@ void handleApiStateMachine()
                     stopAmberPulse();
                     isReconnecting = false;
                 }
+                // Clear cached display data so old content is not shown after re-claim
+                displaySymbol = "";
+                displayTopLine = "";
+                displayMainText = "";
+                displayBottomLine = "";
+                displayTopLineShowDate = false;
                 currentState = STATE_UNCLAIMED;
                 currentClaimCode = "";
                 lastDisplayedError = reason;

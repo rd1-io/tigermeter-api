@@ -546,7 +546,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             <tbody>
               {pendingDevices.map((pd) => (
                 <tr key={pd.id} className="border-b border-amber-100">
-                  <td className="py-2 font-mono">{pd.mac}</td>
+                  <td className="py-2 font-mono whitespace-nowrap">{pd.mac}</td>
                   <td className="py-2">{pd.firmwareVersion || '-'}</td>
                   <td className="py-2">{formatDate(pd.lastSeen)}</td>
                   <td className="py-2 flex gap-2">
@@ -594,7 +594,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   className={`border-b hover:bg-neutral-50 cursor-pointer ${selectedDevice?.id === device.id ? "bg-blue-50" : ""}`}
                   onClick={() => onSelectDevice(device)}
                 >
-                  <td className="py-2 px-1 font-mono"><span className={`inline-block w-2 h-2 rounded-full mr-1.5 ${isOnline(device.lastSeen) ? 'bg-green-500' : 'bg-neutral-300'}`} />{device.mac}</td>
+                  <td className="py-2 px-1 font-mono whitespace-nowrap"><span className={`inline-block w-2 h-2 rounded-full mr-1.5 ${isOnline(device.lastSeen) ? 'bg-green-500' : 'bg-neutral-300'}`} />{device.mac}</td>
                   <td className="py-2 px-1 font-mono text-[10px] whitespace-nowrap">{getWifiSsid(device.mac)}</td>
                   <td className="py-2 px-1">
                     <span className={`px-2 py-0.5 rounded-full text-[10px] ${getStatusColor(device.status)}`}>{device.status}</span>
