@@ -73,6 +73,8 @@ int consecutiveHeartbeatFailures = 0;
 bool isReconnecting = false;
 bool wifiDisconnectedDisplayed = false;
 TaskHandle_t amberPulseTaskHandle = NULL;
+bool isRainbow = false;
+TaskHandle_t rainbowTaskHandle = NULL;
 
 // Battery reading
 const float BATTERY_MULTIPLIER = 2.19f;
@@ -499,10 +501,14 @@ void handleApiStateMachine()
                         display.refreshPartial();
                     }
                     
+                    // Stop rainbow if it was running before applying new color
+                    stopRainbow();
+                    
                     setLedBrightness(displayLedBrightness);
                     if (displayLedBrightness == "off") {
                         led_Off();
-                    } else if (displayLedColor == "green") led_Green();
+                    } else if (displayLedColor == "rainbow") startRainbow();
+                    else if (displayLedColor == "green") led_Green();
                     else if (displayLedColor == "red") led_Red();
                     else if (displayLedColor == "blue") led_Blue();
                     else if (displayLedColor == "yellow") led_Yellow();
@@ -523,7 +529,8 @@ void handleApiStateMachine()
                         setLedBrightness(displayLedBrightness);
                         if (displayLedBrightness == "off") {
                             led_Off();
-                        } else if (displayLedColor == "green") led_Green();
+                        } else if (displayLedColor == "rainbow") startRainbow();
+                        else if (displayLedColor == "green") led_Green();
                         else if (displayLedColor == "red") led_Red();
                         else if (displayLedColor == "blue") led_Blue();
                         else if (displayLedColor == "yellow") led_Yellow();
@@ -735,15 +742,36 @@ void displayApiData()
         display.drawTextAligned(rightAreaStart, 8, rightAreaWidth, topStr, toDisplayAlign(displayTopLineAlign));
     }
     
-    // Main text
-    char mainStr[32];
-    strncpy(mainStr, displayMainText.c_str(), 31);
-    mainStr[31] = '\0';
-    display.setFontSize(displayMainTextFontSize);  // Use numeric pixel size
+    // Main text (supports \n for multiline)
+    display.setFontSize(displayMainTextFontSize);
     display.setTextColor(true);
-    int mainH = display.getFontHeight();
-    int mainY = (VISUAL_HEIGHT - mainH) / 2;
-    display.drawTextAligned(rightAreaStart, mainY, rightAreaWidth, mainStr, toDisplayAlign(displayMainTextAlign));
+    int mainLineH = display.getFontHeight();
+    
+    // Count lines and split by \n
+    String mainTextCopy = displayMainText;
+    mainTextCopy.replace("\\n", "\n");  // Handle literal \n from JSON
+    int lineCount = 1;
+    for (int i = 0; i < (int)mainTextCopy.length(); i++) {
+        if (mainTextCopy[i] == '\n') lineCount++;
+    }
+    int lineSpacing = 4;
+    int totalTextH = lineCount * mainLineH + (lineCount - 1) * lineSpacing;
+    int mainStartY = (VISUAL_HEIGHT - totalTextH) / 2;
+    
+    int lineIdx = 0;
+    int startPos = 0;
+    for (int i = 0; i <= (int)mainTextCopy.length(); i++) {
+        if (i == (int)mainTextCopy.length() || mainTextCopy[i] == '\n') {
+            String line = mainTextCopy.substring(startPos, i);
+            char lineStr[64];
+            strncpy(lineStr, line.c_str(), 63);
+            lineStr[63] = '\0';
+            int lineY = mainStartY + lineIdx * (mainLineH + lineSpacing);
+            display.drawTextAligned(rightAreaStart, lineY, rightAreaWidth, lineStr, toDisplayAlign(displayMainTextAlign));
+            lineIdx++;
+            startPos = i + 1;
+        }
+    }
     
     // Bottom line
     char bottomStr[32];
@@ -839,6 +867,43 @@ void stopAmberPulse()
             amberPulseTaskHandle = NULL;
         }
         Serial.println("[Main] Stopped amber pulse task");
+    }
+}
+
+// Rainbow LED task
+void rainbowLedTask(void *pvParameters)
+{
+    (void)pvParameters;
+    for (;;)
+    {
+        if (!isRainbow) {
+            rainbowTaskHandle = NULL;
+            vTaskDelete(NULL);
+            return;
+        }
+        rainbowCycle(6000);  // 6-second full cycle
+    }
+}
+
+void startRainbow()
+{
+    if (rainbowTaskHandle == NULL) {
+        isRainbow = true;
+        xTaskCreatePinnedToCore(rainbowLedTask, "rainbow", 2048, NULL, 1, &rainbowTaskHandle, 1);
+        Serial.println("[Main] Started rainbow LED task");
+    }
+}
+
+void stopRainbow()
+{
+    if (rainbowTaskHandle != NULL) {
+        isRainbow = false;
+        delay(100);
+        if (rainbowTaskHandle != NULL) {
+            vTaskDelete(rainbowTaskHandle);
+            rainbowTaskHandle = NULL;
+        }
+        Serial.println("[Main] Stopped rainbow LED task");
     }
 }
 

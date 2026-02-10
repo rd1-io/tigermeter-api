@@ -613,9 +613,6 @@ void startCaptivePortal()
 
     preferences.begin("tigermeter", false);
 
-    Serial.println("[CaptivePortal] Setting WiFi mode to AP_STA");
-    WiFi.mode(WIFI_AP_STA);
-    
     // #region agent log - Debug: Use ESP.getEfuseMac() - hardware MAC always available
     // ESP32 has MAC burned into eFuse, WiFi APIs return 00:00:00:00:00:00 before fully initialized
     uint64_t efuseMac = ESP.getEfuseMac();
@@ -643,8 +640,13 @@ void startCaptivePortal()
     
     // Generate unique SSID and hostname using last 4 chars of hardware MAC (e.g. "tigermeter-54D8")
     apSsid = "tigermeter-" + String(suffix);
+    
+    // IMPORTANT: setHostname() must be called BEFORE WiFi.mode() to take effect
     WiFi.setHostname(apSsid.c_str());
     Serial.printf("[CaptivePortal] SSID/Hostname: %s\n", apSsid.c_str());
+    
+    Serial.println("[CaptivePortal] Setting WiFi mode to AP_STA");
+    WiFi.mode(WIFI_AP_STA);
     
     WiFi.softAPConfig(AP_IP, AP_IP, AP_NETMASK);
     

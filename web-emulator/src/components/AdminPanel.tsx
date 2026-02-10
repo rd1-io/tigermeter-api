@@ -76,20 +76,20 @@ interface DisplayForm {
 const FONT_SIZE_PRESETS = [10, 12, 14, 16, 18, 20, 24, 28, 32, 36, 40];
 
 const DEFAULT_FORM: DisplayForm = {
-  symbol: "SYM",
+  symbol: "TM",
   symbolFontSize: 24,
   topLine: "",
   topLineFontSize: 16,
   topLineAlign: "center",
   topLineShowDate: false,
-  mainText: "Hello",
-  mainTextFontSize: 32,
+  mainText: "Настройте\\nдисплей",
+  mainTextFontSize: 24,
   mainTextAlign: "center",
-  bottomLine: "",
+  bottomLine: "tigermeter.com",
   bottomLineFontSize: 16,
   bottomLineAlign: "center",
-  ledColor: "green",
-  ledBrightness: "mid",
+  ledColor: "rainbow",
+  ledBrightness: "low",
   beep: false,
   flashCount: 0,
   refreshInterval: 30,
@@ -845,6 +845,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 <option value="blue">Blue</option>
                 <option value="yellow">Yellow</option>
                 <option value="purple">Purple</option>
+                <option value="rainbow">Rainbow</option>
               </select>
             </div>
             <div className="col-span-3">

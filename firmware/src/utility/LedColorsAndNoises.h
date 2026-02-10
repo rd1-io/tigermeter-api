@@ -343,3 +343,43 @@ void fadeInYellow(uint16_t durationMs = 2000)
     // Ensure full yellow at the end
     setLedPWM(targetR, targetG, targetB);
 }
+
+// HSV to common-anode RGB conversion
+// h: 0-360, s: 0-1, v: 0-1
+// Returns common anode values (0 = full ON, 255 = OFF)
+void hsvToCommonAnodeRGB(float h, float s, float v, uint8_t &r, uint8_t &g, uint8_t &b)
+{
+    float c = v * s;
+    float x = c * (1.0f - fabs(fmod(h / 60.0f, 2.0f) - 1.0f));
+    float m = v - c;
+    float rf, gf, bf;
+    
+    if (h < 60)       { rf = c; gf = x; bf = 0; }
+    else if (h < 120) { rf = x; gf = c; bf = 0; }
+    else if (h < 180) { rf = 0; gf = c; bf = x; }
+    else if (h < 240) { rf = 0; gf = x; bf = c; }
+    else if (h < 300) { rf = x; gf = 0; bf = c; }
+    else               { rf = c; gf = 0; bf = x; }
+    
+    // Convert to common anode (invert: 0=ON, 255=OFF)
+    r = 255 - (uint8_t)((rf + m) * 255);
+    g = 255 - (uint8_t)((gf + m) * 255);
+    b = 255 - (uint8_t)((bf + m) * 255);
+}
+
+// One full rainbow cycle: smoothly transitions through all hues
+// durationMs: time for one full cycle (default 6 seconds)
+void rainbowCycle(uint16_t durationMs = 6000)
+{
+    const int steps = 120;
+    const int stepDelay = durationMs / steps;
+    
+    for (int i = 0; i < steps; i++)
+    {
+        float hue = (float)i / steps * 360.0f;
+        uint8_t r, g, b;
+        hsvToCommonAnodeRGB(hue, 1.0f, 1.0f, r, g, b);
+        setLedPWMWithBrightness(r, g, b);
+        delay(stepDelay);
+    }
+}

@@ -5,7 +5,7 @@ import { instructionHash } from '../utils/crypto.js';
 // Enum definitions
 const FontSize = z.number().int().min(10).max(40); // 10-40px font size
 const TextAlign = z.enum(['left', 'center', 'right']);
-const LedColor = z.enum(['blue', 'green', 'red', 'yellow', 'purple']);
+const LedColor = z.enum(['blue', 'green', 'red', 'yellow', 'purple', 'rainbow']);
 const LedBrightness = z.enum(['off', 'low', 'mid', 'high']);
 
 // Display instruction schema

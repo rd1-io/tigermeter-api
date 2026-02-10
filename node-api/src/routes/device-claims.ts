@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { addSeconds } from 'date-fns';
+import { createHash } from 'crypto';
 import { config } from '../config.js';
 import { generateDeviceSecret, hashPassword, normalizeMac, verifyClaimHmac } from '../utils/crypto.js';
 
@@ -111,7 +112,39 @@ export default async function deviceClaimsRoutes(app: FastifyInstance) {
 
     // Bind user & mark claimed
     await app.prisma.deviceClaim.update({ where: { code }, data: { status: 'claimed', userId } });
-    await app.prisma.device.update({ where: { id: claim.deviceId }, data: { userId, status: 'active' } });
+
+    // Set welcome display instruction for first-time setup
+    const welcomeInstruction = {
+      version: 1,
+      symbol: 'TM',
+      symbolFontSize: 24,
+      topLineShowDate: true,
+      topLineFontSize: 16,
+      topLineAlign: 'center',
+      mainText: 'Настройте\\nдисплей',
+      mainTextFontSize: 24,
+      mainTextAlign: 'center',
+      bottomLine: 'tigermeter.com',
+      bottomLineFontSize: 16,
+      bottomLineAlign: 'center',
+      ledColor: 'rainbow',
+      ledBrightness: 'low',
+      refreshInterval: 60,
+      timezoneOffset: 3,
+    };
+    const welcomeJson = JSON.stringify(welcomeInstruction);
+    const welcomeHash = createHash('sha256').update(welcomeJson).digest('hex').slice(0, 16);
+
+    await app.prisma.device.update({
+      where: { id: claim.deviceId },
+      data: {
+        userId,
+        status: 'active',
+        displayInstructionJson: welcomeJson,
+        displayHash: welcomeHash,
+        displayVersion: 1,
+      },
+    });
 
     return { deviceId: claim.deviceId, message: 'Attached' };
   });

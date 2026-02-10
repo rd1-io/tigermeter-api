@@ -170,6 +170,15 @@ export const Screen: React.FC<ScreenProps> = ({
         const locale = "ru-RU";
         
         // Format current date/time for topLineShowDate (using configured timezone)
+        // Render text with \n support (literal backslash-n from JSON)
+        const renderMultiline = (text: string) => {
+          const parts = text.split('\\n');
+          if (parts.length === 1) return text;
+          return parts.map((line, i) => (
+            <React.Fragment key={i}>{i > 0 && <br />}{line}</React.Fragment>
+          ));
+        };
+
         const formatDateTime = () => {
           // Calculate time in the configured timezone
           const tzOffset = s.timezoneOffset ?? 3; // Default Moscow UTC+3
@@ -258,7 +267,7 @@ export const Screen: React.FC<ScreenProps> = ({
                       fontWeight: 700,
                     }}
                   >
-                    {s.mainText}
+                    {renderMultiline(s.mainText)}
                   </div>
                 </div>
                 
@@ -296,7 +305,7 @@ export const Screen: React.FC<ScreenProps> = ({
                   className="font-black"
                   style={{ fontSize: mainFontSize, textAlign: mainAlign }}
                 >
-                  {s.mainText}
+                  {renderMultiline(s.mainText)}
                 </div>
               </div>
               

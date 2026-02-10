@@ -5,7 +5,7 @@ export type FontSize = number;
 export const FONT_SIZE_PRESETS: number[] = [10, 12, 16, 20, 24, 28, 32, 40];
 
 export type TextAlign = 'left' | 'center' | 'right';
-export type LedColor = 'blue' | 'green' | 'red' | 'yellow' | 'purple';
+export type LedColor = 'blue' | 'green' | 'red' | 'yellow' | 'purple' | 'rainbow';
 export type LedBrightness = 'off' | 'low' | 'mid' | 'high';
 
 // Display instruction
