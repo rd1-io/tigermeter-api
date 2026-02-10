@@ -17,9 +17,13 @@
 #define HMAC_KEY "change-me-dev-hmac"
 #endif
 
-#ifndef FIRMWARE_VERSION
-#define FIRMWARE_VERSION "1.0.0"
+// Generate FIRMWARE_VERSION string from FW_VERSION number (e.g. 29 -> "v29")
+#ifndef FW_VERSION
+#define FW_VERSION 0
 #endif
+#define _STR(x) #x
+#define _XSTR(x) _STR(x)
+#define FIRMWARE_VERSION "v" _XSTR(FW_VERSION)
 
 // Device states
 #ifndef DEVICESTATE_DEFINED
