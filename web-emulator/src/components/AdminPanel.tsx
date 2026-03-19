@@ -115,10 +115,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [settingsError, setSettingsError] = useState<string | null>(null);
 
-  // Provision form
-  const [provisionMac, setProvisionMac] = useState("");
-  const [provisionFw, setProvisionFw] = useState("1.0.0");
-  const [provisionStatus, setProvisionStatus] = useState<string | null>(null);
 
   // Attach form
   const [attachCode, setAttachCode] = useState("");
@@ -413,29 +409,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       }
     } catch (e: any) {
       alert(e.message);
-    }
-  };
-
-  const handleProvision = async () => {
-    if (!provisionMac || provisionMac.length !== 17) {
-      setProvisionStatus("Неверный MAC (формат: AA:BB:CC:DD:EE:FF)");
-      return;
-    }
-    setProvisionStatus("Добавление...");
-    try {
-      const response = await apiClient.provisionDevice(provisionMac, provisionFw);
-      if (response.status === 201) {
-        setProvisionStatus("✓ Устройство создано");
-        setProvisionMac("");
-        fetchDevices(false);
-      } else if (response.status === 409) {
-        setProvisionStatus("Устройство уже существует");
-      } else {
-        const err = await response.json().catch(() => ({}));
-        setProvisionStatus(err.message || `Error ${response.status}`);
-      }
-    } catch (e: any) {
-      setProvisionStatus(e.message);
     }
   };
 
@@ -759,24 +732,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         </div>
       </div>
 
-      {/* Provision Form - collapsible */}
-      <details className="bg-white rounded-md border shadow-sm">
-        <summary className="px-4 py-2 text-xs text-neutral-500 cursor-pointer hover:text-neutral-700 select-none">Добавить устройство вручную</summary>
-        <div className="px-4 pb-4 pt-2">
-          <div className="flex gap-2 items-end">
-            <div className="flex-1">
-              <label className={labelClass}>MAC-адрес</label>
-              <input type="text" value={provisionMac} onChange={(e) => setProvisionMac(e.target.value.toUpperCase())} placeholder="AA:BB:CC:DD:EE:FF" className={`${inputClass} font-mono`} maxLength={17} />
-            </div>
-            <div className="w-24">
-              <label className={labelClass}>Прошивка</label>
-              <input type="text" value={provisionFw} onChange={(e) => setProvisionFw(e.target.value)} className={inputClass} />
-            </div>
-            <button onClick={handleProvision} className="px-3 py-1 bg-neutral-800 text-white text-xs rounded hover:bg-black">Добавить</button>
-          </div>
-          {provisionStatus && <div className="text-[10px] mt-2 text-neutral-600">{provisionStatus}</div>}
-        </div>
-      </details>
 
       {/* Logo Library - collapsible */}
       <details className="bg-white rounded-md border shadow-sm">

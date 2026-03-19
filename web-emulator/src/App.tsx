@@ -16,7 +16,7 @@ export const App: React.FC = () => {
       <header className="border-b bg-white/70 backdrop-blur sticky top-0 z-10">
         <div className="mx-auto max-w-7xl px-6 py-3 flex items-center justify-between">
           <h1 className="text-lg font-semibold tracking-tight">
-            TigerMeter Web Emulator
+            TigerMeter
           </h1>
         </div>
       </header>
@@ -70,7 +70,7 @@ export const App: React.FC = () => {
         </div>
       </main>
       <footer className="text-center text-[11px] text-neutral-500 py-4">
-        © {new Date().getFullYear()} TigerMeter Emulator
+        © {new Date().getFullYear()} TigerMeter
       </footer>
     </div>
   );
