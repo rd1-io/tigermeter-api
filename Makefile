@@ -41,8 +41,11 @@ deploy:
 	@gcloud compute scp --recurse web-emulator/dist/* $(GCE_INSTANCE):$(GCE_DEPLOY_DIR)/emulator/ --zone=$(GCE_ZONE)
 	@gcloud compute scp deploy/docker-compose.yml $(GCE_INSTANCE):$(GCE_DEPLOY_DIR)/docker-compose.yml --zone=$(GCE_ZONE)
 	@gcloud compute scp deploy/Caddyfile $(GCE_INSTANCE):$(GCE_DEPLOY_DIR)/Caddyfile --zone=$(GCE_ZONE)
+	@tar czf /tmp/node-api.tar.gz --exclude='node_modules' -C . node-api
 	@gcloud compute ssh $(GCE_INSTANCE) --zone=$(GCE_ZONE) --command="rm -rf $(GCE_DEPLOY_DIR)/node-api"
-	@gcloud compute scp --recurse node-api $(GCE_INSTANCE):$(GCE_DEPLOY_DIR)/node-api --zone=$(GCE_ZONE)
+	@gcloud compute scp /tmp/node-api.tar.gz $(GCE_INSTANCE):/tmp/ --zone=$(GCE_ZONE)
+	@gcloud compute ssh $(GCE_INSTANCE) --zone=$(GCE_ZONE) --command="tar xzf /tmp/node-api.tar.gz -C $(GCE_DEPLOY_DIR)/ && rm /tmp/node-api.tar.gz"
+	@rm /tmp/node-api.tar.gz
 	@echo "==> Building and starting services..."
 	@gcloud compute ssh $(GCE_INSTANCE) --zone=$(GCE_ZONE) --command="\
 		cd $(GCE_DEPLOY_DIR) && \
