@@ -78,6 +78,10 @@ export async function loggedFetch(method: string, url: string, opts: FetchOption
     requestBody = opts.bodyJson;
     headers['Content-Type'] = headers['Content-Type'] || 'application/json';
     init.body = JSON.stringify(opts.bodyJson);
+  } else if (opts.body instanceof FormData) {
+    requestBody = '(FormData)';
+    init.body = opts.body;
+    // Don't set Content-Type for FormData — browser generates boundary automatically
   } else if (typeof opts.body === 'string') {
     requestBody = opts.body;
   }

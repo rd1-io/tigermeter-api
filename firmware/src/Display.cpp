@@ -248,15 +248,15 @@ int16_t Display::getFontHeight()
     return _u8g2.getFontAscent() - _u8g2.getFontDescent();
 }
 
-void Display::drawBitmap(int16_t x, int16_t y, const uint8_t* bitmap, int16_t w, int16_t h, bool rotate180)
+void Display::drawBitmap(int16_t x, int16_t y, const uint8_t* bitmap, int16_t w, int16_t h, bool rotate180, bool invert)
 {
     // Draw bitmap pixel by pixel
     // Original code used 180° rotation to compensate for bitmap orientation
+    // invert: swap black/white (useful for white logo on black background)
     for (int16_t dy = 0; dy < h; dy++) {
         for (int16_t dx = 0; dx < w; dx++) {
             int srcX, srcY;
             if (rotate180) {
-                // 180° rotation: read from (w-1-dx, h-1-dy)
                 srcX = w - 1 - dx;
                 srcY = h - 1 - dy;
             } else {
@@ -268,9 +268,11 @@ void Display::drawBitmap(int16_t x, int16_t y, const uint8_t* bitmap, int16_t w,
             int bitIndex = 7 - (srcX % 8);
             bool isWhite = (bitmap[byteIndex] >> bitIndex) & 1;
             
-            // In the bitmap, 1 = white, 0 = black
+            // In the bitmap, 1 = white (background), 0 = black (logo shape)
+            // Normal: draw black pixels (logo shape) on white background
+            // Invert: draw white pixels (logo shape) on black background
             if (!isWhite) {
-                setPixel(x + dx, y + dy, true);
+                setPixel(x + dx, y + dy, !invert);  // true=black normally, false=white when inverted
             }
         }
     }

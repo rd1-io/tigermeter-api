@@ -38,34 +38,54 @@ export default async function deviceClaimsRoutes(app: FastifyInstance) {
       return reply.code(401).send({ message: 'invalid hmac' });
     }
 
-    // Device must already exist and be in awaiting_claim state
-    const device = await app.prisma.device.findFirst({ where: { mac } });
+    // Device must already exist and be in awaiting_claim state (or we auto-provision if enabled)
+    let device = await app.prisma.device.findFirst({ where: { mac } });
     if (!device) {
-      // HMAC already validated above, so this is a legitimate device
-      // Log it as pending for admin approval
-      try {
-        const existing = await app.prisma.pendingDevice.findUnique({ where: { mac } });
-        if (existing) {
-          await app.prisma.pendingDevice.update({
-            where: { mac },
-            data: { 
-              lastSeen: new Date(),
-              attemptCount: { increment: 1 },
-              ip: ip || existing.ip,
-              firmwareVersion: firmwareVersion || existing.firmwareVersion,
-              status: 'pending'  // Reset status so device appears in admin panel again
-            }
+      // Check if admin enabled auto-provision for new devices
+      const setting = await app.prisma.setting.findUnique({ where: { key: 'autoProvisionNewDevices' } });
+      const autoProvision = setting?.value === 'true';
+      if (autoProvision) {
+        device = await app.prisma.device.create({
+          data: {
+            mac,
+            status: 'awaiting_claim',
+            firmwareVersion: firmwareVersion || 'unknown',
+            ip: ip ?? undefined,
+          },
+        });
+        // Mark any existing PendingDevice as approved for audit trail
+        try {
+          await app.prisma.pendingDevice.updateMany({
+            where: { mac, status: 'pending' },
+            data: { status: 'approved' },
           });
-        } else {
-          await app.prisma.pendingDevice.create({
-            data: { mac, firmwareVersion, ip }
-          });
-          // #endregion
+        } catch (_) {}
+        // Fall through to issue claim code
+      } else {
+        // HMAC already validated above, so this is a legitimate device — log as pending for admin approval
+        try {
+          const existing = await app.prisma.pendingDevice.findUnique({ where: { mac } });
+          if (existing) {
+            await app.prisma.pendingDevice.update({
+              where: { mac },
+              data: {
+                lastSeen: new Date(),
+                attemptCount: { increment: 1 },
+                ip: ip || existing.ip,
+                firmwareVersion: firmwareVersion || existing.firmwareVersion,
+                status: 'pending',
+              },
+            });
+          } else {
+            await app.prisma.pendingDevice.create({
+              data: { mac, firmwareVersion, ip },
+            });
+          }
+        } catch (err: any) {
+          // Ignore errors when saving pending device
         }
-      } catch (err: any) {
-        // Ignore errors when saving pending device
+        return reply.code(404).send({ message: 'device not found' });
       }
-      return reply.code(404).send({ message: 'device not found' });
     }
     if (device.status !== 'awaiting_claim') {
       // Device lost credentials (factory reset, revoke, etc.) — reset to awaiting_claim
@@ -116,8 +136,8 @@ export default async function deviceClaimsRoutes(app: FastifyInstance) {
     // Set welcome display instruction for first-time setup
     const welcomeInstruction = {
       version: 1,
-      symbol: 'TM',
-      symbolFontSize: 24,
+      symbol: '$',
+      symbolCarousel: true,
       topLineShowDate: true,
       topLineFontSize: 16,
       topLineAlign: 'center',

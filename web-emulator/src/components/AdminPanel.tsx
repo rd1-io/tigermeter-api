@@ -54,6 +54,8 @@ const getWifiSsid = (mac: string) => {
 interface DisplayForm {
   symbol: string;
   symbolFontSize: FontSize;
+  symbolImage: string;
+  symbolCarousel: boolean;
   topLine: string;
   topLineFontSize: FontSize;
   topLineAlign: TextAlign;
@@ -76,8 +78,10 @@ interface DisplayForm {
 const FONT_SIZE_PRESETS = [10, 12, 14, 16, 18, 20, 24, 28, 32, 36, 40];
 
 const DEFAULT_FORM: DisplayForm = {
-  symbol: "TM",
+  symbol: "$",
   symbolFontSize: 24,
+  symbolImage: "",
+  symbolCarousel: true,
   topLine: "",
   topLineFontSize: 16,
   topLineAlign: "center",
@@ -106,6 +110,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Admin settings (auto-provision)
+  const [autoProvisionNewDevices, setAutoProvisionNewDevices] = useState(false);
+  const [settingsLoading, setSettingsLoading] = useState(false);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
+
   // Provision form
   const [provisionMac, setProvisionMac] = useState("");
   const [provisionFw, setProvisionFw] = useState("1.0.0");
@@ -114,6 +123,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   // Attach form
   const [attachCode, setAttachCode] = useState("");
   const [attachStatus, setAttachStatus] = useState<string | null>(null);
+
+  // Logo library
+  const [logos, setLogos] = useState<{id: string; name: string; createdAt: string}[]>([]);
+  const [logoName, setLogoName] = useState("");
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [logoStatus, setLogoStatus] = useState<string | null>(null);
 
   // Display form
   const [form, setForm] = useState<DisplayForm>(DEFAULT_FORM);
@@ -141,6 +156,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       setForm({
         symbol: s.symbol || DEFAULT_FORM.symbol,
         symbolFontSize: normalizeFontSize(s.symbolFontSize, 24),
+        symbolImage: s.symbolImage || "",
+        symbolCarousel: s.symbolCarousel || false,
         topLine: s.topLine || "",
         topLineFontSize: normalizeFontSize(s.topLineFontSize, 16),
         topLineAlign: s.topLineAlign || "center",
@@ -193,6 +210,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       hash: "",
       symbol: form.symbol,
       symbolFontSize: form.symbolFontSize,
+      symbolImage: form.symbolImage || undefined,
+      symbolCarousel: form.symbolCarousel || undefined,
       mainText: form.mainText,
       topLine: form.topLine || undefined,
       topLineFontSize: form.topLineFontSize,
@@ -264,9 +283,93 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   }, []);
 
+  const fetchAdminSettings = useCallback(async () => {
+    setSettingsError(null);
+    try {
+      const adminToken = await createTestAdminToken();
+      const response = await apiClient.getAdminSettings(adminToken);
+      if (response.ok) {
+        const data = await response.json();
+        setAutoProvisionNewDevices(data.autoProvisionNewDevices === true);
+      } else {
+        setSettingsError("Не удалось загрузить настройки");
+      }
+    } catch (e: any) {
+      setSettingsError(e.message || "Не удалось загрузить настройки");
+    }
+  }, []);
+
+  const handleToggleAutoProvision = async () => {
+    const next = !autoProvisionNewDevices;
+    setSettingsLoading(true);
+    setSettingsError(null);
+    const prev = autoProvisionNewDevices;
+    setAutoProvisionNewDevices(next);
+    try {
+      const adminToken = await createTestAdminToken();
+      const response = await apiClient.patchAdminSettings(adminToken, { autoProvisionNewDevices: next });
+      if (response.ok) {
+        const data = await response.json();
+        setAutoProvisionNewDevices(data.autoProvisionNewDevices === true);
+      } else {
+        setAutoProvisionNewDevices(prev);
+        const err = await response.json().catch(() => ({}));
+        setSettingsError(err.message || `Error ${response.status}`);
+      }
+    } catch (e: any) {
+      setAutoProvisionNewDevices(prev);
+      setSettingsError(e.message || "Не удалось обновить");
+    } finally {
+      setSettingsLoading(false);
+    }
+  };
+
+  const fetchLogos = useCallback(async () => {
+    try {
+      const adminToken = await createTestAdminToken();
+      const response = await apiClient.listLogos(adminToken);
+      if (response.ok) {
+        setLogos(await response.json());
+      }
+    } catch (_) {}
+  }, []);
+
+  const handleUploadLogo = async () => {
+    if (!logoFile || !logoName) {
+      setLogoStatus("Укажите имя и файл");
+      return;
+    }
+    setLogoStatus("Загрузка...");
+    try {
+      const adminToken = await createTestAdminToken();
+      const response = await apiClient.uploadLogo(logoFile, logoName, adminToken);
+      if (response.ok) {
+        setLogoStatus("✓ Загружено");
+        setLogoName("");
+        setLogoFile(null);
+        fetchLogos();
+      } else {
+        const err = await response.json().catch(() => ({}));
+        setLogoStatus(err.message || `Error ${response.status}`);
+      }
+    } catch (e: any) {
+      setLogoStatus(e.message);
+    }
+  };
+
+  const handleDeleteLogo = async (id: string) => {
+    try {
+      const adminToken = await createTestAdminToken();
+      await apiClient.deleteLogo(id, adminToken);
+      fetchLogos();
+    } catch (_) {}
+  };
+
   useEffect(() => {
     fetchDevices(true);
     fetchPendingDevices();
+    fetchLogos();
+    fetchAdminSettings();
   }, []);
 
   useEffect(() => {
@@ -281,7 +384,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   }, [fetchDevices, fetchPendingDevices]);
 
   const handleApprovePending = async (pd: PendingDevice) => {
-    if (!confirm(`Approve device ${pd.mac}?`)) return;
+    if (!confirm(`Одобрить устройство ${pd.mac}?`)) return;
     try {
       const adminToken = await createTestAdminToken();
       const response = await apiClient.approvePendingDevice(pd.id, adminToken);
@@ -298,7 +401,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   };
 
   const handleRejectPending = async (pd: PendingDevice) => {
-    if (!confirm(`Reject device ${pd.mac}?`)) return;
+    if (!confirm(`Отклонить устройство ${pd.mac}?`)) return;
     try {
       const adminToken = await createTestAdminToken();
       const response = await apiClient.rejectPendingDevice(pd.id, adminToken);
@@ -315,18 +418,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   const handleProvision = async () => {
     if (!provisionMac || provisionMac.length !== 17) {
-      setProvisionStatus("Invalid MAC (format: AA:BB:CC:DD:EE:FF)");
+      setProvisionStatus("Неверный MAC (формат: AA:BB:CC:DD:EE:FF)");
       return;
     }
-    setProvisionStatus("Provisioning...");
+    setProvisionStatus("Добавление...");
     try {
       const response = await apiClient.provisionDevice(provisionMac, provisionFw);
       if (response.status === 201) {
-        setProvisionStatus("✓ Device created");
+        setProvisionStatus("✓ Устройство создано");
         setProvisionMac("");
         fetchDevices(false);
       } else if (response.status === 409) {
-        setProvisionStatus("Device already exists");
+        setProvisionStatus("Устройство уже существует");
       } else {
         const err = await response.json().catch(() => ({}));
         setProvisionStatus(err.message || `Error ${response.status}`);
@@ -338,15 +441,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   const handleAttach = async () => {
     if (!attachCode || attachCode.length !== 6) {
-      setAttachStatus("Invalid code (6 digits)");
+      setAttachStatus("Неверный код (6 цифр)");
       return;
     }
-    setAttachStatus("Attaching...");
+    setAttachStatus("Привязка...");
     try {
       const userToken = await createTestUserToken();
       const response = await apiClient.attachClaim(attachCode, userToken);
       if (response.ok) {
-        setAttachStatus("✓ Code attached");
+        setAttachStatus("✓ Код привязан");
         setAttachCode("");
         fetchDevices(false);
       } else {
@@ -359,7 +462,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   };
 
   const handleRevoke = async (device: Device) => {
-    if (!confirm(`Revoke device ${device.mac}?`)) return;
+    if (!confirm(`Отозвать устройство ${device.mac}?`)) return;
     try {
       const adminToken = await createTestAdminToken();
       const response = await apiClient.revokeDeviceAdmin(device.id, adminToken);
@@ -375,7 +478,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   };
 
   const handleDelete = async (device: Device) => {
-    if (!confirm(`Delete device ${device.mac} permanently?`)) return;
+    if (!confirm(`Удалить устройство ${device.mac} навсегда?`)) return;
     try {
       const adminToken = await createTestAdminToken();
       const response = await apiClient.deleteDeviceAdmin(device.id, adminToken);
@@ -394,12 +497,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   };
 
   const handleFactoryReset = async (device: Device) => {
-    if (!confirm(`Factory reset device ${device.mac}?`)) return;
+    if (!confirm(`Сбросить устройство ${device.mac} к заводским настройкам?`)) return;
     try {
       const adminToken = await createTestAdminToken();
       const response = await apiClient.factoryResetAdmin(device.id, adminToken);
       if (response.ok) {
-        alert(`Factory reset queued for ${device.mac}`);
+        alert(`Сброс поставлен в очередь для ${device.mac}`);
         fetchDevices(false);
       } else {
         const err = await response.json().catch(() => ({}));
@@ -444,16 +547,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   const handleSetDisplay = async () => {
     if (!selectedDevice) {
-      setDisplayStatus("Select a device first");
+      setDisplayStatus("Сначала выберите устройство");
       return;
     }
-    setDisplayStatus("Sending...");
+    setDisplayStatus("Отправка...");
     try {
       const instruction: DisplayInstruction = {
         version: 1,
         hash: "",
         symbol: form.symbol,
         symbolFontSize: form.symbolFontSize,
+        symbolImage: form.symbolImage || undefined,
+        symbolCarousel: form.symbolCarousel || undefined,
         mainText: form.mainText,
         topLine: form.topLine || undefined,
         topLineFontSize: form.topLineFontSize,
@@ -483,7 +588,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       );
 
       if (response.ok) {
-        setDisplayStatus("✓ Display updated");
+        setDisplayStatus("✓ Дисплей обновлён");
         // Reset one-time actions and dirty flag
         setForm(prev => ({ ...prev, beep: false, flashCount: 0 }));
         setFormDirty(false);
@@ -523,24 +628,44 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   return (
     <div className="flex flex-col gap-4">
+      {/* Auto-provision toggle */}
+      <div className="bg-white rounded-md border border-neutral-200 p-4 shadow-sm">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold text-neutral-800">Автоматически добавлять новые устройства</h2>
+            <p className="text-[10px] text-neutral-500 mt-0.5">Когда включено, новые устройства получают claim-код сразу, без одобрения в списке ожидания.</p>
+          </div>
+          <button
+            role="switch"
+            aria-checked={autoProvisionNewDevices}
+            onClick={handleToggleAutoProvision}
+            disabled={settingsLoading}
+            className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors duration-200 disabled:opacity-50 ${autoProvisionNewDevices ? "bg-green-600" : "bg-neutral-300"}`}
+          >
+            <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform duration-200 ${autoProvisionNewDevices ? "translate-x-6" : "translate-x-1"}`} />
+          </button>
+        </div>
+        {settingsError && <div className="text-[10px] text-red-600 mt-2">{settingsError}</div>}
+      </div>
+
       {/* Pending Devices */}
       <div className="bg-amber-50 rounded-md border border-amber-200 p-4 shadow-sm">
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-semibold text-amber-900">Pending Devices</h2>
+          <h2 className="text-sm font-semibold text-amber-900">Ожидающие устройства</h2>
           <button onClick={() => fetchPendingDevices()} className="text-xs px-2 py-1 rounded bg-amber-100 hover:bg-amber-200">
-            Refresh
+            Обновить
           </button>
         </div>
         {pendingDevices.length === 0 ? (
-          <div className="text-xs text-amber-700">No pending devices</div>
+          <div className="text-xs text-amber-700">Нет ожидающих устройств</div>
         ) : (
           <table className="w-full text-xs">
             <thead>
               <tr className="border-b border-amber-200">
                 <th className="text-left py-2">MAC</th>
-                <th className="text-left py-2">Firmware</th>
-                <th className="text-left py-2">Last Seen</th>
-                <th className="text-left py-2">Actions</th>
+                <th className="text-left py-2">Прошивка</th>
+                <th className="text-left py-2">Последняя активность</th>
+                <th className="text-left py-2">Действия</th>
               </tr>
             </thead>
             <tbody>
@@ -550,8 +675,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   <td className="py-2">{pd.firmwareVersion || '-'}</td>
                   <td className="py-2">{formatDate(pd.lastSeen)}</td>
                   <td className="py-2 flex gap-2">
-                    <button onClick={() => handleApprovePending(pd)} className="text-green-600 hover:text-green-800 font-medium">✓ Approve</button>
-                    <button onClick={() => handleRejectPending(pd)} className="text-red-600 hover:text-red-800">Reject</button>
+                    <button onClick={() => handleApprovePending(pd)} className="text-green-600 hover:text-green-800 font-medium">✓ Одобрить</button>
+                    <button onClick={() => handleRejectPending(pd)} className="text-red-600 hover:text-red-800">Отклонить</button>
                   </td>
                 </tr>
               ))}
@@ -563,9 +688,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       {/* Devices Table */}
       <div className="bg-white rounded-md border p-4 shadow-sm">
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-semibold">Devices</h2>
+          <h2 className="text-sm font-semibold">Устройства</h2>
           <button onClick={() => fetchDevices(true)} disabled={loading} className="text-xs px-2 py-1 rounded bg-neutral-100 hover:bg-neutral-200 disabled:opacity-50">
-            {loading ? "Loading..." : "Refresh"}
+            {loading ? "Загрузка..." : "Обновить"}
           </button>
         </div>
         {error && <div className="text-xs text-red-600 mb-2">{error}</div>}
@@ -575,18 +700,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               <tr className="border-b">
                 <th className="text-left py-2 px-1">MAC</th>
                 <th className="text-left py-2 px-1">WiFi</th>
-                <th className="text-left py-2 px-1">Status</th>
-                <th className="text-left py-2 px-1">Firmware</th>
-                <th className="text-left py-2 px-1">Auto-Update</th>
-                <th className="text-left py-2 px-1">Demo</th>
-                <th className="text-left py-2 px-1">Last Seen</th>
-                <th className="text-left py-2 px-1">Battery</th>
-                <th className="text-left py-2 px-1">Actions</th>
+                <th className="text-left py-2 px-1">Статус</th>
+                <th className="text-left py-2 px-1">Прошивка</th>
+                <th className="text-left py-2 px-1">Авто-обновление</th>
+                <th className="text-left py-2 px-1">Демо</th>
+                <th className="text-left py-2 px-1">Последняя активность</th>
+                <th className="text-left py-2 px-1">Батарея</th>
+                <th className="text-left py-2 px-1">Действия</th>
               </tr>
             </thead>
             <tbody>
               {devices.length === 0 && !loading && (
-                <tr><td colSpan={9} className="py-4 text-center text-neutral-500">No devices found</td></tr>
+                <tr><td colSpan={9} className="py-4 text-center text-neutral-500">Устройства не найдены</td></tr>
               )}
               {devices.map((device) => (
                 <tr
@@ -605,7 +730,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       onClick={(e) => { e.stopPropagation(); handleToggleAutoUpdate(device); }}
                       className={`px-2 py-0.5 rounded text-[10px] ${device.autoUpdate ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-neutral-100 text-neutral-500 hover:bg-neutral-200'}`}
                     >
-                      {device.autoUpdate ? 'ON' : 'OFF'}
+                      {device.autoUpdate ? 'ВКЛ' : 'ВЫКЛ'}
                     </button>
                   </td>
                   <td className="py-2 px-1">
@@ -613,7 +738,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       onClick={(e) => { e.stopPropagation(); handleToggleDemoMode(device); }}
                       className={`px-2 py-0.5 rounded text-[10px] ${device.demoMode ? 'bg-purple-100 text-purple-700 hover:bg-purple-200' : 'bg-neutral-100 text-neutral-500 hover:bg-neutral-200'}`}
                     >
-                      {device.demoMode ? 'DEMO' : 'OFF'}
+                      {device.demoMode ? 'ДЕМО' : 'ВЫКЛ'}
                     </button>
                   </td>
                   <td className="py-2 px-1">{formatDate(device.lastSeen)}</td>
@@ -621,11 +746,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   <td className="py-2 px-1 flex gap-2">
                     {device.status === "active" && (
                       <>
-                        <button onClick={(e) => { e.stopPropagation(); handleRevoke(device); }} className="text-orange-600 hover:text-orange-800">Revoke</button>
-                        <button onClick={(e) => { e.stopPropagation(); handleFactoryReset(device); }} className="text-red-600 hover:text-red-800">Reset</button>
+                        <button onClick={(e) => { e.stopPropagation(); handleRevoke(device); }} className="text-orange-600 hover:text-orange-800">Отозвать</button>
+                        <button onClick={(e) => { e.stopPropagation(); handleFactoryReset(device); }} className="text-red-600 hover:text-red-800">Сброс</button>
                       </>
                     )}
-                    <button onClick={(e) => { e.stopPropagation(); handleDelete(device); }} className="text-neutral-500 hover:text-red-600">Delete</button>
+                    <button onClick={(e) => { e.stopPropagation(); handleDelete(device); }} className="text-neutral-500 hover:text-red-600">Удалить</button>
                   </td>
                 </tr>
               ))}
@@ -636,20 +761,51 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
       {/* Provision Form - collapsible */}
       <details className="bg-white rounded-md border shadow-sm">
-        <summary className="px-4 py-2 text-xs text-neutral-500 cursor-pointer hover:text-neutral-700 select-none">Provision New Device</summary>
+        <summary className="px-4 py-2 text-xs text-neutral-500 cursor-pointer hover:text-neutral-700 select-none">Добавить устройство вручную</summary>
         <div className="px-4 pb-4 pt-2">
           <div className="flex gap-2 items-end">
             <div className="flex-1">
-              <label className={labelClass}>MAC Address</label>
+              <label className={labelClass}>MAC-адрес</label>
               <input type="text" value={provisionMac} onChange={(e) => setProvisionMac(e.target.value.toUpperCase())} placeholder="AA:BB:CC:DD:EE:FF" className={`${inputClass} font-mono`} maxLength={17} />
             </div>
             <div className="w-24">
-              <label className={labelClass}>Firmware</label>
+              <label className={labelClass}>Прошивка</label>
               <input type="text" value={provisionFw} onChange={(e) => setProvisionFw(e.target.value)} className={inputClass} />
             </div>
-            <button onClick={handleProvision} className="px-3 py-1 bg-neutral-800 text-white text-xs rounded hover:bg-black">Provision</button>
+            <button onClick={handleProvision} className="px-3 py-1 bg-neutral-800 text-white text-xs rounded hover:bg-black">Добавить</button>
           </div>
           {provisionStatus && <div className="text-[10px] mt-2 text-neutral-600">{provisionStatus}</div>}
+        </div>
+      </details>
+
+      {/* Logo Library - collapsible */}
+      <details className="bg-white rounded-md border shadow-sm">
+        <summary className="px-4 py-2 text-xs text-neutral-500 cursor-pointer hover:text-neutral-700 select-none">
+          Библиотека логотипов {logos.length > 0 && <span className="text-neutral-400">({logos.length})</span>}
+        </summary>
+        <div className="px-4 pb-4 pt-2 space-y-3">
+          {logos.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {logos.map(logo => (
+                <div key={logo.id} className="flex items-center gap-1 bg-neutral-100 rounded px-2 py-1 text-xs">
+                  <span className="font-mono">{logo.name}</span>
+                  <button onClick={() => handleDeleteLogo(logo.id)} className="text-red-400 hover:text-red-600 ml-1">&times;</button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="flex gap-2 items-end">
+            <div className="flex-1">
+              <label className={labelClass}>Название</label>
+              <input type="text" value={logoName} onChange={(e) => setLogoName(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))} placeholder="my-logo" className={inputClass} />
+            </div>
+            <div className="flex-1">
+              <label className={labelClass}>Файл (SVG/PNG)</label>
+              <input type="file" accept=".svg,.png,.jpg,.bmp,image/*" onChange={(e) => setLogoFile(e.target.files?.[0] || null)} className="text-xs" />
+            </div>
+            <button onClick={handleUploadLogo} className="px-3 py-1 bg-neutral-800 text-white text-xs rounded hover:bg-black">Загрузить</button>
+          </div>
+          {logoStatus && <div className="text-[10px] mt-1 text-neutral-600">{logoStatus}</div>}
         </div>
       </details>
 
@@ -657,14 +813,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       {selectedDevice && selectedDevice.status === 'awaiting_claim' && (
         <div className="bg-white rounded-md border border-blue-200 p-4 shadow-sm">
           <h2 className="text-sm font-semibold mb-3">
-            Attach Claim Code <span className="font-normal text-neutral-500">— {selectedDevice.mac}</span>
+            Привязать код <span className="font-normal text-neutral-500">— {selectedDevice.mac}</span>
           </h2>
           <div className="flex gap-2 items-end">
             <div className="flex-1">
-              <label className={labelClass}>6-Digit Code</label>
+              <label className={labelClass}>6-значный код</label>
               <input type="text" value={attachCode} onChange={(e) => setAttachCode(e.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="123456" className={`${inputClass} font-mono tracking-widest text-center`} maxLength={6} />
             </div>
-            <button onClick={handleAttach} className="px-3 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700">Attach</button>
+            <button onClick={handleAttach} className="px-3 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700">Привязать</button>
           </div>
           {attachStatus && <div className="text-[10px] mt-2 text-neutral-600">{attachStatus}</div>}
         </div>
@@ -674,27 +830,52 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       {selectedDevice && (
         <div className="bg-white rounded-md border p-4 shadow-sm">
           <h2 className="text-sm font-semibold mb-4">
-            Display Settings <span className="font-normal text-neutral-500">— {selectedDevice.mac}</span>
+            Настройки дисплея <span className="font-normal text-neutral-500">— {selectedDevice.mac}</span>
           </h2>
 
           <div className="grid grid-cols-12 gap-3">
             {/* Symbol */}
             <div className="col-span-2">
-              <label className={labelClass}>Symbol</label>
-              <input value={form.symbol} onChange={(e) => updateForm({ symbol: e.target.value })} className={inputClass} placeholder="BTC" />
+              <label className={labelClass}>Символ</label>
+              <input value={form.symbol} onChange={(e) => updateForm({ symbol: e.target.value })} className={inputClass} placeholder="BTC" disabled={form.symbolCarousel} />
             </div>
             <div className="col-span-2">
-              <label className={labelClass}>Symbol Size</label>
-              <select value={form.symbolFontSize} onChange={(e) => updateForm({ symbolFontSize: parseInt(e.target.value) })} className={selectClass}>
+              <label className={labelClass}>Размер символа</label>
+              <select value={form.symbolFontSize} onChange={(e) => updateForm({ symbolFontSize: parseInt(e.target.value) })} className={selectClass} disabled={form.symbolCarousel}>
                 {FONT_SIZE_PRESETS.map(size => (
                   <option key={size} value={size}>{size}px</option>
                 ))}
               </select>
             </div>
+            <div className="col-span-4">
+              <label className={labelClass}>Логотип</label>
+              <select value={form.symbolImage} onChange={(e) => updateForm({ symbolImage: e.target.value })} className={selectClass} disabled={form.symbolCarousel}>
+                <option value="">Нет (текст)</option>
+                <optgroup label="Встроенные">
+                  <option value="dollar">$ Dollar</option>
+                  <option value="euro">€ Euro</option>
+                  <option value="pound">£ Pound</option>
+                  <option value="yuan">¥ Yuan</option>
+                  <option value="ruble">₽ Ruble</option>
+                  <option value="bitcoin">₿ Bitcoin</option>
+                  <option value="eth">Ξ Ethereum</option>
+                  <option value="binance">Binance</option>
+                </optgroup>
+                {logos.length > 0 && (
+                  <optgroup label="Пользовательские">
+                    {logos.map(l => <option key={l.id} value={l.name}>{l.name}</option>)}
+                  </optgroup>
+                )}
+              </select>
+            </div>
+            <div className="col-span-4 flex items-center gap-2 mt-1">
+              <input type="checkbox" id="symbolCarousel" checked={form.symbolCarousel} onChange={(e) => updateForm({ symbolCarousel: e.target.checked })} />
+              <label htmlFor="symbolCarousel" className="text-xs text-neutral-600">Карусель символов ($, €, £, ¥, ₽, ₿, Ξ, Binance)</label>
+            </div>
 
             {/* Refresh Interval */}
             <div className="col-span-3">
-              <label className={labelClass}>Refresh (sec)</label>
+              <label className={labelClass}>Обновление (сек)</label>
               <input 
                 type="text" 
                 inputMode="numeric"
@@ -709,7 +890,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
             {/* Timezone */}
             <div className="col-span-3">
-              <label className={labelClass}>Timezone</label>
+              <label className={labelClass}>Часовой пояс</label>
               <select value={form.timezoneOffset} onChange={(e) => updateForm({ timezoneOffset: parseInt(e.target.value) })} className={inputClass}>
                 <option value={-12}>UTC-12</option>
                 <option value={-11}>UTC-11</option>
@@ -744,21 +925,21 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
             {/* Top Line Section */}
             <div className="col-span-12 border-t pt-3 mt-1">
-              <div className="text-[10px] font-semibold text-neutral-500 mb-2">TOP LINE</div>
+              <div className="text-[10px] font-semibold text-neutral-500 mb-2">ВЕРХНЯЯ СТРОКА</div>
             </div>
             
             <div className="col-span-4">
-              <label className={labelClass}>Text</label>
+              <label className={labelClass}>Текст</label>
               <input 
                 value={form.topLine} 
                 onChange={(e) => updateForm({ topLine: e.target.value })} 
                 className={inputClass} 
-                placeholder="Top line text"
+                placeholder="Текст верхней строки"
                 disabled={form.topLineShowDate}
               />
             </div>
             <div className="col-span-2">
-              <label className={labelClass}>Font Size</label>
+              <label className={labelClass}>Размер шрифта</label>
               <select value={form.topLineFontSize} onChange={(e) => updateForm({ topLineFontSize: parseInt(e.target.value) })} className={selectClass}>
                 {FONT_SIZE_PRESETS.map(size => (
                   <option key={size} value={size}>{size}px</option>
@@ -766,31 +947,31 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               </select>
             </div>
             <div className="col-span-2">
-              <label className={labelClass}>Align</label>
+              <label className={labelClass}>Выравнивание</label>
               <select value={form.topLineAlign} onChange={(e) => updateForm({ topLineAlign: e.target.value as TextAlign })} className={selectClass}>
-                <option value="left">Left</option>
-                <option value="center">Center</option>
-                <option value="right">Right</option>
+                <option value="left">Лево</option>
+                <option value="center">Центр</option>
+                <option value="right">Право</option>
               </select>
             </div>
             <div className="col-span-4 flex items-end">
               <label className="flex items-center gap-2 text-xs cursor-pointer">
                 <input type="checkbox" checked={form.topLineShowDate} onChange={(e) => updateForm({ topLineShowDate: e.target.checked })} className="rounded" />
-                Show Date/Time
+                Показывать дату/время
               </label>
             </div>
 
             {/* Main Text Section */}
             <div className="col-span-12 border-t pt-3 mt-1">
-              <div className="text-[10px] font-semibold text-neutral-500 mb-2">MAIN TEXT</div>
+              <div className="text-[10px] font-semibold text-neutral-500 mb-2">ОСНОВНОЙ ТЕКСТ</div>
             </div>
 
             <div className="col-span-6">
-              <label className={labelClass}>Text</label>
-              <input value={form.mainText} onChange={(e) => updateForm({ mainText: e.target.value })} className={inputClass} placeholder="Main text" />
+              <label className={labelClass}>Текст</label>
+              <input value={form.mainText} onChange={(e) => updateForm({ mainText: e.target.value })} className={inputClass} placeholder="Основной текст" />
             </div>
             <div className="col-span-3">
-              <label className={labelClass}>Font Size</label>
+              <label className={labelClass}>Размер шрифта</label>
               <select value={form.mainTextFontSize} onChange={(e) => updateForm({ mainTextFontSize: parseInt(e.target.value) })} className={selectClass}>
                 {FONT_SIZE_PRESETS.map(size => (
                   <option key={size} value={size}>{size}px</option>
@@ -798,25 +979,25 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               </select>
             </div>
             <div className="col-span-3">
-              <label className={labelClass}>Align</label>
+              <label className={labelClass}>Выравнивание</label>
               <select value={form.mainTextAlign} onChange={(e) => updateForm({ mainTextAlign: e.target.value as TextAlign })} className={selectClass}>
-                <option value="left">Left</option>
-                <option value="center">Center</option>
-                <option value="right">Right</option>
+                <option value="left">Лево</option>
+                <option value="center">Центр</option>
+                <option value="right">Право</option>
               </select>
             </div>
 
             {/* Bottom Line Section */}
             <div className="col-span-12 border-t pt-3 mt-1">
-              <div className="text-[10px] font-semibold text-neutral-500 mb-2">BOTTOM LINE</div>
+              <div className="text-[10px] font-semibold text-neutral-500 mb-2">НИЖНЯЯ СТРОКА</div>
             </div>
 
             <div className="col-span-6">
-              <label className={labelClass}>Text</label>
-              <input value={form.bottomLine} onChange={(e) => updateForm({ bottomLine: e.target.value })} className={inputClass} placeholder="Bottom line text" />
+              <label className={labelClass}>Текст</label>
+              <input value={form.bottomLine} onChange={(e) => updateForm({ bottomLine: e.target.value })} className={inputClass} placeholder="Текст нижней строки" />
             </div>
             <div className="col-span-3">
-              <label className={labelClass}>Font Size</label>
+              <label className={labelClass}>Размер шрифта</label>
               <select value={form.bottomLineFontSize} onChange={(e) => updateForm({ bottomLineFontSize: parseInt(e.target.value) })} className={selectClass}>
                 {FONT_SIZE_PRESETS.map(size => (
                   <option key={size} value={size}>{size}px</option>
@@ -824,41 +1005,41 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               </select>
             </div>
             <div className="col-span-3">
-              <label className={labelClass}>Align</label>
+              <label className={labelClass}>Выравнивание</label>
               <select value={form.bottomLineAlign} onChange={(e) => updateForm({ bottomLineAlign: e.target.value as TextAlign })} className={selectClass}>
-                <option value="left">Left</option>
-                <option value="center">Center</option>
-                <option value="right">Right</option>
+                <option value="left">Лево</option>
+                <option value="center">Центр</option>
+                <option value="right">Право</option>
               </select>
             </div>
 
             {/* LED Section */}
             <div className="col-span-12 border-t pt-3 mt-1">
-              <div className="text-[10px] font-semibold text-neutral-500 mb-2">LED CONTROL</div>
+              <div className="text-[10px] font-semibold text-neutral-500 mb-2">СВЕТОДИОД</div>
             </div>
 
             <div className="col-span-3">
-              <label className={labelClass}>Color</label>
+              <label className={labelClass}>Цвет</label>
               <select value={form.ledColor} onChange={(e) => updateForm({ ledColor: e.target.value as LedColor })} className={selectClass}>
-                <option value="green">Green</option>
-                <option value="red">Red</option>
-                <option value="blue">Blue</option>
-                <option value="yellow">Yellow</option>
-                <option value="purple">Purple</option>
-                <option value="rainbow">Rainbow</option>
+                <option value="green">Зелёный</option>
+                <option value="red">Красный</option>
+                <option value="blue">Синий</option>
+                <option value="yellow">Жёлтый</option>
+                <option value="purple">Фиолетовый</option>
+                <option value="rainbow">Радуга</option>
               </select>
             </div>
             <div className="col-span-3">
-              <label className={labelClass}>Brightness</label>
+              <label className={labelClass}>Яркость</label>
               <select value={form.ledBrightness} onChange={(e) => updateForm({ ledBrightness: e.target.value as LedBrightness })} className={selectClass}>
-                <option value="off">Off</option>
-                <option value="low">Low</option>
-                <option value="mid">Medium</option>
-                <option value="high">High</option>
+                <option value="off">Выкл</option>
+                <option value="low">Низкая</option>
+                <option value="mid">Средняя</option>
+                <option value="high">Высокая</option>
               </select>
             </div>
             <div className="col-span-3">
-              <label className={labelClass}>Flash Count</label>
+              <label className={labelClass}>Кол-во вспышек</label>
               <input 
                 type="text" 
                 inputMode="numeric"
@@ -873,14 +1054,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             <div className="col-span-3 flex items-end">
               <label className="flex items-center gap-2 text-xs cursor-pointer">
                 <input type="checkbox" checked={form.beep} onChange={(e) => updateForm({ beep: e.target.checked })} className="rounded" />
-                Send Beep
+                Звуковой сигнал
               </label>
             </div>
 
             {/* Submit */}
             <div className="col-span-12 border-t pt-3 mt-1 flex justify-between items-center">
               <div className="text-[10px] text-neutral-500 flex items-center gap-2">
-                {formDirty && <span className="text-amber-600">● Unsaved changes</span>}
+                {formDirty && <span className="text-amber-600">● Несохранённые изменения</span>}
                 {displayStatus}
               </div>
               <div className="flex gap-2">
@@ -889,14 +1070,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   disabled={!formDirty}
                   className="px-3 py-2 bg-neutral-200 text-neutral-700 text-xs rounded hover:bg-neutral-300 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Reset
+                  Сбросить
                 </button>
                 <button
                   onClick={handleSetDisplay}
                   disabled={selectedDevice.status !== "active"}
                   className="px-4 py-2 bg-green-600 text-white text-xs rounded hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Send to Device
+                  Отправить на устройство
                 </button>
               </div>
             </div>

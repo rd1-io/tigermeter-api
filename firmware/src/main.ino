@@ -19,6 +19,7 @@ extern const int CURRENT_FIRMWARE_VERSION = FW_VERSION;
 #include "utility/ApiClient.h"
 #include "utility/FirmwareUpdate.h"
 #include "BinanceLogo.h"
+#include "CurrencySymbols.h"
 #include "DEV_Config.h"
 
 // Display geometry (after rotation: 384x168)
@@ -29,7 +30,7 @@ const int RECT_HEIGHT = VISUAL_HEIGHT;
 
 // API configuration
 #ifndef API_BASE_URL
-#define API_BASE_URL "https://tigermeter-api.fly.dev/api"
+#define API_BASE_URL "https://api-tiger.rd1.io/api"
 #endif
 
 // Timing
@@ -52,6 +53,10 @@ String currentClaimCode = "";
 // Current display data
 String displaySymbol = "";
 int displaySymbolFontSize = 24;        // Font size in pixels (10-40) for symbol
+String displaySymbolImage = "";        // Predefined logo name
+bool displaySymbolCarousel = false;    // Carousel mode
+uint8_t customBitmapBuffer[512];       // Buffer for custom logo bitmap (64x64 1-bit)
+bool hasCustomBitmap = false;
 String displayTopLine = "";
 int displayTopLineFontSize = 16;       // Font size in pixels (10-40)
 TextAlignType displayTopLineAlign = ALIGN_CENTER;
@@ -75,6 +80,14 @@ bool wifiDisconnectedDisplayed = false;
 TaskHandle_t amberPulseTaskHandle = NULL;
 bool isRainbow = false;
 TaskHandle_t rainbowTaskHandle = NULL;
+
+// Symbol carousel
+unsigned long lastCarouselSwitch = 0;
+int carouselIndex = 0;
+const int CAROUSEL_INTERVAL_MS = 8000;
+// Carousel items: all bitmaps (predefined logo names)
+const char* carouselItems[] = { "dollar", "euro", "pound", "yuan", "ruble", "bitcoin", "eth", "binance" };
+const int CAROUSEL_COUNT = 8;
 
 // Battery reading
 const float BATTERY_MULTIPLIER = 2.19f;
@@ -120,6 +133,9 @@ void renderDemoUptime();
 void runDemoLoop();
 void demoLedTask(void *pvParameters);
 
+// IP address display
+void displayIPAddress();
+
 // Reconnecting state functions
 void displayReconnecting();
 void amberPulseTask(void *pvParameters);
@@ -153,9 +169,9 @@ void setup()
     // Initialize LEDC for LED PWM control
     initializePins();
     
-    // Immediately set LED to dim yellow (20% brightness)
+    // Immediately set LED to dim yellow (10% brightness)
     // This gives instant visual feedback during boot
-    setLedPWM(204, 240, 255);
+    setLedPWM(229, 247, 255);
 
     // Initialize e-paper display
     Serial.println("[Main] Initializing e-paper display...");
@@ -184,7 +200,7 @@ void setup()
     display.refresh();
     Serial.println("[Main] Logo displayed");
     
-    // Fade in yellow LED from 20% to 100% while logo is shown
+    // Fade in yellow LED from 10% to 100% while logo is shown
     fadeInYellow(2000);
 
     // Start captive portal AP + OTA
@@ -225,6 +241,7 @@ void setup()
     
     // Initialize NTP time if WiFi is connected
     if (WiFi.status() == WL_CONNECTED) {
+        displayIPAddress();
         Serial.println("[Main] WiFi connected, initializing NTP...");
         int tzOffsetSec = (int)(displayTimezoneOffset * 3600);
         configTime(tzOffsetSec, 0, "pool.ntp.org", "time.nist.gov");
@@ -279,7 +296,10 @@ void handleApiStateMachine()
         }
         return;
     }
-    // WiFi reconnected — reset flag so we redraw if it drops again
+    // WiFi reconnected — show IP and reset flag so we redraw if it drops again
+    if (wifiDisconnectedDisplayed) {
+        displayIPAddress();
+    }
     wifiDisconnectedDisplayed = false;
 
     switch (currentState)
@@ -472,6 +492,18 @@ void handleApiStateMachine()
                     
                     displaySymbol = result.symbol;
                     displaySymbolFontSize = result.symbolFontSize;
+                    displaySymbolImage = result.symbolImage;
+                    displaySymbolCarousel = result.symbolCarousel;
+                    // Decode custom bitmap if present
+                    if (result.symbolBitmap.length() > 0) {
+                        int decoded = base64Decode(result.symbolBitmap.c_str(), customBitmapBuffer, 512);
+                        hasCustomBitmap = (decoded == 512);
+                        if (hasCustomBitmap) {
+                            Serial.println("[Main] Custom bitmap decoded: 512 bytes");
+                        }
+                    } else {
+                        hasCustomBitmap = false;
+                    }
                     displayTopLine = result.topLine;
                     displayTopLineFontSize = result.topLineFontSize;
                     displayTopLineAlign = result.topLineAlign;
@@ -595,6 +627,19 @@ void handleApiStateMachine()
             }
         }
         
+        // Symbol carousel rotation (all items are bitmaps)
+        if (displaySymbolCarousel && !isReconnecting) {
+            if (now - lastCarouselSwitch >= CAROUSEL_INTERVAL_MS) {
+                lastCarouselSwitch = now;
+                carouselIndex = (carouselIndex + 1) % CAROUSEL_COUNT;
+                
+                // Redraw black rectangle with next bitmap
+                display.fillRect(0, 0, RECT_WIDTH, RECT_HEIGHT, true);
+                drawPredefinedLogo(carouselItems[carouselIndex]);
+                display.refreshPartial();
+            }
+        }
+        
         // Tick seconds
         static unsigned long lastTimeUpdate = 0;
         if (displayTopLineShowDate && displaySymbol.length() > 0) {
@@ -671,6 +716,32 @@ void handleApiStateMachine()
     }
 }
 
+// Base64 decode (inline, no external library)
+static const uint8_t b64_table[128] = {
+    64,64,64,64,64,64,64,64,64,64,64,64,64,64,64,64,64,64,64,64,64,64,64,64,64,64,64,64,64,64,64,64,
+    64,64,64,64,64,64,64,64,64,64,64,62,64,64,64,63,52,53,54,55,56,57,58,59,60,61,64,64,64,0,64,64,
+    64,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,64,64,64,64,64,
+    64,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,64,64,64,64,64
+};
+
+int base64Decode(const char* input, uint8_t* output, int maxOutputLen) {
+    int len = strlen(input);
+    int outIdx = 0;
+    for (int i = 0; i < len && outIdx < maxOutputLen; i += 4) {
+        uint32_t n = 0;
+        int pad = 0;
+        for (int j = 0; j < 4 && (i + j) < len; j++) {
+            uint8_t c = (uint8_t)input[i + j];
+            if (c == '=') { pad++; n <<= 6; }
+            else if (c < 128) { n = (n << 6) | b64_table[c]; }
+        }
+        if (outIdx < maxOutputLen) output[outIdx++] = (n >> 16) & 0xFF;
+        if (outIdx < maxOutputLen && pad < 2) output[outIdx++] = (n >> 8) & 0xFF;
+        if (outIdx < maxOutputLen && pad < 1) output[outIdx++] = n & 0xFF;
+    }
+    return outIdx;
+}
+
 void initializeDisplay()
 {
     Serial.println("[Display] e-Paper Init...");
@@ -679,13 +750,61 @@ void initializeDisplay()
     display.refresh();
 }
 
+// Draw predefined bitmap logo centered in rectangle (white on black background)
+// Returns true if logo was drawn, false if name not recognized
+// Get predefined bitmap by name. Returns null if not found.
+const unsigned char* getPredefinedBitmap(const String& name, int& w, int& h, bool& rotate)
+{
+    rotate = false;
+    if (name == "binance")  { w = BINANCE_LOGO_WIDTH;  h = BINANCE_LOGO_HEIGHT;  rotate = true; return Binance_Logo; }
+    w = SYMBOL_BITMAP_WIDTH; h = SYMBOL_BITMAP_HEIGHT;
+    if (name == "dollar")   return Symbol_dollar;
+    if (name == "euro")     return Symbol_euro;
+    if (name == "pound")    return Symbol_pound;
+    if (name == "yuan")     return Symbol_yuan;
+    if (name == "ruble")    return Symbol_ruble;
+    if (name == "bitcoin")  return Symbol_bitcoin;
+    if (name == "eth")      return Symbol_eth;
+    return nullptr;
+}
+
+bool drawPredefinedLogo(const String& name)
+{
+    int bw, bh;
+    bool rotate;
+    const unsigned char* bmp = getPredefinedBitmap(name, bw, bh, rotate);
+    if (!bmp) return false;
+    int logoX = (RECT_WIDTH - bw) / 2;
+    int logoY = (RECT_HEIGHT - bh) / 2;
+    display.drawBitmap(logoX, logoY, bmp, bw, bh, rotate, true);
+    return true;
+}
+
 void drawRectangleAndText(const char *Text)
 {
     // Draw black rectangle on left side
     display.fillRect(0, 0, RECT_WIDTH, RECT_HEIGHT, true);
     
-    // Draw text centered in rectangle (white on black)
-    // Use configured symbol font size (defaults to 24px)
+    // In carousel mode, draw current carousel item (not the fixed symbolImage)
+    if (displaySymbolCarousel) {
+        drawPredefinedLogo(carouselItems[carouselIndex]);
+        return;
+    }
+    
+    // Try custom bitmap from server
+    if (hasCustomBitmap && displaySymbolImage.length() > 0) {
+        int logoX = (RECT_WIDTH - SYMBOL_BITMAP_WIDTH) / 2;
+        int logoY = (RECT_HEIGHT - SYMBOL_BITMAP_HEIGHT) / 2;
+        display.drawBitmap(logoX, logoY, customBitmapBuffer, SYMBOL_BITMAP_WIDTH, SYMBOL_BITMAP_HEIGHT, false, true);
+        return;
+    }
+    
+    // Try predefined logo
+    if (displaySymbolImage.length() > 0 && drawPredefinedLogo(displaySymbolImage)) {
+        return;
+    }
+    
+    // Fallback: draw text centered in rectangle (white on black)
     display.setFontSize(displaySymbolFontSize);
     display.setTextColor(false);  // White text
     int textW = display.getTextWidth(Text);
@@ -802,6 +921,28 @@ void displayWifiMessage()
     display.drawText(150, 55, getApSsid().c_str());
     display.setFont(FONT_SIZE_SMALL);
     display.drawText(150, 100, "192.168.4.1");
+}
+
+void displayIPAddress()
+{
+    String ip = WiFi.localIP().toString();
+    Serial.println("[Main] Showing IP address: " + ip);
+    
+    display.clear();
+    drawRectangleAndText("IP");
+    
+    display.setFont(FONT_SIZE_MEDIUM);
+    display.setTextColor(true);
+    int rightAreaStart = RECT_WIDTH;
+    int rightAreaWidth = VISUAL_WIDTH - RECT_WIDTH;
+    int textW = display.getTextWidth(ip.c_str());
+    int textH = display.getFontHeight();
+    int x = rightAreaStart + (rightAreaWidth - textW) / 2;
+    int y = (VISUAL_HEIGHT - textH) / 2;
+    display.drawText(x, y, ip.c_str());
+    
+    display.refresh();
+    delay(1000);
 }
 
 void displayError(const char *msg)
@@ -958,13 +1099,19 @@ void renderDemoUptime()
     int infoX = rightAreaStart + 5;
     display.drawText(infoX, 3, battStr);
     
-    // WiFi status
-    char wifiStr[28];
-    if (WiFi.status() == WL_CONNECTED) {
-        String ssid = WiFi.SSID();
-        snprintf(wifiStr, sizeof(wifiStr), "WiFi: %.12s OK", ssid.c_str());
+    // WiFi status — always show saved SSID
+    Preferences demoWifiPrefs;
+    demoWifiPrefs.begin("tigermeter", true);
+    String savedSsid = demoWifiPrefs.getString("ssid", "");
+    demoWifiPrefs.end();
+    
+    char wifiStr[36];
+    if (savedSsid.length() == 0) {
+        snprintf(wifiStr, sizeof(wifiStr), "WiFi: (not set)");
+    } else if (WiFi.status() == WL_CONNECTED) {
+        snprintf(wifiStr, sizeof(wifiStr), "WiFi: %.14s OK", savedSsid.c_str());
     } else {
-        snprintf(wifiStr, sizeof(wifiStr), "WiFi: -- (no conn)");
+        snprintf(wifiStr, sizeof(wifiStr), "WiFi: %.14s --", savedSsid.c_str());
     }
     int line2Y = 3 + display.getFontHeight() + 2;
     display.drawText(infoX, line2Y, wifiStr);
@@ -976,7 +1123,13 @@ void renderDemoUptime()
     } else {
         snprintf(ipStr, sizeof(ipStr), "AP: %s", WiFi.softAPIP().toString().c_str());
     }
-    display.drawText(infoX, line2Y + display.getFontHeight() + 2, ipStr);
+    int line3Y = line2Y + display.getFontHeight() + 2;
+    display.drawText(infoX, line3Y, ipStr);
+    
+    // AP SSID (captive portal network name)
+    char apSsidStr[32];
+    snprintf(apSsidStr, sizeof(apSsidStr), "AP: %s", getApSsid().c_str());
+    display.drawText(infoX, line3Y + display.getFontHeight() + 2, apSsidStr);
     
     // Firmware version
     char fwStr[16];

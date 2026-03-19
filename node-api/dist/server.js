@@ -21,7 +21,7 @@ const buildServer = () => {
             const allowedPatterns = [
                 /^http:\/\/localhost:\d+$/,
                 /^http:\/\/127\.0\.0\.1:\d+$/,
-                /^https:\/\/tigermeter-[\w-]+\.fly\.dev$/, // Fly.io apps
+                /^https:\/\/[\w-]+\.rd1\.io$/, // rd1.io subdomains
             ];
             if (allowedPatterns.some((r) => r.test(origin)))
                 return cb(null, true);

@@ -1,0 +1,17 @@
+{
+	auto_https disable_redirects
+}
+
+api-tiger.rd1.io {
+	reverse_proxy 127.0.0.1:3001
+}
+
+app-tiger.rd1.io {
+	root * /srv/emulator
+	file_server
+	try_files {path} /index.html
+}
+
+admin.rd1.io {
+	reverse_proxy localhost:80
+}

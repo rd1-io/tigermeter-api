@@ -4,6 +4,7 @@
 #include <DNSServer.h>
 #include <Preferences.h>
 #include <Update.h>
+#include <ESPmDNS.h>
 #include <stdarg.h>
 
 #include "CaptivePortal.h"
@@ -658,6 +659,12 @@ void startCaptivePortal()
     }
 
     autoConnectFromStoredCredentials();
+
+    // Register mDNS so the device is discoverable as <apSsid>.local on the LAN
+    if (MDNS.begin(apSsid.c_str())) {
+        MDNS.addService("http", "tcp", 80);
+        Serial.printf("[CaptivePortal] mDNS started: %s.local\n", apSsid.c_str());
+    }
 
     dnsServer.start(53, "*", AP_IP);
     Serial.println("[CaptivePortal] DNS server started");

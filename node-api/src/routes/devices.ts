@@ -95,6 +95,15 @@ export default async function deviceRoutes(app: FastifyInstance) {
         });
       }
       
+      // If symbolImage is a custom logo (not predefined), inject bitmap data
+      const PREDEFINED_LOGOS = ['binance', 'dollar', 'euro', 'pound', 'yuan', 'ruble', 'bitcoin', 'eth', ''];
+      if (instruction.symbolImage && !PREDEFINED_LOGOS.includes(instruction.symbolImage)) {
+        const logo = await app.prisma.logo.findUnique({ where: { name: instruction.symbolImage } });
+        if (logo) {
+          instruction.symbolBitmap = logo.bitmapBase64;
+        }
+      }
+
       return { 
         ...baseResponse,
         instruction, 

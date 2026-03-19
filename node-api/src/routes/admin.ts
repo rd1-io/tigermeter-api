@@ -6,6 +6,10 @@ const DeviceSettingsSchema = z.object({
   demoMode: z.boolean().optional(),
 });
 
+const AdminSettingsSchema = z.object({
+  autoProvisionNewDevices: z.boolean().optional(),
+});
+
 export default async function adminRoutes(app: FastifyInstance) {
   app.get('/devices', async (request) => {
     await app.requireAdmin(request);
@@ -128,6 +132,48 @@ export default async function adminRoutes(app: FastifyInstance) {
     const c = await app.prisma.deviceClaim.findUnique({ where: { code } });
     if (!c) return reply.code(404).send({ message: 'Not found' });
     return { code: c.code, status: c.status, deviceId: c.deviceId, mac: c.mac, expiresAt: c.expiresAt };
+  });
+
+  // Admin settings (e.g. auto-provision new devices)
+  app.get('/settings', async (request) => {
+    await app.requireAdmin(request);
+    const setting = await app.prisma.setting.findUnique({ where: { key: 'autoProvisionNewDevices' } });
+    return { autoProvisionNewDevices: setting?.value === 'true' };
+  });
+
+  app.patch('/settings', async (request, reply) => {
+    await app.requireAdmin(request);
+    const body = AdminSettingsSchema.parse(request.body ?? {});
+    if (body.autoProvisionNewDevices !== undefined) {
+      await app.prisma.setting.upsert({
+        where: { key: 'autoProvisionNewDevices' },
+        create: { key: 'autoProvisionNewDevices', value: body.autoProvisionNewDevices ? 'true' : 'false' },
+        update: { value: body.autoProvisionNewDevices ? 'true' : 'false' },
+      });
+      // When enabling, auto-approve all currently pending devices
+      if (body.autoProvisionNewDevices) {
+        const pending = await app.prisma.pendingDevice.findMany({ where: { status: 'pending' } });
+        for (const pd of pending) {
+          const exists = await app.prisma.device.findUnique({ where: { mac: pd.mac } });
+          if (!exists) {
+            await app.prisma.device.create({
+              data: {
+                mac: pd.mac,
+                status: 'awaiting_claim',
+                firmwareVersion: pd.firmwareVersion || 'unknown',
+                ip: pd.ip,
+              },
+            });
+          }
+          await app.prisma.pendingDevice.update({
+            where: { id: pd.id },
+            data: { status: 'approved' },
+          });
+        }
+      }
+    }
+    const setting = await app.prisma.setting.findUnique({ where: { key: 'autoProvisionNewDevices' } });
+    return { autoProvisionNewDevices: setting?.value === 'true' };
   });
 
   // List pending devices

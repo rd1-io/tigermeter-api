@@ -308,11 +308,11 @@ void pulseAmberSlow()
     pulseColor(0, 180, 255, 3000);  // 3 second cycle
 }
 
-// Fade in yellow LED from 20% to full brightness over durationMs
+// Fade in yellow LED from 10% to full brightness over durationMs
 // Used during startup logo screen
 void fadeInYellow(uint16_t durationMs = 2000)
 {
-    const int steps = 80;  // 80 steps for 20%->100% range
+    const int steps = 80;
     const int stepDelay = durationMs / steps;
     
     // Yellow target: R=0 (full on), G=180 (partial), B=255 (off)
@@ -320,13 +320,13 @@ void fadeInYellow(uint16_t durationMs = 2000)
     const uint8_t targetG = 180;
     const uint8_t targetB = 255;
     
-    // Start at 20% brightness (80% of the way from target to OFF)
+    // Start at 10% brightness (90% of the way from target to OFF)
     // For common anode: closer to 255 = dimmer
-    const uint8_t startR = targetR + (255 - targetR) * 80 / 100;  // 204
-    const uint8_t startG = targetG + (255 - targetG) * 80 / 100;  // 240
+    const uint8_t startR = targetR + (255 - targetR) * 90 / 100;  // 229
+    const uint8_t startG = targetG + (255 - targetG) * 90 / 100;  // 247
     const uint8_t startB = targetB;  // Already 255 (off)
     
-    // Set initial 20% brightness immediately
+    // Set initial 10% brightness immediately
     setLedPWM(startR, startG, startB);
     
     // Fade from 20% to 100%

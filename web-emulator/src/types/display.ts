@@ -20,6 +20,8 @@ export interface DisplayInstruction {
   
   // Symbol (left bar)
   symbolFontSize?: FontSize;
+  symbolImage?: string;       // Predefined logo name (e.g. "binance")
+  symbolCarousel?: boolean;   // Rotate through predefined symbols
   
   // Top line
   topLine?: string;

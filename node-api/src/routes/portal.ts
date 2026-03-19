@@ -20,6 +20,8 @@ const DisplayInstruction = z.object({
   
   // Symbol (left bar)
   symbolFontSize: FontSize.optional().default(24),
+  symbolImage: z.string().optional(),        // Predefined logo name (e.g. "binance")
+  symbolCarousel: z.boolean().optional(),    // Rotate through predefined symbols
   
   // Top line
   topLine: z.string().optional(),

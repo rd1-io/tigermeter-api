@@ -13,7 +13,7 @@ make dev              # Запустить API локально
 make emulator         # Запустить web-emulator
 make prod             # Собрать и прошить firmware
 make deploy m="msg"   # Закоммитить и запушить все изменения
-make firmware-release # Релиз прошивки + обновление Fly.io
+make firmware-release # Релиз прошивки + обновление GCE
 ```
 
 ## Прошивка устройства
@@ -25,7 +25,7 @@ make firmware-release # Релиз прошивки + обновление Fly.i
 ```bash
 make prod           # Собрать и прошить
 make prod-build     # Только собрать
-make firmware-release  # Собрать, запушить и обновить Fly.io
+make firmware-release  # Собрать, запушить и обновить GCE
 ```
 
 ## OTA обновления

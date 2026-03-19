@@ -122,6 +122,19 @@ export class ApiClient {
     });
   }
 
+  async getAdminSettings(adminToken: string): Promise<Response> {
+    return loggedFetch('GET', `${this.baseUrl}/admin/settings`, {
+      headers: { 'Authorization': `Bearer ${adminToken}` },
+    });
+  }
+
+  async patchAdminSettings(adminToken: string, settings: { autoProvisionNewDevices?: boolean }): Promise<Response> {
+    return loggedFetch('PATCH', `${this.baseUrl}/admin/settings`, {
+      headers: { 'Authorization': `Bearer ${adminToken}` },
+      bodyJson: settings,
+    });
+  }
+
   async listPendingDevicesAdmin(adminToken: string): Promise<Response> {
     return loggedFetch('GET', `${this.baseUrl}/admin/pending-devices`, {
       headers: {
@@ -152,6 +165,29 @@ export class ApiClient {
         'Authorization': `Bearer ${userToken}`,
       },
       bodyJson: instruction
+    });
+  }
+
+  // Logo library
+  async listLogos(adminToken: string): Promise<Response> {
+    return loggedFetch('GET', `${this.baseUrl}/admin/logos`, {
+      headers: { 'Authorization': `Bearer ${adminToken}` }
+    });
+  }
+
+  async uploadLogo(file: File, name: string, adminToken: string): Promise<Response> {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('name', name);
+    return loggedFetch('POST', `${this.baseUrl}/admin/logos`, {
+      headers: { 'Authorization': `Bearer ${adminToken}` },
+      body: formData,
+    });
+  }
+
+  async deleteLogo(id: string, adminToken: string): Promise<Response> {
+    return loggedFetch('DELETE', `${this.baseUrl}/admin/logos/${id}`, {
+      headers: { 'Authorization': `Bearer ${adminToken}` }
     });
   }
 

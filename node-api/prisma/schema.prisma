@@ -72,6 +72,13 @@ model DeviceClaim {
   @@index([mac])
 }
 
+model Logo {
+  id            String   @id @default(uuid())
+  name          String   @unique
+  bitmapBase64  String
+  createdAt     DateTime @default(now())
+}
+
 model PendingDevice {
   id              String   @id @default(uuid())
   mac             String   @unique
@@ -81,4 +88,9 @@ model PendingDevice {
   lastSeen        DateTime @updatedAt
   attemptCount    Int      @default(1)
   status          String   @default("pending")
+}
+
+model Setting {
+  key   String @id
+  value String
 }

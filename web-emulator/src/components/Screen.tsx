@@ -70,6 +70,15 @@ export const Screen: React.FC<ScreenProps> = ({
   battery,
 }) => {
   const [now, setNow] = useState(() => new Date());
+  const [carouselIdx, setCarouselIdx] = useState(0);
+  const carouselItems = ['dollar', 'euro', 'pound', 'yuan', 'ruble', 'bitcoin', 'eth', 'binance'];
+  
+  useEffect(() => {
+    if (!displayInstruction?.symbolCarousel) return;
+    const t = setInterval(() => setCarouselIdx(i => (i + 1) % carouselItems.length), 3000);
+    return () => clearInterval(t);
+  }, [displayInstruction?.symbolCarousel]);
+
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(t);
@@ -230,9 +239,17 @@ export const Screen: React.FC<ScreenProps> = ({
                   fontFamily: "system-ui, -apple-system, sans-serif",
                 }}
               >
-                <div className="font-bold tracking-tight" style={{ fontSize: getFontSize(s.symbolFontSize, DEFAULT_SYMBOL_FONT_SIZE) }}>
-                  {s.symbol}
-                </div>
+                {(() => {
+                  const symbolMap: Record<string, string> = { dollar: '$', euro: '€', pound: '£', yuan: '¥', ruble: '₽', bitcoin: '₿', eth: 'Ξ' };
+                  const currentItem = s.symbolCarousel ? carouselItems[carouselIdx] : (s.symbolImage || null);
+                  if (currentItem === 'binance') {
+                    return <img src="/images/binance-logo.svg" alt="Binance" style={{ width: 40, height: 40, filter: 'brightness(0) invert(1)' }} />;
+                  }
+                  if (currentItem && symbolMap[currentItem]) {
+                    return <div className="font-bold" style={{ fontSize: 40 }}>{symbolMap[currentItem]}</div>;
+                  }
+                  return <div className="font-bold tracking-tight" style={{ fontSize: getFontSize(s.symbolFontSize, DEFAULT_SYMBOL_FONT_SIZE) }}>{s.symbol}</div>;
+                })()}
               </div>
               
               {/* Right content area */}
@@ -300,7 +317,11 @@ export const Screen: React.FC<ScreenProps> = ({
               
               {/* Main area with symbol and main text */}
               <div className="flex-1 flex items-center justify-center gap-3">
-                <div className="text-[16px] font-bold opacity-60">{s.symbol}</div>
+                {(() => {
+                  const symbolMap: Record<string, string> = { dollar: '$', euro: '€', pound: '£', yuan: '¥', ruble: '₽', bitcoin: '₿', eth: 'Ξ' };
+                  const item = s.symbolCarousel ? carouselItems[carouselIdx] : s.symbol;
+                  return <div className="text-[16px] font-bold opacity-60">{symbolMap[item] || item}</div>;
+                })()}
                 <div
                   className="font-black"
                   style={{ fontSize: mainFontSize, textAlign: mainAlign }}

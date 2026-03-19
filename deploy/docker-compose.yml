@@ -1,0 +1,27 @@
+services:
+  caddy:
+    image: caddy:2-alpine
+    network_mode: host
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - ./emulator:/srv/emulator
+    restart: unless-stopped
+
+  api:
+    build: ./node-api
+    ports:
+      - "127.0.0.1:3001:3001"
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - DATABASE_URL=file:/data/api.sqlite
+    env_file:
+      - .env
+    volumes:
+      - api_data:/data
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  api_data:

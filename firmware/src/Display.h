@@ -104,8 +104,8 @@ public:
     int16_t getTextWidth(const char* text);
     int16_t getFontHeight();
     
-    // Draw bitmap (for logos) - rotate180 compensates for bitmap orientation
-    void drawBitmap(int16_t x, int16_t y, const uint8_t* bitmap, int16_t w, int16_t h, bool rotate180 = false);
+    // Draw bitmap (for logos) - rotate180 compensates for bitmap orientation, invert swaps black/white
+    void drawBitmap(int16_t x, int16_t y, const uint8_t* bitmap, int16_t w, int16_t h, bool rotate180 = false, bool invert = false);
     
     // Accessors
     int16_t width() const { return DISPLAY_WIDTH; }

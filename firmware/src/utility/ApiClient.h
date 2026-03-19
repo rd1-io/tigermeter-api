@@ -10,7 +10,7 @@
 
 // API Configuration - change API_BASE_URL to your computer's IP
 #ifndef API_BASE_URL
-#define API_BASE_URL "https://tigermeter-api.fly.dev/api"
+#define API_BASE_URL "https://api-tiger.rd1.io/api"
 #endif
 
 #ifndef HMAC_KEY
@@ -101,6 +101,9 @@ struct HeartbeatResult {
     // Display instruction fields (if hasInstruction)
     String symbol;
     int symbolFontSize;             // Font size in pixels (10-40) for symbol
+    String symbolImage;             // Predefined logo name (e.g. "binance")
+    bool symbolCarousel;            // Rotate through predefined symbols
+    String symbolBitmap;            // Custom logo bitmap as base64 (64x64, ~700 chars)
     String topLine;
     int topLineFontSize;            // Font size in pixels (10-40)
     TextAlignType topLineAlign;
@@ -420,6 +423,9 @@ public:
         // Display fields
         result.symbol = "";
         result.symbolFontSize = 24;   // Default 24px for symbol
+        result.symbolImage = "";
+        result.symbolCarousel = false;
+        result.symbolBitmap = "";
         result.topLine = "";
         result.topLineFontSize = 16;  // Default 16px
         result.topLineAlign = ALIGN_CENTER;
@@ -515,6 +521,9 @@ public:
                     // Required fields
                     result.symbol = instr["symbol"].as<String>();
                     result.symbolFontSize = parseFontSize(instr["symbolFontSize"], 24);
+                    result.symbolImage = instr["symbolImage"] | "";
+                    result.symbolCarousel = instr["symbolCarousel"] | false;
+                    result.symbolBitmap = instr["symbolBitmap"] | "";
                     result.mainText = instr["mainText"].as<String>();
                     
                     // Top line

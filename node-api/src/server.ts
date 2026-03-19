@@ -9,6 +9,7 @@ import deviceRoutes from './routes/devices.js';
 import portalRoutes from './routes/portal.js';
 import adminRoutes from './routes/admin.js';
 import devicesProvisionRoutes from './routes/devices-provision.js';
+import adminLogosRoutes from './routes/admin-logos.js';
 
 const buildServer = () => {
   const app = Fastify({ logger: true });
@@ -22,7 +23,7 @@ const buildServer = () => {
       const allowedPatterns = [
         /^http:\/\/localhost:\d+$/,
         /^http:\/\/127\.0\.0\.1:\d+$/,
-        /^https:\/\/tigermeter-[\w-]+\.fly\.dev$/,  // Fly.io apps
+        /^https:\/\/[\w-]+\.rd1\.io$/,  // rd1.io subdomains
       ];
       if (allowedPatterns.some((r) => r.test(origin))) return cb(null, true);
       const envOrigins = (process.env.CORS_ALLOWED_ORIGINS || '')
@@ -44,6 +45,7 @@ const buildServer = () => {
   app.register(deviceRoutes, { prefix: '/api' });
   app.register(portalRoutes, { prefix: '/api' });
   app.register(adminRoutes, { prefix: '/api/admin' });
+  app.register(adminLogosRoutes, { prefix: '/api/admin' });
   app.register(devicesProvisionRoutes);
 
   return app;
