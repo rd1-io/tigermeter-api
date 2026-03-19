@@ -3,6 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
   <title>TigerMeter — Прошивка</title>
   <script
     type="module"
@@ -343,15 +346,20 @@
       document.getElementById('unsupported').classList.add('show');
     }
     
-    // Load firmware version
+    const cacheBust = '?t=' + Date.now();
+
     async function loadVersions() {
       try {
-        const prodRes = await fetch('firmware/prod/version.json');
+        const prodRes = await fetch('firmware/prod/version.json' + cacheBust, { cache: 'no-store' });
         if (prodRes.ok) {
           const data = await prodRes.json();
           const v = 'v' + data.version;
           document.getElementById('prod-version').textContent = v;
           document.getElementById('prod-ota-version').textContent = v;
+          const otaLink = document.querySelector('.ota-link.prod');
+          if (otaLink) {
+            otaLink.href = 'firmware/prod/firmware-ota.bin' + cacheBust;
+          }
         }
       } catch (e) {}
     }
