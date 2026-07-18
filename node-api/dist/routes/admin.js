@@ -1,6 +1,10 @@
 import { z } from 'zod';
 const DeviceSettingsSchema = z.object({
     autoUpdate: z.boolean().optional(),
+    demoMode: z.boolean().optional(),
+});
+const AdminSettingsSchema = z.object({
+    autoProvisionNewDevices: z.boolean().optional(),
 });
 export default async function adminRoutes(app) {
     app.get('/devices', async (request) => {
@@ -28,6 +32,7 @@ export default async function adminRoutes(app) {
             battery: d.battery,
             firmwareVersion: d.firmwareVersion,
             autoUpdate: d.autoUpdate,
+            demoMode: d.demoMode,
             displayInstructionJson: d.displayInstructionJson,
         }));
     });
@@ -37,7 +42,18 @@ export default async function adminRoutes(app) {
         const d = await app.prisma.device.findUnique({ where: { id } });
         if (!d)
             return reply.code(404).send({ message: 'Not found' });
-        await app.prisma.device.update({ where: { id }, data: { status: 'revoked' } });
+        await app.prisma.device.update({
+            where: { id },
+            data: {
+                status: 'revoked',
+                displayInstructionJson: null,
+                displayHash: null,
+                currentSecretHash: null,
+                currentSecretExpiresAt: null,
+                previousSecretHash: null,
+                previousSecretExpiresAt: null,
+            }
+        });
         return { status: 'revoked' };
     });
     app.delete('/devices/:id', async (request, reply) => {
@@ -62,7 +78,17 @@ export default async function adminRoutes(app) {
         }
         await app.prisma.device.update({
             where: { id },
-            data: { pendingFactoryReset: true }
+            data: {
+                pendingFactoryReset: true,
+                status: 'awaiting_claim',
+                userId: null,
+                displayInstructionJson: null,
+                displayHash: null,
+                currentSecretHash: null,
+                currentSecretExpiresAt: null,
+                previousSecretHash: null,
+                previousSecretExpiresAt: null,
+            }
         });
         return { queued: true };
     });
@@ -78,6 +104,9 @@ export default async function adminRoutes(app) {
         if (body.autoUpdate !== undefined) {
             updateData.autoUpdate = body.autoUpdate;
         }
+        if (body.demoMode !== undefined) {
+            updateData.demoMode = body.demoMode;
+        }
         if (Object.keys(updateData).length === 0) {
             return reply.code(400).send({ message: 'No settings to update' });
         }
@@ -88,6 +117,7 @@ export default async function adminRoutes(app) {
         return {
             id: updated.id,
             autoUpdate: updated.autoUpdate,
+            demoMode: updated.demoMode,
         };
     });
     app.get('/device-claims/:code', async (request, reply) => {
@@ -97,6 +127,46 @@ export default async function adminRoutes(app) {
         if (!c)
             return reply.code(404).send({ message: 'Not found' });
         return { code: c.code, status: c.status, deviceId: c.deviceId, mac: c.mac, expiresAt: c.expiresAt };
+    });
+    // Admin settings (e.g. auto-provision new devices)
+    app.get('/settings', async (request) => {
+        await app.requireAdmin(request);
+        const setting = await app.prisma.setting.findUnique({ where: { key: 'autoProvisionNewDevices' } });
+        return { autoProvisionNewDevices: setting?.value === 'true' };
+    });
+    app.patch('/settings', async (request, reply) => {
+        await app.requireAdmin(request);
+        const body = AdminSettingsSchema.parse(request.body ?? {});
+        if (body.autoProvisionNewDevices !== undefined) {
+            await app.prisma.setting.upsert({
+                where: { key: 'autoProvisionNewDevices' },
+                create: { key: 'autoProvisionNewDevices', value: body.autoProvisionNewDevices ? 'true' : 'false' },
+                update: { value: body.autoProvisionNewDevices ? 'true' : 'false' },
+            });
+            // When enabling, auto-approve all currently pending devices
+            if (body.autoProvisionNewDevices) {
+                const pending = await app.prisma.pendingDevice.findMany({ where: { status: 'pending' } });
+                for (const pd of pending) {
+                    const exists = await app.prisma.device.findUnique({ where: { mac: pd.mac } });
+                    if (!exists) {
+                        await app.prisma.device.create({
+                            data: {
+                                mac: pd.mac,
+                                status: 'awaiting_claim',
+                                firmwareVersion: pd.firmwareVersion || 'unknown',
+                                ip: pd.ip,
+                            },
+                        });
+                    }
+                    await app.prisma.pendingDevice.update({
+                        where: { id: pd.id },
+                        data: { status: 'approved' },
+                    });
+                }
+            }
+        }
+        const setting = await app.prisma.setting.findUnique({ where: { key: 'autoProvisionNewDevices' } });
+        return { autoProvisionNewDevices: setting?.value === 'true' };
     });
     // List pending devices
     app.get('/pending-devices', async (request) => {

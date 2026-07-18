@@ -32,6 +32,8 @@ export default async function deviceRoutes(app) {
         const validPrev = okPrev && !!device.previousSecretExpiresAt && device.previousSecretExpiresAt > now;
         if (!validCurrent && !validPrev)
             throw app.httpErrors.unauthorized('Invalid or expired secret');
+        if (device.status === 'revoked')
+            throw app.httpErrors.forbidden('Device revoked');
         return device;
     });
     app.post('/devices/:id/heartbeat', async (request, reply) => {
@@ -65,6 +67,7 @@ export default async function deviceRoutes(app) {
         const baseResponse = {
             ok: true,
             autoUpdate: device.autoUpdate,
+            demoMode: device.demoMode,
             latestFirmwareVersion: config.latestFirmwareVersion,
             firmwareDownloadUrl: config.firmwareDownloadUrl,
         };
@@ -72,9 +75,29 @@ export default async function deviceRoutes(app) {
             return baseResponse;
         }
         if (device.displayInstructionJson && device.displayHash) {
+            const instruction = JSON.parse(device.displayInstructionJson);
+            // Clear one-time actions after sending (so they don't repeat on reboot)
+            if (instruction.beep || instruction.flashCount) {
+                const cleanedInstruction = { ...instruction };
+                delete cleanedInstruction.beep;
+                delete cleanedInstruction.flashCount;
+                // Update DB without changing hash (so device doesn't see it as "new")
+                await app.prisma.device.update({
+                    where: { id: device.id },
+                    data: { displayInstructionJson: JSON.stringify(cleanedInstruction) }
+                });
+            }
+            // If symbolImage is a custom logo (not predefined), inject bitmap data
+            const PREDEFINED_LOGOS = ['binance', 'dollar', 'euro', 'pound', 'yuan', 'ruble', 'bitcoin', 'eth', ''];
+            if (instruction.symbolImage && !PREDEFINED_LOGOS.includes(instruction.symbolImage)) {
+                const logo = await app.prisma.logo.findUnique({ where: { name: instruction.symbolImage } });
+                if (logo) {
+                    instruction.symbolBitmap = logo.bitmapBase64;
+                }
+            }
             return {
                 ...baseResponse,
-                instruction: JSON.parse(device.displayInstructionJson),
+                instruction,
                 displayHash: device.displayHash
             };
         }

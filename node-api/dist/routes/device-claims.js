@@ -1,4 +1,5 @@
 import { addSeconds } from 'date-fns';
+import { createHash } from 'crypto';
 import { config } from '../config.js';
 import { generateDeviceSecret, hashPassword, normalizeMac, verifyClaimHmac } from '../utils/crypto.js';
 // Helper to generate a 6-digit code with leading zeros preserved
@@ -33,39 +34,65 @@ export default async function deviceClaimsRoutes(app) {
         if (!verifyClaimHmac(mac, hmac, firmwareVersion, timestamp)) {
             return reply.code(401).send({ message: 'invalid hmac' });
         }
-        // Device must already exist and be in awaiting_claim state
-        const device = await app.prisma.device.findFirst({ where: { mac } });
+        // Device must already exist and be in awaiting_claim state (or we auto-provision if enabled)
+        let device = await app.prisma.device.findFirst({ where: { mac } });
         if (!device) {
-            // HMAC already validated above, so this is a legitimate device
-            // Log it as pending for admin approval
-            try {
-                const existing = await app.prisma.pendingDevice.findUnique({ where: { mac } });
-                if (existing) {
-                    await app.prisma.pendingDevice.update({
-                        where: { mac },
-                        data: {
-                            lastSeen: new Date(),
-                            attemptCount: { increment: 1 },
-                            ip: ip || existing.ip,
-                            firmwareVersion: firmwareVersion || existing.firmwareVersion,
-                            status: 'pending' // Reset status so device appears in admin panel again
-                        }
+            // Check if admin enabled auto-provision for new devices
+            const setting = await app.prisma.setting.findUnique({ where: { key: 'autoProvisionNewDevices' } });
+            const autoProvision = setting?.value === 'true';
+            if (autoProvision) {
+                device = await app.prisma.device.create({
+                    data: {
+                        mac,
+                        status: 'awaiting_claim',
+                        firmwareVersion: firmwareVersion || 'unknown',
+                        ip: ip ?? undefined,
+                    },
+                });
+                // Mark any existing PendingDevice as approved for audit trail
+                try {
+                    await app.prisma.pendingDevice.updateMany({
+                        where: { mac, status: 'pending' },
+                        data: { status: 'approved' },
                     });
                 }
-                else {
-                    await app.prisma.pendingDevice.create({
-                        data: { mac, firmwareVersion, ip }
-                    });
-                    // #endregion
+                catch (_) { }
+                // Fall through to issue claim code
+            }
+            else {
+                // HMAC already validated above, so this is a legitimate device — log as pending for admin approval
+                try {
+                    const existing = await app.prisma.pendingDevice.findUnique({ where: { mac } });
+                    if (existing) {
+                        await app.prisma.pendingDevice.update({
+                            where: { mac },
+                            data: {
+                                lastSeen: new Date(),
+                                attemptCount: { increment: 1 },
+                                ip: ip || existing.ip,
+                                firmwareVersion: firmwareVersion || existing.firmwareVersion,
+                                status: 'pending',
+                            },
+                        });
+                    }
+                    else {
+                        await app.prisma.pendingDevice.create({
+                            data: { mac, firmwareVersion, ip },
+                        });
+                    }
                 }
+                catch (err) {
+                    // Ignore errors when saving pending device
+                }
+                return reply.code(404).send({ message: 'device not found' });
             }
-            catch (err) {
-                // Ignore errors when saving pending device
-            }
-            return reply.code(404).send({ message: 'device not found' });
         }
         if (device.status !== 'awaiting_claim') {
-            return reply.code(409).send({ message: 'device not in awaiting_claim' });
+            // Device lost credentials (factory reset, revoke, etc.) — reset to awaiting_claim
+            await app.prisma.device.update({
+                where: { id: device.id },
+                data: { status: 'awaiting_claim', userId: null },
+            });
         }
         const code = generateCode();
         const expiresAt = addSeconds(new Date(), config.claimCodeTtlSeconds);
@@ -103,7 +130,37 @@ export default async function deviceClaimsRoutes(app) {
             return reply.code(409).send({ message: 'Already claimed' });
         // Bind user & mark claimed
         await app.prisma.deviceClaim.update({ where: { code }, data: { status: 'claimed', userId } });
-        await app.prisma.device.update({ where: { id: claim.deviceId }, data: { userId, status: 'active' } });
+        // Set welcome display instruction for first-time setup
+        const welcomeInstruction = {
+            version: 1,
+            symbol: '$',
+            symbolCarousel: true,
+            topLineShowDate: true,
+            topLineFontSize: 16,
+            topLineAlign: 'center',
+            mainText: 'Настройте\\nдисплей',
+            mainTextFontSize: 24,
+            mainTextAlign: 'center',
+            bottomLine: 'tigermeter.com',
+            bottomLineFontSize: 16,
+            bottomLineAlign: 'center',
+            ledColor: 'rainbow',
+            ledBrightness: 'low',
+            refreshInterval: 60,
+            timezoneOffset: 3,
+        };
+        const welcomeJson = JSON.stringify(welcomeInstruction);
+        const welcomeHash = createHash('sha256').update(welcomeJson).digest('hex').slice(0, 16);
+        await app.prisma.device.update({
+            where: { id: claim.deviceId },
+            data: {
+                userId,
+                status: 'active',
+                displayInstructionJson: welcomeJson,
+                displayHash: welcomeHash,
+                displayVersion: 1,
+            },
+        });
         return { deviceId: claim.deviceId, message: 'Attached' };
     });
     // Poll claim status (unauthenticated, device side)

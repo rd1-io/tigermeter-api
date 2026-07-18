@@ -3,7 +3,7 @@ import { instructionHash } from '../utils/crypto.js';
 // Enum definitions
 const FontSize = z.number().int().min(10).max(40); // 10-40px font size
 const TextAlign = z.enum(['left', 'center', 'right']);
-const LedColor = z.enum(['blue', 'green', 'red', 'yellow', 'purple']);
+const LedColor = z.enum(['blue', 'green', 'red', 'yellow', 'purple', 'rainbow']);
 const LedBrightness = z.enum(['off', 'low', 'mid', 'high']);
 // Display instruction schema
 const DisplayInstruction = z.object({
@@ -13,6 +13,10 @@ const DisplayInstruction = z.object({
     // Required fields
     symbol: z.string(),
     mainText: z.string(),
+    // Symbol (left bar)
+    symbolFontSize: FontSize.optional().default(24),
+    symbolImage: z.string().optional(), // Predefined logo name (e.g. "binance")
+    symbolCarousel: z.boolean().optional(), // Rotate through predefined symbols
     // Top line
     topLine: z.string().optional(),
     topLineFontSize: FontSize.optional().default(16),
@@ -84,7 +88,18 @@ export default async function portalRoutes(app) {
             return reply.code(404).send({ message: 'Not found' });
         if (d.userId !== userId)
             return reply.code(403).send({ message: 'Forbidden' });
-        await app.prisma.device.update({ where: { id }, data: { status: 'revoked' } });
+        await app.prisma.device.update({
+            where: { id },
+            data: {
+                status: 'revoked',
+                displayInstructionJson: null,
+                displayHash: null,
+                currentSecretHash: null,
+                currentSecretExpiresAt: null,
+                previousSecretHash: null,
+                previousSecretExpiresAt: null,
+            }
+        });
         return { status: 'revoked' };
     });
     app.put('/devices/:id/display', async (request, reply) => {
