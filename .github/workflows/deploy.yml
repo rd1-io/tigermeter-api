@@ -38,12 +38,12 @@ jobs:
 
       - name: Package API + web
         run: |
-          tar czf /tmp/tm-node-api.tar.gz \
+          tar czf tm-node-api.tar.gz \
             --exclude='node_modules' --exclude='dist' \
             --exclude='prisma/dev.db' --exclude='prisma/prisma' \
             -C node-api .
-          tar czf /tmp/tm-web.tar.gz -C web-emulator/dist .
-          ls -la /tmp/tm-*.tar.gz
+          tar czf tm-web.tar.gz -C web-emulator/dist .
+          ls -la tm-*.tar.gz
 
       - name: Upload to PVE host
         uses: appleboy/scp-action@v0.1.7
@@ -52,7 +52,7 @@ jobs:
           port: ${{ secrets.PVE_PORT }}
           username: ${{ secrets.PVE_USER }}
           key: ${{ secrets.PVE_SSH_KEY }}
-          source: /tmp/tm-node-api.tar.gz,/tmp/tm-web.tar.gz
+          source: tm-node-api.tar.gz,tm-web.tar.gz
           target: /tmp
           strip_components: 0
 
