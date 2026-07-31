@@ -1,5 +1,9 @@
 // Prisma schema for TigerMeter Node API
 // Device and DeviceClaim tables
+// v5: bitmap display frames, tenant model, no user JWT
+//
+// Migration: prisma migrate dev --name bitmap-display-frames-v5
+// Warning: destructive migration (drops old columns). No production data exists.
 
 generator client {
   provider = "prisma-client-js"
@@ -13,7 +17,10 @@ datasource db {
 model Device {
   id                      String   @id @default(uuid())
   mac                     String   @unique
-  userId                  String?
+  tenantId                String?  // opaque tenant id, from service token
+  externalUserId          String?  // customer's own user id (for bookkeeping)
+  name                    String?  // human-readable label
+
   status                  String   @default("awaiting_claim")
 
   // Provisioning
@@ -26,12 +33,10 @@ model Device {
   ip                      String?
   firmwareVersion         String?
 
-  // Display state
-  currentDisplayType      String?
+  // Display state (v5: bitmap frames, no text fields)
   displayHash             String?
   displayVersion          Int      @default(0)
-  displayInstructionJson  String?
-  ledBrightness           String?
+  displayFramesJson       String?  // JSON array of DisplayFrame objects
 
   // Secrets
   currentSecretHash       String?
@@ -53,30 +58,24 @@ model Device {
   updatedAt               DateTime @updatedAt
 
   claims                  DeviceClaim[]
+
+  @@index([tenantId])
 }
 
 model DeviceClaim {
-  code           String   @id
-  deviceId       String
-  device         Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
-  mac            String
+  code            String   @id
+  deviceId        String
+  device          Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  mac             String
   firmwareVersion String?
-  ip             String?
-  status         String   @default("pending")
-  userId         String?
-  secretIssued   Boolean  @default(false)
-  expiresAt      DateTime
-  createdAt      DateTime @default(now())
+  ip              String?
+  status          String   @default("pending")
+  secretIssued    Boolean  @default(false)
+  expiresAt       DateTime
+  createdAt       DateTime @default(now())
 
   @@index([status])
   @@index([mac])
-}
-
-model Logo {
-  id            String   @id @default(uuid())
-  name          String   @unique
-  bitmapBase64  String
-  createdAt     DateTime @default(now())
 }
 
 model PendingDevice {

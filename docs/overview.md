@@ -8,29 +8,25 @@ This folder provides focused, task‑oriented guidance that complements the main
 - overview.md — (this) Structure & navigation
 
 ## Source of Truth Hierarchy
-1. `swagger.ru.yaml` — Path/method contracts & schemas
+1. `swagger.ru.yaml` — Path/method contracts & schemas (v5, `/api/v5/` prefix)
 2. Runtime behavior (code in `node-api/src/routes`) — Execution semantics
 3. `/docs/*.md` — Explanatory, non-authoritative narrative
-4. Postman collection — Practical invocation examples
 
-## Quick Start Sequence (Device + Portal)
-1. Device: `POST /api/device-claims` → get claim `code`
-2. User (Portal): `POST /api/device-claims/{code}/attach` (JWT)
-3. Device polls: `GET /api/device-claims/{code}/poll` until 200 → obtain `deviceSecret`
-4. Device heartbeats: `POST /api/devices/{id}/heartbeat` with Bearer secret
-5. Portal pushes instructions: `PUT /api/devices/{id}/display`
-6. Device receives new instruction on next heartbeat (hash mismatch)
+## Quick Start Sequence (Device + Tenant)
+1. Device: `POST /api/v5/device-claims` → get claim `code` (HMAC)
+2. Tenant backend: `POST /api/v5/device-claims/{code}/attach` (service token, scope=manage) with `{externalUserId}`
+3. Device polls: `GET /api/v5/device-claims/{code}/poll` until 200 → obtain `deviceSecret`
+4. Device heartbeats: `POST /api/v5/devices/{id}/heartbeat` with Bearer secret
+5. Tenant pushes bitmap frames: `PUT /api/v5/devices/{id}/display`
+6. Device receives new frames on next heartbeat (hash mismatch)
 
 See `claim-flow.md` for deeper timing, state machine, and one‑time secret issuance logic.
 
-## Hash Generation (Summary)
-- Canonicalization: top‑level key sort only (current implementation)
+## Display Hash Generation (Summary)
+- Canonicalization: recursive sorted-keys JSON (`displayPayloadHash` in `src/utils/crypto.ts`)
 - Hash format: `sha256:<hex>`
-- Mismatch handling: server recomputes; mismatch → HTTP 400 with `{message, expected}`
-
-If hash algorithm changes (e.g., deep sort), update:
-- `instructionHash` in `src/utils/crypto.ts`
-- Postman pre‑request scripts for display instruction requests.
+- Hash covers ALL fields including `beep`/`flashCount` (no strip logic)
+- Device sends its known `displayHash` on heartbeat; server returns frames only on mismatch
 
 ## Stability Guarantees
 | Aspect | Guarantee | Notes |
@@ -38,8 +34,9 @@ If hash algorithm changes (e.g., deep sort), update:
 | Claim code TTL | ~5 minutes | Config: `claimCodeTtlSeconds` |
 | Device secret TTL | 90 days | Configurable; refresh overlap window ~5 min |
 | One‑time secret reveal | Enforced | Subsequent poll → 404 |
-| Display hash immutability | Stable per instruction | New instruction → new hash |
-| Heartbeat idempotence | Yes | Same `displayHash` → `{ ok: true }` |
+| Display hash immutability | Stable per frame set | New PUT → new hash |
+| Heartbeat idempotence | Yes | Same `displayHash` → `{ ok: true }` (no frames) |
+| Attach rate limit | 5/min/IP | Anti-brute-force on 6-digit code |
 
 ## Security Roadmap (Upcoming)
 - Rate limit metrics & alerting
@@ -47,11 +44,11 @@ If hash algorithm changes (e.g., deep sort), update:
 - Replay guard for HMAC timestamp window (mac + minute bucket dedupe)
 - Secret refresh audit ledger
 
-HMAC on claim issuance is now enforced by default (can be disabled via `DISABLE_CLAIM_HMAC=1` for development convenience).
+HMAC on claim issuance is enforced by default.
 
 ## Related Files
-- `prisma/schema.prisma` — Persistent model (`Device`, `DeviceClaim`)
-- `src/routes/device-claims.ts` — Claim endpoints (lazy secret generation)
-- `src/routes/devices.ts` — Device‑authenticated endpoints
-- `src/routes/portal.ts` — User (JWT) endpoints
-- `src/routes/admin.ts` — Admin endpoints & filters
+- `prisma/schema.prisma` — Persistent model (`Device`, `DeviceClaim`, `PendingDevice`, `Setting`)
+- `src/routes/device-claims.ts` — Claim endpoints (lazy secret generation, tenant attach)
+- `src/routes/devices.ts` — Device‑authenticated endpoints (heartbeat, display hash/full, refresh)
+- `src/routes/portal.ts` — Tenant control plane (scope=manage): devices CRUD, PUT display
+- `src/routes/admin.ts` — Ops plane (scope=ops): fleet, pending, settings, factory-reset

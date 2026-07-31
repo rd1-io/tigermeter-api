@@ -1,8 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual, createHmac } from 'crypto';
-import * as jose from 'jose';
 import bcrypt from 'bcryptjs';
 import { config } from '../config.js';
-export const canonicalJson = (obj) => JSON.stringify(obj, Object.keys(obj).sort(), 0).replace(/\s+/g, '');
 // Recursively sort all keys in an object for deterministic JSON
 const sortObjectKeys = (obj) => {
     if (obj === null || typeof obj !== 'object')
@@ -15,7 +13,9 @@ const sortObjectKeys = (obj) => {
     }
     return sorted;
 };
-export const instructionHash = (obj) => {
+// displayPayloadHash: recursive sorted-keys JSON → sha256
+// Hash covers ALL fields including beep/flashCount (no strip logic).
+export const displayPayloadHash = (obj) => {
     // Create a copy without the hash field to avoid circular dependency
     const copy = { ...obj };
     delete copy.hash;
@@ -30,15 +30,6 @@ export const verifyPassword = async (plaintext, hashed) => bcrypt.compare(plaint
 export const generateDeviceSecret = () => {
     const raw = randomBytes(config.deviceSecretLength / 2).toString('hex');
     return `${config.deviceSecretPrefix}${raw}`;
-};
-export const signJwt = async (payload) => {
-    const key = new TextEncoder().encode(config.jwtSecret);
-    return new jose.SignJWT(payload).setProtectedHeader({ alg: 'HS256' }).sign(key);
-};
-export const verifyJwt = async (token) => {
-    const key = new TextEncoder().encode(config.jwtSecret);
-    const { payload } = await jose.jwtVerify(token, key);
-    return payload;
 };
 export const normalizeMac = (raw) => {
     if (!raw)

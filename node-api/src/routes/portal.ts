@@ -1,143 +1,159 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { instructionHash } from '../utils/crypto.js';
+import { displayPayloadHash } from '../utils/crypto.js';
 
-// Enum definitions
-const FontSize = z.number().int().min(10).max(40); // 10-40px font size
-const TextAlign = z.enum(['left', 'center', 'right']);
-const LedColor = z.enum(['blue', 'green', 'red', 'yellow', 'purple', 'rainbow']);
-const LedBrightness = z.enum(['off', 'low', 'mid', 'high']);
+// Per-frame LED/beep enums
+const LedColor = z.enum(['green', 'red', 'blue', 'yellow', 'cyan', 'magenta', 'white', 'rainbow', 'off']);
+const LedBrightness = z.enum(['low', 'mid', 'high', 'off']);
 
-// Display instruction schema
-const DisplayInstruction = z.object({
-  // Metadata
-  version: z.number().int(),
-  hash: z.string(),
-  
-  // Required fields
-  symbol: z.string(),
-  mainText: z.string(),
-  
-  // Symbol (left bar)
-  symbolFontSize: FontSize.optional().default(24),
-  symbolImage: z.string().optional(),        // Predefined logo name (e.g. "binance")
-  symbolCarousel: z.boolean().optional(),    // Rotate through predefined symbols
-  
-  // Top line
-  topLine: z.string().optional(),
-  topLineFontSize: FontSize.optional().default(16),
-  topLineAlign: TextAlign.optional(),
-  topLineShowDate: z.boolean().optional(),
-  
-  // Main text
-  mainTextFontSize: FontSize.optional().default(32),
-  mainTextAlign: TextAlign.optional(),
-  
-  // Bottom line
-  bottomLine: z.string().optional(),
-  bottomLineFontSize: FontSize.optional().default(16),
-  bottomLineAlign: TextAlign.optional(),
-  
-  // LED control
-  ledColor: LedColor.optional(),
-  ledBrightness: LedBrightness.optional(),
-  
-  // One-time actions
+// Single display frame
+const DisplayFrame = z.strictObject({
+  bitmap: z.string().refine(
+    (val) => {
+      try {
+        const decoded = Buffer.from(val, 'base64');
+        return decoded.length === 8064;
+      } catch { return false; }
+    },
+    { message: 'bitmap must be valid base64 of exactly 8064 bytes (384x168 1-bit packed)' }
+  ),
+  ledColor: LedColor,
+  ledBrightness: LedBrightness,
+  durationSec: z.number().int().min(1).max(86400),
   beep: z.boolean().optional(),
-  flashCount: z.number().int().min(0).optional(),
-  
-  // Device behavior
-  refreshInterval: z.number().int().min(5).optional(),
-  timezoneOffset: z.number().min(-12).max(14).optional(), // Hours from UTC
-  
-  // Future extensions
-  extensions: z.record(z.any()).optional(),
+  flashCount: z.number().int().min(0).max(10).optional(),
+});
+
+// Full display payload
+const DisplayFramesPayload = z.strictObject({
+  frames: z.array(DisplayFrame).min(1).max(8),
+  refreshInterval: z.number().int().min(10).max(3600),
+});
+
+// PATCH device body
+const DevicePatchSchema = z.object({
+  name: z.string().max(128).optional(),
+  autoUpdate: z.boolean().optional(),
+  demoMode: z.boolean().optional(),
 });
 
 export default async function portalRoutes(app: FastifyInstance) {
+  // --- LIST devices (tenant-scoped) ---
   app.get('/devices', async (request) => {
-    const user = await app.requireUser(request);
-    const userId = user.sub ?? user.userId ?? 'user';
-    const devices = await app.prisma.device.findMany({ where: { userId } });
-    return devices.map((d: any) => ({ id: d.id, name: null, status: d.status, lastSeen: d.lastSeen }));
-  });
-
-  app.get('/devices/:id', async (request, reply) => {
-    const user = await app.requireUser(request);
-    const userId = user.sub ?? user.userId ?? 'user';
-    const { id } = request.params as any;
-    const d = await app.prisma.device.findUnique({ where: { id } });
-    if (!d) return reply.code(404).send({ message: 'Not found' });
-    if (d.userId !== userId) return reply.code(403).send({ message: 'Forbidden' });
-    
-    // Parse display instruction if available
-    let displayInstruction = null;
-    if (d.displayInstructionJson) {
-      try {
-        displayInstruction = JSON.parse(d.displayInstructionJson);
-      } catch {
-        // ignore parse errors
-      }
-    }
-    
-    return {
+    const auth = await app.requireScope(request, 'manage');
+    const devices = await app.prisma.device.findMany({ where: { tenantId: auth.tenantId } });
+    return devices.map((d: any) => ({
       id: d.id,
+      mac: d.mac,
+      name: d.name,
+      tenantId: d.tenantId,
+      externalUserId: d.externalUserId,
       status: d.status,
       lastSeen: d.lastSeen,
-      mac: d.mac,
-      userId: d.userId,
       battery: d.battery,
-      secretExpiresAt: d.currentSecretExpiresAt,
+      rssi: d.rssi,
+      firmwareVersion: d.firmwareVersion,
+      autoUpdate: d.autoUpdate,
+      demoMode: d.demoMode,
       displayHash: d.displayHash,
-      displayInstruction,
+      displayVersion: d.displayVersion,
+      createdAt: d.createdAt,
+    }));
+  });
+
+  // --- GET single device (tenant-scoped) ---
+  app.get('/devices/:id', async (request, reply) => {
+    const auth = await app.requireScope(request, 'manage');
+    const { id } = request.params as any;
+    const d = await app.prisma.device.findUnique({ where: { id } });
+    if (!d || d.tenantId !== auth.tenantId) return reply.code(404).send({ message: 'Not found' });
+
+    return {
+      id: d.id,
+      mac: d.mac,
+      name: d.name,
+      tenantId: d.tenantId,
+      externalUserId: d.externalUserId,
+      status: d.status,
+      lastSeen: d.lastSeen,
+      battery: d.battery,
+      rssi: d.rssi,
+      firmwareVersion: d.firmwareVersion,
+      autoUpdate: d.autoUpdate,
+      demoMode: d.demoMode,
+      displayHash: d.displayHash,
+      displayVersion: d.displayVersion,
+      createdAt: d.createdAt,
     };
   });
 
-  app.post('/devices/:id/revoke', async (request, reply) => {
-    const user = await app.requireUser(request);
-    const userId = user.sub ?? user.userId ?? 'user';
+  // --- PATCH device settings (tenant-scoped) ---
+  app.patch('/devices/:id', async (request, reply) => {
+    const auth = await app.requireScope(request, 'manage');
     const { id } = request.params as any;
     const d = await app.prisma.device.findUnique({ where: { id } });
-    if (!d) return reply.code(404).send({ message: 'Not found' });
-    if (d.userId !== userId) return reply.code(403).send({ message: 'Forbidden' });
+    if (!d || d.tenantId !== auth.tenantId) return reply.code(404).send({ message: 'Not found' });
+
+    const body = DevicePatchSchema.parse(request.body ?? {});
+    const updateData: any = {};
+    if (body.name !== undefined) updateData.name = body.name;
+    if (body.autoUpdate !== undefined) updateData.autoUpdate = body.autoUpdate;
+    if (body.demoMode !== undefined) updateData.demoMode = body.demoMode;
+    if (Object.keys(updateData).length === 0) {
+      return reply.code(400).send({ message: 'No fields to update' });
+    }
+
+    const updated = await app.prisma.device.update({ where: { id }, data: updateData });
+    return {
+      id: updated.id,
+      name: updated.name,
+      autoUpdate: updated.autoUpdate,
+      demoMode: updated.demoMode,
+    };
+  });
+
+  // --- PUT display frames (tenant-scoped) ---
+  app.put('/devices/:id/display', async (request, reply) => {
+    const auth = await app.requireScope(request, 'manage');
+    const { id } = request.params as any;
+    const d = await app.prisma.device.findUnique({ where: { id } });
+    if (!d || d.tenantId !== auth.tenantId) return reply.code(404).send({ message: 'Not found' });
+
+    const payload = DisplayFramesPayload.parse(request.body);
+    const displayHash = displayPayloadHash(payload);
+
+    await app.prisma.device.update({
+      where: { id },
+      data: {
+        displayFramesJson: JSON.stringify(payload),
+        displayHash,
+        displayVersion: (d.displayVersion ?? 0) + 1,
+      },
+    });
+
+    return { displayHash, displayVersion: (d.displayVersion ?? 0) + 1 };
+  });
+
+  // --- REVOKE device (tenant-scoped) ---
+  app.post('/devices/:id/revoke', async (request, reply) => {
+    const auth = await app.requireScope(request, 'manage');
+    const { id } = request.params as any;
+    const d = await app.prisma.device.findUnique({ where: { id } });
+    if (!d || d.tenantId !== auth.tenantId) return reply.code(404).send({ message: 'Not found' });
+
     await app.prisma.device.update({
       where: { id },
       data: {
         status: 'revoked',
-        displayInstructionJson: null,
+        displayFramesJson: null,
         displayHash: null,
         currentSecretHash: null,
         currentSecretExpiresAt: null,
         previousSecretHash: null,
         previousSecretExpiresAt: null,
-      }
-    });
-    return { status: 'revoked' };
-  });
-
-  app.put('/devices/:id/display', async (request, reply) => {
-    const user = await app.requireUser(request);
-    const userId = user.sub ?? user.userId ?? 'user';
-    const { id } = request.params as any;
-    const d = await app.prisma.device.findUnique({ where: { id } });
-    if (!d) return reply.code(404).send({ message: 'Not found' });
-    if (d.userId !== userId) return reply.code(403).send({ message: 'Forbidden' });
-
-    const instruction = DisplayInstruction.parse(request.body);
-    const computed = instructionHash(instruction);
-    if (instruction.hash !== computed) {
-      return reply.code(400).send({ message: 'Hash mismatch', expected: computed });
-    }
-
-    await app.prisma.device.update({
-      where: { id },
-      data: {
-        displayInstructionJson: JSON.stringify(instruction),
-        displayHash: computed,
-        displayVersion: (d.displayVersion ?? 0) + 1,
       },
     });
 
-    return { displayHash: computed };
+    return { status: 'revoked' };
   });
 }

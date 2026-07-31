@@ -1,45 +1,64 @@
-# Claim Flow & Secret Issuance
+# Claim Flow & Secret Issuance (v5)
 
-This document expands the provisioning pipeline for a TigerMeter device.
+This document describes the v5 provisioning pipeline — service tokens for attach, no welcome instruction.
 
-## Sequence (High Resolution)
-> NOTE: Начиная с текущей версии, устройство должно быть заранее создано в БД со статусом `awaiting_claim` (pre‑provision) — запрос `POST /api/device-claims` больше НЕ создаёт запись автоматически. Непредусмотренный / неизвестный MAC теперь возвращает 404, а устройство в другом статусе (например `active` или `revoked`) — 409.
-1. Device requests claim code: `POST /api/device-claims` (rate‑limited: 20/min/IP, HMAC required unless disabled)
-2. User attaches code: `POST /api/device-claims/{code}/attach` (JWT user)
-3. Device polls: `GET /api/device-claims/{code}/poll` (60/min/IP) until:
-   - 202 pending
-   - 200 secret (first claimed access ⇒ one‑time secret generation + return)
+## Sequence
+
+1. Device powers on, no credentials → shows captive portal for WiFi setup
+2. Device calls `POST /api/v5/device-claims` with HMAC (rate‑limited: 20/min/IP)
+3. Server returns `{ code, expiresAt }` (6-digit code, 5-minute TTL)
+4. Device displays the code on e-ink
+5. End user enters the code in the customer's app
+6. Customer backend calls:
+   ```
+   POST /api/v5/device-claims/{code}/attach
+   Authorization: Bearer <service-token>  (scope=manage)
+   Body: { "externalUserId": "their-internal-id" }
+   ```
+7. Server validates, binds device:
+   - `tenantId` = from service token
+   - `externalUserId` = from body
+   - `status` = "active"
+   - No welcome instruction (display stays empty until first PUT /display)
+8. Device polls `GET /api/v5/device-claims/{code}/poll` (60/min/IP):
+   - 202 pending (still waiting)
+   - 200 secret (first claimed access → one‑time secret generation)
    - 404 after secret already issued
-   - 410 expired (code TTL elapsed)
-4. Device transitions to authenticated operation (heartbeats & instruction fetch)
+   - 410 expired
+9. Device stores secret, starts heartbeats, shows "waiting for content" until first frames
+
+## Attach (v5 change)
+
+Attach is performed by **service token** (scope=manage), replacing the old user-JWT flow.
+
+Request:
+```
+POST /api/v5/device-claims/{code}/attach
+Authorization: Bearer sk-tigermeter-...
+Content-Type: application/json
+{"externalUserId": "user-12345"}
+```
+
+Rate limit: **5 attempts per minute per IP** (strict anti-brute-force on 6-digit code).
 
 ## State Transitions
+
 | State | Trigger | Next | Notes |
 | ----- | ------- | ---- | ----- |
-| awaiting_claim (Device.status) | Device created implicitly | awaiting_claim | Pre‑attach
-| pending (Claim.status) | Issue | pending | TTL countdown
-| claimed | Attach | claimed | Still no secret
-| active (Device.status) | First successful poll (secret issued) | active | Secret hashed & stored
-| revoked | Revoke | awaiting_claim (after device reclaims) | Secret invalidated
+| awaiting_claim (Device.status) | Device created (pre-provision or auto-provision) | awaiting_claim | Pre-attach |
+| pending (Claim.status) | Issue | pending | TTL countdown |
+| claimed | Attach (service token) | claimed | tenantId + externalUserId set, no secret yet |
+| active (Device.status) | First successful poll (secret issued) | active | Secret hashed & stored |
 
 ## One‑Time Secret Generation
-- Happens inside poll handler when `status === claimed` and `secretIssued === false`.
-- Device secret: prefix `ds_` + hex random bytes (length from config).
-- Response body (200): `{ deviceId, deviceSecret, displayHash, expiresAt }`.
-- Persistence:
-  - `Device.currentSecretHash` (bcrypt) + `currentSecretExpiresAt`
-  - `DeviceClaim.secretIssued = true`
-- Any subsequent poll of same code → 404 (prevents replay / leakage).
 
-## Polling Guidance
-| Scenario | HTTP | Body | Backoff Suggestion |
-| -------- | ---- | ---- | ------------------ |
-| Not yet attached | 202 | `{"status":"pending"}` | 2s → 3s → 5s linear/backoff |
-| Claimed & first poll | 200 | Secret payload | Stop polling |
-| Already issued | 404 | `{"message":"Not found"}` | Stop & use secret |
-| Expired | 410 | `{"message":"Expired"}` | Restart claim cycle |
+- Happens inside poll handler when `status === claimed` and `secretIssued === false`.
+- Device secret: prefix `ds_` + hex random bytes.
+- Response body (200): `{ deviceId, deviceSecret, displayHash, expiresAt }`.
+- Subsequent poll of same code → 404 (prevents replay).
 
 ## Error Examples
+
 ```jsonc
 // Expired code
 { "message": "Expired code" }
@@ -47,24 +66,10 @@ This document expands the provisioning pipeline for a TigerMeter device.
 { "message": "Invalid code" }
 // Already claimed on attach
 { "message": "Already claimed" }
-// Secret already issued poll
-{ "message": "Not found" }
+// Invalid service token
+{ "message": "Missing service token" }
+// Wrong scope on attach (manage required)
+{ "message": "Forbidden" }
+// Rate limited
+{ "message": "Too Many Requests" }
 ```
-
-## Security Considerations
-- HMAC (enforced): Device must compute `hmac = HMAC_SHA256(hmacKey, mac:ts)` lowercase MAC and Unix seconds ts; server rejects if drift exceeds `claimHmacDriftSeconds` (default 120) or signature mismatch.
-- Disable Flag: Set `DISABLE_CLAIM_HMAC=1` (development only) to auto-create devices without HMAC.
-- Brute force mitigation: Rate limits + potential future captcha/attestation for mass claim attempts.
-- Replay attack after poll: Eliminated via one‑time secret issuance and subsequent 404.
-
-## Refresh vs Claim
-| Feature | Claim Secret | Refresh Secret |
-| ------- | ------------ | -------------- |
-| Initiator | Device (poll) | Device (POST refresh) |
-| Overlap | Not applicable | Yes (old secret valid short overlap) |
-| Plaintext Leak | Only once | Only once (refresh response) |
-
-## Future Enhancements
-- Signed ephemeral challenge instead of static HMAC
-- Optional user approval for refresh events
-- Device public key registration for encrypted instruction delivery

@@ -1,9 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual, createHmac } from 'crypto';
-import * as jose from 'jose';
 import bcrypt from 'bcryptjs';
 import { config } from '../config.js';
-
-export const canonicalJson = (obj: unknown): string => JSON.stringify(obj, Object.keys(obj as object).sort(), 0).replace(/\s+/g, '');
 
 // Recursively sort all keys in an object for deterministic JSON
 const sortObjectKeys = (obj: unknown): unknown => {
@@ -16,7 +13,9 @@ const sortObjectKeys = (obj: unknown): unknown => {
   return sorted;
 };
 
-export const instructionHash = (obj: unknown): string => {
+// displayPayloadHash: recursive sorted-keys JSON → sha256
+// Hash covers ALL fields including beep/flashCount (no strip logic).
+export const displayPayloadHash = (obj: unknown): string => {
   // Create a copy without the hash field to avoid circular dependency
   const copy = { ...(obj as Record<string, unknown>) };
   delete copy.hash;
@@ -33,17 +32,6 @@ export const verifyPassword = async (plaintext: string, hashed: string): Promise
 export const generateDeviceSecret = (): string => {
   const raw = randomBytes(config.deviceSecretLength / 2).toString('hex');
   return `${config.deviceSecretPrefix}${raw}`;
-};
-
-export const signJwt = async (payload: jose.JWTPayload): Promise<string> => {
-  const key = new TextEncoder().encode(config.jwtSecret);
-  return new jose.SignJWT(payload).setProtectedHeader({ alg: 'HS256' }).sign(key);
-};
-
-export const verifyJwt = async (token: string): Promise<jose.JWTPayload> => {
-  const key = new TextEncoder().encode(config.jwtSecret);
-  const { payload } = await jose.jwtVerify(token, key);
-  return payload;
 };
 
 export const normalizeMac = (raw: string): string | null => {
@@ -64,11 +52,3 @@ export const verifyClaimHmac = (mac: string, hmac: string, firmwareVersion?: str
   const expected = createClaimHmac(mac, firmwareVersion, ts);
   return timingSafeEqual(Buffer.from(hmac, 'hex'), Buffer.from(expected, 'hex'));
 };
-
-
-
-
-
-
-
-

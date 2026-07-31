@@ -6,13 +6,17 @@ const DeviceSettingsSchema = z.object({
 const AdminSettingsSchema = z.object({
     autoProvisionNewDevices: z.boolean().optional(),
 });
+const ApproveBody = z.object({
+    tenantId: z.string().min(1).max(64),
+});
 export default async function adminRoutes(app) {
+    // --- LIST all devices (ops only) ---
     app.get('/devices', async (request) => {
-        await app.requireAdmin(request);
-        const { userId, status, lastSeenBefore, lastSeenAfter } = request.query;
+        await app.requireScope(request, 'ops');
+        const { tenantId, status, lastSeenBefore, lastSeenAfter } = request.query;
         let where = {};
-        if (userId)
-            where.userId = userId;
+        if (tenantId)
+            where.tenantId = tenantId;
         if (status)
             where.status = status;
         if (lastSeenBefore)
@@ -23,21 +27,36 @@ export default async function adminRoutes(app) {
         return devices.map((d) => ({
             id: d.id,
             mac: d.mac,
-            userId: d.userId,
+            name: d.name,
+            tenantId: d.tenantId,
+            externalUserId: d.externalUserId,
             status: d.status,
             lastSeen: d.lastSeen,
-            deviceSecretHash: d.currentSecretHash,
-            createdAt: d.createdAt,
-            displayHash: d.displayHash,
             battery: d.battery,
+            rssi: d.rssi,
             firmwareVersion: d.firmwareVersion,
             autoUpdate: d.autoUpdate,
             demoMode: d.demoMode,
-            displayInstructionJson: d.displayInstructionJson,
+            displayHash: d.displayHash,
+            displayVersion: d.displayVersion,
+            deviceSecretHash: d.currentSecretHash,
+            createdAt: d.createdAt,
         }));
     });
+    // --- GET device display frames (ops only, for debugging) ---
+    app.get('/devices/:id/display', async (request, reply) => {
+        await app.requireScope(request, 'ops');
+        const { id } = request.params;
+        const d = await app.prisma.device.findUnique({ where: { id } });
+        if (!d)
+            return reply.code(404).send({ message: 'Not found' });
+        if (!d.displayFramesJson)
+            return reply.code(404).send({ message: 'No frames' });
+        return JSON.parse(d.displayFramesJson);
+    });
+    // --- REVOKE ---
     app.post('/devices/:id/revoke', async (request, reply) => {
-        await app.requireAdmin(request);
+        await app.requireScope(request, 'ops');
         const { id } = request.params;
         const d = await app.prisma.device.findUnique({ where: { id } });
         if (!d)
@@ -46,29 +65,30 @@ export default async function adminRoutes(app) {
             where: { id },
             data: {
                 status: 'revoked',
-                displayInstructionJson: null,
+                displayFramesJson: null,
                 displayHash: null,
                 currentSecretHash: null,
                 currentSecretExpiresAt: null,
                 previousSecretHash: null,
                 previousSecretExpiresAt: null,
-            }
+            },
         });
         return { status: 'revoked' };
     });
+    // --- DELETE ---
     app.delete('/devices/:id', async (request, reply) => {
-        await app.requireAdmin(request);
+        await app.requireScope(request, 'ops');
         const { id } = request.params;
         const d = await app.prisma.device.findUnique({ where: { id } });
         if (!d)
             return reply.code(404).send({ message: 'Not found' });
-        // Delete related claims first
         await app.prisma.deviceClaim.deleteMany({ where: { deviceId: id } });
         await app.prisma.device.delete({ where: { id } });
         return { deleted: true };
     });
+    // --- FACTORY RESET ---
     app.post('/devices/:id/factory-reset', async (request, reply) => {
-        await app.requireAdmin(request);
+        await app.requireScope(request, 'ops');
         const { id } = request.params;
         const d = await app.prisma.device.findUnique({ where: { id } });
         if (!d)
@@ -81,61 +101,45 @@ export default async function adminRoutes(app) {
             data: {
                 pendingFactoryReset: true,
                 status: 'awaiting_claim',
-                userId: null,
-                displayInstructionJson: null,
+                tenantId: null,
+                externalUserId: null,
+                displayFramesJson: null,
                 displayHash: null,
                 currentSecretHash: null,
                 currentSecretExpiresAt: null,
                 previousSecretHash: null,
                 previousSecretExpiresAt: null,
-            }
+            },
         });
         return { queued: true };
     });
-    // Update device settings (autoUpdate, etc.)
+    // --- UPDATE device settings ---
     app.patch('/devices/:id/settings', async (request, reply) => {
-        await app.requireAdmin(request);
+        await app.requireScope(request, 'ops');
         const { id } = request.params;
         const body = DeviceSettingsSchema.parse(request.body ?? {});
         const d = await app.prisma.device.findUnique({ where: { id } });
         if (!d)
             return reply.code(404).send({ message: 'Not found' });
         const updateData = {};
-        if (body.autoUpdate !== undefined) {
+        if (body.autoUpdate !== undefined)
             updateData.autoUpdate = body.autoUpdate;
-        }
-        if (body.demoMode !== undefined) {
+        if (body.demoMode !== undefined)
             updateData.demoMode = body.demoMode;
-        }
         if (Object.keys(updateData).length === 0) {
             return reply.code(400).send({ message: 'No settings to update' });
         }
-        const updated = await app.prisma.device.update({
-            where: { id },
-            data: updateData,
-        });
-        return {
-            id: updated.id,
-            autoUpdate: updated.autoUpdate,
-            demoMode: updated.demoMode,
-        };
+        const updated = await app.prisma.device.update({ where: { id }, data: updateData });
+        return { id: updated.id, autoUpdate: updated.autoUpdate, demoMode: updated.demoMode };
     });
-    app.get('/device-claims/:code', async (request, reply) => {
-        await app.requireAdmin(request);
-        const { code } = request.params;
-        const c = await app.prisma.deviceClaim.findUnique({ where: { code } });
-        if (!c)
-            return reply.code(404).send({ message: 'Not found' });
-        return { code: c.code, status: c.status, deviceId: c.deviceId, mac: c.mac, expiresAt: c.expiresAt };
-    });
-    // Admin settings (e.g. auto-provision new devices)
+    // --- ADMIN SETTINGS ---
     app.get('/settings', async (request) => {
-        await app.requireAdmin(request);
+        await app.requireScope(request, 'ops');
         const setting = await app.prisma.setting.findUnique({ where: { key: 'autoProvisionNewDevices' } });
         return { autoProvisionNewDevices: setting?.value === 'true' };
     });
     app.patch('/settings', async (request, reply) => {
-        await app.requireAdmin(request);
+        await app.requireScope(request, 'ops');
         const body = AdminSettingsSchema.parse(request.body ?? {});
         if (body.autoProvisionNewDevices !== undefined) {
             await app.prisma.setting.upsert({
@@ -168,48 +172,48 @@ export default async function adminRoutes(app) {
         const setting = await app.prisma.setting.findUnique({ where: { key: 'autoProvisionNewDevices' } });
         return { autoProvisionNewDevices: setting?.value === 'true' };
     });
-    // List pending devices
+    // --- PENDING DEVICES ---
     app.get('/pending-devices', async (request) => {
-        await app.requireAdmin(request);
+        await app.requireScope(request, 'ops');
         const devices = await app.prisma.pendingDevice.findMany({
             where: { status: 'pending' },
-            orderBy: { lastSeen: 'desc' }
+            orderBy: { lastSeen: 'desc' },
         });
         return devices;
     });
-    // Approve pending device (creates Device record)
+    // --- APPROVE pending device (with tenant assignment) ---
     app.post('/pending-devices/:id/approve', async (request, reply) => {
-        await app.requireAdmin(request);
+        await app.requireScope(request, 'ops');
         const { id } = request.params;
+        const body = ApproveBody.parse(request.body ?? {});
         const pending = await app.prisma.pendingDevice.findUnique({ where: { id } });
         if (!pending)
             return reply.code(404).send({ message: 'Not found' });
         if (pending.status !== 'pending') {
             return reply.code(409).send({ message: 'Already processed' });
         }
-        // Create actual Device
         const device = await app.prisma.device.create({
             data: {
                 mac: pending.mac,
+                tenantId: body.tenantId,
                 status: 'awaiting_claim',
                 firmwareVersion: pending.firmwareVersion || 'unknown',
-                ip: pending.ip
-            }
+                ip: pending.ip,
+            },
         });
-        // Mark as approved
         await app.prisma.pendingDevice.update({
             where: { id },
-            data: { status: 'approved' }
+            data: { status: 'approved' },
         });
-        return { device };
+        return { device: { id: device.id, mac: device.mac, tenantId: device.tenantId } };
     });
-    // Reject pending device
+    // --- REJECT pending device ---
     app.post('/pending-devices/:id/reject', async (request, reply) => {
-        await app.requireAdmin(request);
+        await app.requireScope(request, 'ops');
         const { id } = request.params;
         await app.prisma.pendingDevice.update({
             where: { id },
-            data: { status: 'rejected' }
+            data: { status: 'rejected' },
         });
         return { status: 'rejected' };
     });

@@ -1,0 +1,124 @@
+name: Deploy to prod
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'node-api/**'
+      - 'web-emulator/**'
+      - 'firmware/**'
+      - 'Makefile'
+      - 'deploy/**'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: prod
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web-emulator/package-lock.json
+
+      - name: Build web admin
+        run: |
+          cd web-emulator
+          npm ci
+          VITE_API_BASE_URL=https://api-tiger.rd1.io npm run build
+
+      - name: Package API + web
+        run: |
+          tar czf /tmp/tm-node-api.tar.gz \
+            --exclude='node_modules' --exclude='dist' \
+            --exclude='prisma/dev.db' --exclude='prisma/prisma' \
+            -C node-api .
+          tar czf /tmp/tm-web.tar.gz -C web-emulator/dist .
+          ls -la /tmp/tm-*.tar.gz
+
+      - name: Upload to PVE host
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.PVE_HOST }}
+          port: ${{ secrets.PVE_PORT }}
+          username: ${{ secrets.PVE_USER }}
+          key: ${{ secrets.PVE_SSH_KEY }}
+          source: /tmp/tm-node-api.tar.gz,/tmp/tm-web.tar.gz
+          target: /tmp
+          strip_components: 0
+
+      - name: Push into CT 104 and extract
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.PVE_HOST }}
+          port: ${{ secrets.PVE_PORT }}
+          username: ${{ secrets.PVE_USER }}
+          key: ${{ secrets.PVE_SSH_KEY }}
+          script: |
+            pct push 104 /tmp/tm-node-api.tar.gz /tmp/tm-node-api.tar.gz
+            pct push 104 /tmp/tm-web.tar.gz /tmp/tm-web.tar.gz
+            pct exec 104 -- sh -c '
+              set -e
+              cd /opt/gateway/tigermeter
+              rm -rf node-api.new emulator.new
+              mkdir -p node-api.new emulator.new
+              tar xzf /tmp/tm-node-api.tar.gz -C node-api.new
+              rm -rf node-api && mv node-api.new node-api
+              tar xzf /tmp/tm-web.tar.gz -C emulator.new
+              rm -rf emulator && mv emulator.new emulator
+              rm -f /tmp/tm-node-api.tar.gz /tmp/tm-web.tar.gz
+            '
+
+      - name: Rebuild and restart stack
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.PVE_HOST }}
+          port: ${{ secrets.PVE_PORT }}
+          username: ${{ secrets.PVE_USER }}
+          key: ${{ secrets.PVE_SSH_KEY }}
+          script: |
+            pct exec 104 -- sh -c '
+              set -e
+              cd /opt/gateway
+              docker compose build tigermeter-api
+              docker compose up -d --force-recreate tigermeter-api caddy
+            '
+
+      - name: Health check
+        run: |
+          sleep 5
+          curl -fsS https://api-tiger.rd1.io/healthz && echo ""
+          curl -fsS -o /dev/null -w "admin UI: %{http_code}\n" https://app-tiger.rd1.io/
+
+      - name: Read firmware version
+        id: fwver
+        run: |
+          if [ -f firmware/version_prod.txt ]; then
+            echo "FW_VERSION=$(tr -d '[:space:]' < firmware/version_prod.txt)" >> "$GITHUB_ENV"
+          fi
+      - name: Set firmware version on server
+        if: env.FW_VERSION != ''
+        env:
+          FW_VERSION: ${{ env.FW_VERSION }}
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.PVE_HOST }}
+          port: ${{ secrets.PVE_PORT }}
+          username: ${{ secrets.PVE_USER }}
+          key: ${{ secrets.PVE_SSH_KEY }}
+          envs: FW_VERSION
+          script: |
+            pct exec 104 -- sh -c "
+              cd /opt/gateway/tigermeter && \
+              sed -i 's/^LATEST_FIRMWARE_VERSION=.*/LATEST_FIRMWARE_VERSION='$FW_VERSION'/' .env && \
+              cd /opt/gateway && docker compose restart tigermeter-api"
+            echo "LATEST_FIRMWARE_VERSION set to $FW_VERSION"

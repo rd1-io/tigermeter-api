@@ -15,7 +15,7 @@ const HeartbeatSchema = z.object({
 });
 
 export default async function deviceRoutes(app: FastifyInstance) {
-  // Simple device-secret authorization
+  // Simple device-secret authorization (unchanged)
   app.decorate('requireDevice', async (id: string, authorization?: string) => {
     if (!authorization?.startsWith('Bearer ')) throw (app as any).httpErrors.unauthorized('Missing device secret');
     const token = authorization.slice('Bearer '.length);
@@ -36,6 +36,7 @@ export default async function deviceRoutes(app: FastifyInstance) {
     return device;
   });
 
+  // --- HEARTBEAT ---
   app.post('/devices/:id/heartbeat', async (request, reply) => {
     const { id } = request.params as any;
     const device = await app.requireDevice(id, request.headers['authorization']);
@@ -43,7 +44,6 @@ export default async function deviceRoutes(app: FastifyInstance) {
 
     // Check for pending factory reset
     if (device.pendingFactoryReset) {
-      // Clear the flag and return reset command
       await app.prisma.device.update({
         where: { id: device.id },
         data: {
@@ -54,7 +54,7 @@ export default async function deviceRoutes(app: FastifyInstance) {
       return { factoryReset: true };
     }
 
-    // update telemetry
+    // Update telemetry
     await app.prisma.device.update({
       where: { id: device.id },
       data: {
@@ -75,60 +75,49 @@ export default async function deviceRoutes(app: FastifyInstance) {
       firmwareDownloadUrl: config.firmwareDownloadUrl,
     };
 
-    if (body.displayHash && device.displayHash && body.displayHash === device.displayHash) {
+    // Hash match — no new content (empty frames means no content yet, NOT a match)
+    if (device.displayHash && body.displayHash && body.displayHash === device.displayHash) {
       return baseResponse;
     }
 
-    if (device.displayInstructionJson && device.displayHash) {
-      const instruction = JSON.parse(device.displayInstructionJson);
-      
-      // Clear one-time actions after sending (so they don't repeat on reboot)
-      if (instruction.beep || instruction.flashCount) {
-        const cleanedInstruction = { ...instruction };
-        delete cleanedInstruction.beep;
-        delete cleanedInstruction.flashCount;
-        
-        // Update DB without changing hash (so device doesn't see it as "new")
-        await app.prisma.device.update({
-          where: { id: device.id },
-          data: { displayInstructionJson: JSON.stringify(cleanedInstruction) }
-        });
-      }
-      
-      // If symbolImage is a custom logo (not predefined), inject bitmap data
-      const PREDEFINED_LOGOS = ['binance', 'dollar', 'euro', 'pound', 'yuan', 'ruble', 'bitcoin', 'eth', ''];
-      if (instruction.symbolImage && !PREDEFINED_LOGOS.includes(instruction.symbolImage)) {
-        const logo = await app.prisma.logo.findUnique({ where: { name: instruction.symbolImage } });
-        if (logo) {
-          instruction.symbolBitmap = logo.bitmapBase64;
-        }
-      }
-
-      return { 
+    // Hash mismatch or missing — serve frames
+    if (device.displayFramesJson && device.displayHash) {
+      const payload = JSON.parse(device.displayFramesJson);
+      return {
         ...baseResponse,
-        instruction, 
-        displayHash: device.displayHash 
+        frames: payload.frames,
+        refreshInterval: payload.refreshInterval,
+        displayHash: device.displayHash,
       };
     }
 
-    return baseResponse;
+    // No frames yet — empty state
+    return {
+      ...baseResponse,
+      frames: [],
+      refreshInterval: 60,
+      displayHash: null,
+    };
   });
 
+  // --- GET display hash ---
   app.get('/devices/:id/display/hash', async (request, reply) => {
     const { id } = request.params as any;
     const device = await app.requireDevice(id, request.headers['authorization']);
     return { hash: device.displayHash ?? '' };
   });
 
+  // --- GET display full (unchanged, useful for debug) ---
   app.get('/devices/:id/display/full', async (request, reply) => {
     const { id } = request.params as any;
     const device = await app.requireDevice(id, request.headers['authorization']);
     const ifHash = (request.query as any)?.ifHash as string | undefined;
-    if (!device.displayInstructionJson) return reply.code(404).send({ message: 'Not found' });
+    if (!device.displayFramesJson) return reply.code(404).send({ message: 'Not found' });
     if (ifHash && device.displayHash && ifHash === device.displayHash) return reply.code(304).send();
-    return JSON.parse(device.displayInstructionJson);
+    return JSON.parse(device.displayFramesJson);
   });
 
+  // --- REFRESH secret ---
   app.post('/devices/:id/secret/refresh', async (request, reply) => {
     const { id } = request.params as any;
     const device = await app.requireDevice(id, request.headers['authorization']);
@@ -156,11 +145,3 @@ declare module 'fastify' {
     requireDevice(id: string, authorization?: string): Promise<any>;
   }
 }
-
-
-
-
-
-
-
-

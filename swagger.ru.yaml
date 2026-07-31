@@ -1,32 +1,49 @@
 openapi: 3.0.0
 info:
-  title: TigerMeter Cloud API
-  description: API для привязки (claim) устройств и управления универсальными инструкциями отображения с настраиваемыми текстовыми полями (symbol, topLine, mainText, bottomLine), размерами шрифтов, выравниванием и LED-управлением.
-  version: 2.0.0
+  title: TigerMeter Cloud API v5
+  description: |
+    API v5 — bitmap display microservice. Pure frame-delivery gateway:
+    the customer backend pushes pre-rendered 1-bit frames (384x168), devices
+    pull them on heartbeat and rotate locally by `durationSec`.
+
+    All routes are prefixed with `/api/v5/`. Old unversioned routes (v2, text
+    instructions, user JWT) were removed.
+
+    Auth:
+    - Service tokens (`Authorization: Bearer sk-...`) — configured via
+      `SERVICE_TOKENS` env, scopes: `ops` (full fleet admin) / `manage`
+      (tenant-scoped control plane).
+    - Device secret (`Authorization: Bearer ds_...`) — device heartbeat.
+    - No user JWTs.
+  version: 5.0.0
   x-language: ru
 servers:
-  - url: https://api.tigermeter.cloud
+  - url: https://api-tiger.rd1.io/api/v5
     description: Prod
-  - url: http://localhost:3000
+  - url: http://localhost:3001/api/v5
     description: Local
 security:
-  - bearerAuth: []
+  - serviceAuth: []
 tags:
   - name: Portal
-    description: Аутентифицированные эндпоинты портала (JWT пользователя)
+    description: Контрольная плоскость (service token, scope=manage)
   - name: Device
-    description: Эндпоинты устройства (секрет устройства или публичные)
+    description: Эндпоинты устройства (device secret или HMAC)
   - name: Admin
-    description: Административные эндпоинты (роль admin)
+    description: Ops-плоскость (service token, scope=ops)
 paths:
-  /api/device-claims:
+  # ================= DEVICE CLAIMS =================
+  /device-claims:
     post:
       tags: [Device]
-      summary: Запросить код привязки
-      description: Устройство запрашивает 6-значный код привязки (действует 5 минут). Защищено HMAC на стороне устройства.
+      summary: Запросить код привязки (устройство)
+      description: |
+        Устройство запрашивает 6-значный код привязки (TTL 5 минут).
+        Защищено HMAC (mac + firmwareVersion + timestamp).
       operationId: issueClaimCode
       security: []
       requestBody:
+        required: true
         content:
           application/json:
             schema:
@@ -38,80 +55,63 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ClaimCodeIssueResponse'
-        '404': { description: Устройство не найдено или не предварительно зарегистрировано (awaiting_claim) }
-        '409': { description: Устройство не в статусе awaiting_claim }
-        '500': { description: Внутренняя ошибка сервера }
-  /api/devices/provision:
-    post:
-      tags: [Device]
-      summary: Предварительная регистрация устройства (dev)
-      description: Публичный dev-эндпоинт для эмулятора. Создаёт устройство в статусе awaiting_claim. В проде должен быть защищён.
-      operationId: provisionDevice
-      security: []
-      requestBody:
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [mac, firmwareVersion]
-              properties:
-                mac: { type: string, example: 'AA:BB:CC:DD:EE:FF' }
-                firmwareVersion: { type: string, example: 'dev-firmware' }
-      responses:
-        '201': { description: Устройство создано }
-        '400': { description: Неверный формат MAC / отсутствие полей }
-        '409': { description: Уже существует }
-        '500': { description: Внутренняя ошибка сервера }
-  /api/device-claims/{code}/attach:
+        '400': { description: 'mac required / invalid mac format / hmac and timestamp required' }
+        '401': { description: invalid hmac }
+        '404': { description: device not found (auto-provision off) }
+        '429': { description: Too Many Requests (20/min/IP) }
+  /device-claims/{code}/attach:
     post:
       tags: [Portal]
-      summary: Привязать код устройства
+      summary: Привязать код к тенанту (service token, scope=manage)
       description: |
-        Портал связывает ожидающий код привязки с текущим пользователем.
-        Секрет устройства НА ЭТОМ ЭТАПЕ НЕ ГЕНЕРИРУЕТСЯ И НЕ ВОЗВРАЩАЕТСЯ.
-        Он будет сгенерирован лениво при первом успешном опросе `/api/device-claims/{code}/poll` самим устройством.
+        Бэкенд интегратора привязывает ожидающий код к своему тенанту.
+        Устанавливает `Device.tenantId` (из токена), `externalUserId` (из тела),
+        `status=active`. Секрет НЕ генерируется здесь — он выдаётся лениво
+        при первом poll устройства. Welcome-инструкция не создаётся.
+        Rate limit: 5 попыток/мин/IP (анти-брутфорс 6-значного кода).
       operationId: attachClaimCode
-      security:
-        - bearerAuth: []
       parameters:
         - name: code
           in: path
           required: true
-          schema:
-            type: string
+          schema: { type: string }
           description: 6-значный код привязки
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AttachRequest'
       responses:
         '200':
-          description: Код успешно привязан
+          description: Код привязан
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/DeviceAttachResponse'
-        '400': { description: Недействительный или просроченный код }
-        '401': { description: Не авторизован }
-        '403': { description: Запрещено }
-        '409': { description: Уже привязан }
-        '500': { description: Внутренняя ошибка сервера }
-  /api/device-claims/{code}/poll:
+                $ref: '#/components/schemas/AttachResponse'
+        '400': { description: 'Invalid code / Expired code' }
+        '401': { description: Missing or invalid service token }
+        '403': { description: 'Scope manage required' }
+        '409': { description: Already claimed }
+        '429': { description: Too Many Requests (5/min/IP) }
+  /device-claims/{code}/poll:
     get:
       tags: [Device]
-      summary: Опрос статуса кода привязки
+      summary: Опрос статуса кода привязки (устройство)
       description: |
-        Устройство опрашивает код чтобы получить секрет после привязки пользователем.
-        При первом переходе статуса в claimed секрет ГЕНЕРИРУЕТСЯ (ленивая генерация) и возвращается в ответе (одноразовая выдача).
-        После успешной выдачи повторные опросы должны возвращать 404 для предотвращения повторного раскрытия секрета.
-        Эндпоинт подлежит rate limiting.
+        Устройство опрашивает код чтобы получить секрет после attach.
+        При первом переходе в claimed секрет ГЕНЕРИРУЕТСЯ (лениво) и
+        возвращается один раз. Повторные poll → 404.
       operationId: pollClaimCode
       security: []
       parameters:
         - name: code
           in: path
           required: true
-          schema:
-            type: string
+          schema: { type: string }
       responses:
         '200':
-          description: Привязано; секрет возвращён (одноразовый)
+          description: Привязано; секрет выдан (одноразово)
           content:
             application/json:
               schema:
@@ -123,19 +123,17 @@ paths:
               schema:
                 type: object
                 properties:
-                  status:
-                    type: string
-                    enum: [pending]
-        '404': { description: Не найдено }
+                  status: { type: string, enum: [pending] }
+        '404': { description: Не найдено / секрет уже выдан }
         '410': { description: Истёк срок действия }
-        '500': { description: Внутренняя ошибка сервера }
-  /api/devices:
+        '429': { description: Too Many Requests (60/min/IP) }
+  # ================= PORTAL (scope=manage) =================
+  /devices:
     get:
       tags: [Portal]
-      summary: Список моих устройств
-      operationId: listMyDevices
-      security:
-        - bearerAuth: []
+      summary: Список устройств тенанта
+      description: Только устройства с `tenantId` равным тенанту токена. Без `displayFramesJson`.
+      operationId: listTenantDevices
       responses:
         '200':
           description: Устройства
@@ -144,110 +142,120 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/DeviceSummary'
-        '401': { description: Не авторизован }
-  /api/devices/{id}:
+                  $ref: '#/components/schemas/Device'
+        '401': { description: Missing or invalid service token }
+  /devices/{id}:
     get:
       tags: [Portal]
-      summary: Детали устройства
+      summary: Детали устройства (tenant-scoped)
       operationId: getDevice
-      security:
-        - bearerAuth: []
       parameters:
         - name: id
           in: path
           required: true
-          schema:
-            type: string
+          schema: { type: string }
       responses:
         '200':
           description: Подробности устройства
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/DeviceDetail'
-        '401': { description: Не авторизован }
-        '403': { description: Запрещено }
-        '404': { description: Не найдено }
-  /api/devices/{id}/revoke:
-    post:
+                $ref: '#/components/schemas/Device'
+        '404': { description: Не найдено или чужой тенант }
+    patch:
       tags: [Portal]
-      summary: Отвязать (revoke) устройство
-      operationId: revokeDevice
-      security:
-        - bearerAuth: []
+      summary: Обновить устройство (name/autoUpdate/demoMode)
+      operationId: patchDevice
       parameters:
         - name: id
           in: path
           required: true
-          schema:
-            type: string
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DevicePatch'
       responses:
         '200':
-          description: Устройство отвязано
+          description: Обновлено
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DevicePatchResponse'
+        '400': { description: No fields to update / validation error }
+        '404': { description: Не найдено или чужой тенант }
+  /devices/{id}/display:
+    put:
+      tags: [Portal]
+      summary: Установить bitmap-кадры
+      description: |
+        Заменяет текущий набор кадров. Валидация strict (неизвестные ключи → 400).
+        Считает `displayHash = sha256(canonical(frames + refreshInterval))`,
+        персистит `displayFramesJson`, инкрементит `displayVersion`.
+      operationId: setDisplayFrames
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DisplayFramesPayload'
+      responses:
+        '200':
+          description: Принято
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DisplayPutResponse'
+        '400': { description: 'Ошибка валидации (frames/bitmap/durationSec/refreshInterval/unknown key)' }
+        '404': { description: Не найдено или чужой тенант }
+  /devices/{id}/revoke:
+    post:
+      tags: [Portal]
+      summary: Отозвать устройство (tenant-scoped)
+      operationId: revokeDevice
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Устройство отозвано
           content:
             application/json:
               schema:
                 type: object
                 properties:
                   status: { type: string, example: revoked }
-        '401': { description: Не авторизован }
-        '403': { description: Запрещено }
-        '404': { description: Не найдено }
-  /api/devices/{id}/display:
-    put:
-      tags: [Portal]
-      summary: Установить инструкцию отображения
-      operationId: setDisplayInstruction
-      description: Заменяет текущую инструкцию отображения. Устройство должно переключиться при изменении хеша.
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/DisplayInstruction'
-            examples:
-              example:
-                $ref: '#/components/examples/InstructionExample'
-      responses:
-        '200':
-          description: Принято; возвращает текущий хеш
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  displayHash: { type: string }
-        '400': { description: Неверный запрос }
-        '401': { description: Не авторизован }
-        '403': { description: Запрещено }
-        '404': { description: Не найдено }
-  /api/devices/{id}/heartbeat:
+        '404': { description: Не найдено или чужой тенант }
+  # ================= DEVICE (device secret) =================
+  /devices/{id}/heartbeat:
     post:
       tags: [Device]
       summary: Хартбит
-      description: Возвращает ok или новую инструкцию отображения если она изменилась.
+      description: |
+        Возвращает кадры только если `displayHash` изменился или отсутствует.
+        Hash совпал → базовая структура без frames. `displayFramesJson IS NULL` →
+        `frames:[]` (устройство показывает "waiting for content").
       operationId: heartbeat
-      security:
-        - deviceSecretAuth: []
       parameters:
         - name: id
           in: path
           required: true
-          schema:
-            type: string
+          schema: { type: string }
       requestBody:
+        required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/DeviceHeartbeat'
+              $ref: '#/components/schemas/HeartbeatRequest'
       responses:
         '200':
           description: Результат хартбита
@@ -255,23 +263,21 @@ paths:
             application/json:
               schema:
                 oneOf:
-                  - $ref: '#/components/schemas/HeartbeatOk'
-                  - $ref: '#/components/schemas/HeartbeatWithInstruction'
-        '401': { description: Недействительный секрет }
-        '404': { description: Не найдено }
-  /api/devices/{id}/display/hash:
+                  - $ref: '#/components/schemas/HeartbeatBase'
+                  - $ref: '#/components/schemas/HeartbeatWithFrames'
+        '401': { description: Invalid or expired secret }
+        '403': { description: Device revoked }
+        '404': { description: Device not found }
+  /devices/{id}/display/hash:
     get:
       tags: [Device]
-      summary: Получить текущий хеш инструкции
+      summary: Получить текущий displayHash
       operationId: getDisplayHash
-      security:
-        - deviceSecretAuth: []
       parameters:
         - name: id
           in: path
           required: true
-          schema:
-            type: string
+          schema: { type: string }
       responses:
         '200':
           description: Текущий хеш
@@ -280,93 +286,88 @@ paths:
               schema:
                 type: object
                 properties:
-                  hash: { type: string, description: Хеш текущей инструкции }
-        '401': { description: Недействительный секрет }
-        '404': { description: Не найдено }
-  /api/devices/{id}/display/full:
+                  hash: { type: string, description: Хеш текущих кадров (может быть пустым) }
+        '401': { description: Invalid or expired secret }
+        '404': { description: Device not found }
+  /devices/{id}/display/full:
     get:
       tags: [Device]
-      summary: Получить полную инструкцию отображения
-      operationId: getDisplayInstruction
-      security:
-        - deviceSecretAuth: []
+      summary: Получить полные кадры (debug)
+      operationId: getDisplayFull
       parameters:
         - name: id
           in: path
           required: true
-          schema:
-            type: string
+          schema: { type: string }
         - name: ifHash
           in: query
-          schema:
-            type: string
-          description: Если совпадает с текущим хешем - 304
+          schema: { type: string }
+          description: Если совпадает с текущим хешем → 304
       responses:
         '200':
-          description: Инструкция отображения
+          description: Кадры
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/DisplayInstruction'
-              examples:
-                instruction:
-                  $ref: '#/components/examples/InstructionExample'
+                $ref: '#/components/schemas/DisplayFramesPayload'
         '304': { description: Не изменилось }
-        '401': { description: Недействительный секрет }
-        '404': { description: Не найдено }
-  /api/devices/{id}/secret/refresh:
+        '404': { description: Не найдено / нет кадров }
+  /devices/{id}/secret/refresh:
     post:
       tags: [Device]
       summary: Обновить секрет устройства
       operationId: refreshSecret
-      security:
-        - deviceSecretAuth: []
       parameters:
         - name: id
           in: path
           required: true
-          schema:
-            type: string
+          schema: { type: string }
       responses:
         '200':
-          description: Новый секрет выдан
+          description: Новый секрет (старый действует ещё ~5 мин)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ClaimPollClaimed'
-        '401': { description: Недействительный секрет }
-        '404': { description: Не найдено }
-  /api/admin/devices:
+        '401': { description: Invalid or expired secret }
+        '404': { description: Device not found }
+  # ================= ADMIN (scope=ops) =================
+  /admin/me:
     get:
       tags: [Admin]
-      summary: "Админ: список устройств"
+      summary: Информация о service token
+      operationId: me
+      responses:
+        '200':
+          description: Тенант и скоуп токена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeResponse'
+        '401': { description: Missing or invalid service token }
+  /admin/devices:
+    get:
+      tags: [Admin]
+      summary: Все устройства (все тенанты)
+      description: |
+        Оps-список. Включает `tenantId`, `externalUserId` и `displayFramesJson`
+        (ops может смотреть кадры для отладки).
       operationId: adminListDevices
-      security:
-        - bearerAuth: []
       parameters:
-        - name: userId
+        - name: tenantId
           in: query
-          schema:
-            type: string
-          description: Фильтр по пользователю
+          schema: { type: string }
+          description: Фильтр по тенанту
         - name: status
           in: query
-          schema:
-            type: string
-            enum: [awaiting_claim, active, revoked]
+          schema: { type: string, enum: [awaiting_claim, active, revoked] }
           description: Фильтр по статусу
         - name: lastSeenBefore
           in: query
-          schema:
-            type: string
-            format: date-time
-          description: Последний онлайн до
+          schema: { type: string, format: date-time }
         - name: lastSeenAfter
           in: query
-          schema:
-            type: string
-            format: date-time
-          description: Последний онлайн после
+          schema: { type: string, format: date-time }
       responses:
         '200':
           description: Список устройств
@@ -376,219 +377,427 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/DeviceAdmin'
-        '401': { description: Не авторизован }
-        '403': { description: Запрещено }
-  /api/admin/devices/{id}/revoke:
-    post:
+        '401': { description: Missing or invalid service token }
+        '403': { description: Scope ops required }
+  /admin/devices/{id}/display:
+    get:
       tags: [Admin]
-      summary: "Админ: принудительно отвязать устройство"
-      operationId: adminRevoke
-      security:
-        - bearerAuth: []
+      summary: Кадры устройства (ops debug)
+      operationId: adminGetDeviceDisplay
       parameters:
         - name: id
           in: path
           required: true
-          schema:
-            type: string
-      responses:
-        '200': { description: Отвязано }
-        '401': { description: Не авторизован }
-        '403': { description: Запрещено }
-        '404': { description: Не найдено }
-  /api/admin/device-claims/{code}:
-    get:
-      tags: [Admin]
-      summary: "Админ: проверить код привязки"
-      operationId: adminGetClaim
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: code
-          in: path
-          required: true
-          schema:
-            type: string
+          schema: { type: string }
       responses:
         '200':
-          description: Информация о коде
+          description: Кадры
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ClaimCodeStatus'
+                $ref: '#/components/schemas/DisplayFramesPayload'
+        '404': { description: Не найдено или нет кадров }
+  /admin/devices/{id}/revoke:
+    post:
+      tags: [Admin]
+      summary: Принудительный отзыв устройства
+      operationId: adminRevoke
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Отозвано
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: revoked }
+        '404': { description: Не найдено }
+  /admin/devices/{id}:
+    delete:
+      tags: [Admin]
+      summary: Удалить устройство
+      operationId: adminDeleteDevice
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Удалено
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted: { type: boolean, example: true }
+        '404': { description: Не найдено }
+  /admin/devices/{id}/factory-reset:
+    post:
+      tags: [Admin]
+      summary: Очередь factory reset
+      description: Устройство сбросится при следующем хартбите.
+      operationId: adminFactoryReset
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Сброс поставлен в очередь
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  queued: { type: boolean, example: true }
+        '400': { description: Device must be active to queue factory reset }
+        '404': { description: Не найдено }
+  /admin/devices/{id}/settings:
+    patch:
+      tags: [Admin]
+      summary: Обновить настройки устройства (autoUpdate/demoMode)
+      operationId: adminPatchDeviceSettings
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceSettings'
+      responses:
+        '200':
+          description: Обновлено
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceSettingsResponse'
+        '404': { description: Не найдено }
+  /admin/settings:
+    get:
+      tags: [Admin]
+      summary: Глобальные настройки
+      operationId: adminGetSettings
+      responses:
+        '200':
+          description: Настройки
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminSettings'
+    patch:
+      tags: [Admin]
+      summary: Обновить глобальные настройки (auto-provision)
+      operationId: adminPatchSettings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminSettingsPatch'
+      responses:
+        '200':
+          description: Обновлено
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminSettings'
+  /admin/pending-devices:
+    get:
+      tags: [Admin]
+      summary: Список ожидающих одобрения устройств
+      operationId: adminListPending
+      responses:
+        '200':
+          description: Pending-устройства
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PendingDevice'
+  /admin/pending-devices/{id}/approve:
+    post:
+      tags: [Admin]
+      summary: Одобрить pending-устройство
+      description: |
+        Создаёт Device с `status=awaiting_claim` и присваивает тенант из тела
+        (`{"tenantId":"tigermeter"}`). Привязка происходит позже через attach.
+      operationId: adminApprovePending
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApprovePendingRequest'
+      responses:
+        '200':
+          description: Одобрено
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  device:
+                    type: object
+                    properties:
+                      id: { type: string }
+                      mac: { type: string }
+                      tenantId: { type: string }
+        '404': { description: Не найдено }
+        '409': { description: Already processed }
+  /admin/pending-devices/{id}/reject:
+    post:
+      tags: [Admin]
+      summary: Отклонить pending-устройство
+      operationId: adminRejectPending
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Отклонено
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: rejected }
         '404': { description: Не найдено }
 components:
   securitySchemes:
-    bearerAuth:
+    serviceAuth:
       type: http
       scheme: bearer
-      bearerFormat: JWT
-    deviceSecretAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: Device Secret
-      description: Секретный токен устройства
+      bearerFormat: Service Token
+      description: Service token (sk-...) из SERVICE_TOKENS env. Скоупы: ops / manage.
   schemas:
-    DisplayInstruction:
+    # ---------- Display frames ----------
+    DisplayFrame:
       type: object
-      required: [version, hash, symbol, mainText]
-      description: Инструкция отображения (плоская структура).
+      required: [bitmap, ledColor, ledBrightness, durationSec]
       properties:
-        version:
-          type: integer
-          description: Монотонно растущая версия инструкции для устройства
-        hash:
+        bitmap:
           type: string
-          description: Стабильный хеш JSON инструкции
-        symbol: { type: string, description: Короткий идентификатор (тикер) }
-        mainText: { type: string, description: Основной текст по центру }
-        topLine: { type: string, description: Текст верхней строки }
-        topLineFontSize: { type: integer, minimum: 10, maximum: 40, default: 16, description: 'Размер шрифта верхней строки (10-40px, пресеты: 10, 12, 16, 20, 24, 28, 32, 40)' }
-        topLineAlign: { type: string, enum: [left, center, right], default: center, description: Выравнивание верхней строки }
-        topLineShowDate: { type: boolean, default: false, description: Показывать текущее время вместо topLine }
-        mainTextFontSize: { type: integer, minimum: 10, maximum: 40, default: 32, description: 'Размер шрифта основного текста (10-40px, пресеты: 10, 12, 16, 20, 24, 28, 32, 40)' }
-        mainTextAlign: { type: string, enum: [left, center, right], default: center, description: Выравнивание основного текста }
-        bottomLine: { type: string, description: Текст нижней строки }
-        bottomLineFontSize: { type: integer, minimum: 10, maximum: 40, default: 16, description: 'Размер шрифта нижней строки (10-40px, пресеты: 10, 12, 16, 20, 24, 28, 32, 40)' }
-        bottomLineAlign: { type: string, enum: [left, center, right], default: center, description: Выравнивание нижней строки }
-        ledColor: { type: string, enum: [blue, green, red, yellow, purple], default: green, description: Цвет светодиода }
-        ledBrightness: { type: string, enum: [off, low, mid, high], default: mid, description: Яркость LED }
-        beep: { type: boolean, default: false, description: Однократный звуковой сигнал (one-time) }
-        flashCount: { type: integer, minimum: 0, default: 0, description: Количество вспышек LED (one-time) }
-        refreshInterval: { type: integer, minimum: 5, default: 30, description: Интервал опроса API в секундах }
-        extensions:
-          type: object
-          additionalProperties: true
-          description: Зарезервировано для будущих расширений
-    DeviceSummary:
+          description: 'base64, декодируется ровно в 8064 байта (384x168 1-bit packed, row-major, MSB-first, 1=white)'
+          example: 'AAAA...'
+        ledColor:
+          type: string
+          enum: [green, red, blue, yellow, cyan, magenta, white, rainbow, off]
+          default: green
+        ledBrightness:
+          type: string
+          enum: [low, mid, high, off]
+          default: mid
+        durationSec:
+          type: integer
+          minimum: 1
+          maximum: 86400
+          description: Время показа кадра (сек), ротация локальная
+        beep:
+          type: boolean
+          default: false
+          description: One-shot звуковой сигнал при первой загрузке
+        flashCount:
+          type: integer
+          minimum: 0
+          maximum: 10
+          default: 0
+          description: One-shot количество вспышек LED при первой загрузке
+    DisplayFramesPayload:
       type: object
-      description: Краткая информация об устройстве.
+      required: [frames, refreshInterval]
+      additionalProperties: false
       properties:
-        id: { type: string, description: Идентификатор устройства }
-        name: { type: string, description: Пользовательское имя }
-        status: { type: string, enum: [awaiting_claim, active, revoked], description: Статус устройства }
-        lastSeen: { type: string, format: date-time, nullable: true, description: Последний хартбит }
-    DeviceDetail:
-      allOf:
-        - $ref: '#/components/schemas/DeviceSummary'
-        - type: object
-          description: Детализированная информация устройства.
-          properties:
-            mac: { type: string, description: MAC адрес }
-            userId: { type: string, nullable: true, description: Пользователь-владелец }
-            battery: { type: integer, nullable: true, description: Заряд батареи (проценты) }
-            led: { type: string, enum: [off, low, middle, high], nullable: true, description: Текущая яркость LED }
-            secretExpiresAt: { type: string, format: date-time, nullable: true, description: Истечение текущего секрета }
-            displayHash: { type: string, description: Текущий хеш инструкции }
+        frames:
+          type: array
+          minItems: 1
+          maxItems: 8
+          items:
+            $ref: '#/components/schemas/DisplayFrame'
+        refreshInterval:
+          type: integer
+          minimum: 10
+          maximum: 3600
+          description: Интервал heartbeat в секундах
+    DisplayPutResponse:
+      type: object
+      properties:
+        displayHash:
+          type: string
+          description: 'sha256:<hex> канонического JSON (frames + refreshInterval)'
+        displayVersion:
+          type: integer
+          description: Монотонно растущая версия кадров
+    # ---------- Devices ----------
+    Device:
+      type: object
+      description: Устройство (control-plane, без displayFramesJson)
+      properties:
+        id: { type: string }
+        mac: { type: string }
+        name: { type: string, nullable: true, description: Человекочитаемая метка }
+        tenantId: { type: string, nullable: true, description: Из service token при attach }
+        externalUserId: { type: string, nullable: true, description: Opaque id клиента }
+        status: { type: string, enum: [awaiting_claim, active, revoked] }
+        lastSeen: { type: string, format: date-time, nullable: true }
+        battery: { type: integer, nullable: true }
+        rssi: { type: integer, nullable: true }
+        ip: { type: string, nullable: true }
+        firmwareVersion: { type: string, nullable: true }
+        autoUpdate: { type: boolean }
+        demoMode: { type: boolean }
+        displayHash: { type: string, nullable: true }
+        displayVersion: { type: integer }
+        createdAt: { type: string, format: date-time }
     DeviceAdmin:
       allOf:
-        - $ref: '#/components/schemas/DeviceDetail'
+        - $ref: '#/components/schemas/Device'
         - type: object
-          description: Административные поля.
+          description: Ops-поля (только scope=ops)
           properties:
-            deviceSecretHash: { type: string, description: Хеш секрета }
-            createdAt: { type: string, format: date-time, description: Когда создано }
-    DeviceHeartbeat:
+            deviceSecretHash: { type: string, nullable: true, description: Хеш текущего секрета }
+            displayFramesJson: { type: string, nullable: true, description: 'JSON DisplayFramesPayload (для отладки)' }
+    DevicePatch:
       type: object
-      description: Данные хартбита устройства.
+      additionalProperties: false
       properties:
-        battery: { type: integer, description: Заряд батареи }
-        rssi: { type: integer, description: Уровень сигнала }
-        ip: { type: string, description: IP адрес устройства }
-        firmwareVersion: { type: string, description: Версия прошивки }
-        uptimeSeconds: { type: integer, description: Аптайм в секундах }
-        displayHash: { type: string, description: Хеш который устройство считает актуальным }
-    HeartbeatOk:
+        name: { type: string, maxLength: 128 }
+        autoUpdate: { type: boolean }
+        demoMode: { type: boolean }
+    DevicePatchResponse:
       type: object
-      description: Ответ когда изменений нет.
       properties:
-        ok:
-          type: boolean
-          example: true
-          description: Инструкций к обновлению нет
-    HeartbeatWithInstruction:
+        id: { type: string }
+        name: { type: string, nullable: true }
+        autoUpdate: { type: boolean }
+        demoMode: { type: boolean }
+    DeviceSettings:
       type: object
-      description: Ответ с новой инструкцией отображения.
+      additionalProperties: false
       properties:
-        instruction:
-          $ref: '#/components/schemas/DisplayInstruction'
-        displayHash: { type: string, description: Новый хеш инструкции }
+        autoUpdate: { type: boolean }
+        demoMode: { type: boolean }
+    DeviceSettingsResponse:
+      type: object
+      properties:
+        id: { type: string }
+        autoUpdate: { type: boolean }
+        demoMode: { type: boolean }
+    PendingDevice:
+      type: object
+      properties:
+        id: { type: string }
+        mac: { type: string }
+        firmwareVersion: { type: string, nullable: true }
+        ip: { type: string, nullable: true }
+        firstSeen: { type: string, format: date-time }
+        lastSeen: { type: string, format: date-time }
+        attemptCount: { type: integer }
+        status: { type: string }
+    ApprovePendingRequest:
+      type: object
+      required: [tenantId]
+      additionalProperties: false
+      properties:
+        tenantId: { type: string, maxLength: 64, example: tigermeter }
+    # ---------- Heartbeat ----------
+    HeartbeatRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        battery: { type: integer }
+        rssi: { type: integer }
+        ip: { type: string }
+        firmwareVersion: { type: string }
+        uptimeSeconds: { type: integer }
+        displayHash: { type: string, description: Хеш, который устройство считает актуальным }
+    HeartbeatBase:
+      type: object
+      description: Hash совпал (или нет контента) — без кадров
+      properties:
+        ok: { type: boolean, example: true }
+        autoUpdate: { type: boolean }
+        demoMode: { type: boolean }
+        latestFirmwareVersion: { type: integer }
+        firmwareDownloadUrl: { type: string }
+    HeartbeatWithFrames:
+      allOf:
+        - $ref: '#/components/schemas/HeartbeatBase'
+        - type: object
+          properties:
+            frames:
+              type: array
+              items:
+                $ref: '#/components/schemas/DisplayFrame'
+              description: 'Пустой массив = "waiting for content"'
+            refreshInterval: { type: integer }
+            displayHash: { type: string, nullable: true }
+    # ---------- Claims ----------
     ClaimCodeIssueRequest:
       type: object
-      required: [mac, firmwareVersion]
-      description: Запрос на выдачу кода привязки.
+      required: [mac, timestamp, hmac]
+      additionalProperties: false
       properties:
-        mac: { type: string, description: MAC адрес устройства }
-        firmwareVersion: { type: string, description: Версия прошивки }
-        ip: { type: string, description: IP адрес (опционально) }
-        hmac: { type: string, description: HMAC подпись против подмены }
+        mac: { type: string, description: 'MAC адрес, формат AA:BB:CC:DD:EE:FF' }
+        firmwareVersion: { type: string }
+        ip: { type: string }
+        timestamp: { type: integer, description: Unix ms, участвует в HMAC }
+        hmac: { type: string, description: HMAC-SHA256(mac:firmwareVersion:timestamp) }
     ClaimCodeIssueResponse:
       type: object
-      description: Ответ с кодом привязки.
       properties:
         code: { type: string, description: 6-значный код }
-        expiresAt: { type: string, format: date-time, description: Время истечения }
-    ClaimCodeStatus:
+        expiresAt: { type: string, format: date-time }
+    AttachRequest:
       type: object
-      description: Статус кода привязки.
+      required: [externalUserId]
+      additionalProperties: false
       properties:
-        code: { type: string, description: Код }
-        status: { type: string, enum: [pending, claimed, expired], description: Текущий статус }
-        deviceId: { type: string, description: Идентификатор устройства (если привязано) }
-        mac: { type: string, description: MAC адрес }
-        expiresAt: { type: string, format: date-time, description: Истечение }
-    DeviceAttachResponse:
+        externalUserId: { type: string, maxLength: 128, description: Opaque id пользователя клиента }
+    AttachResponse:
       type: object
-      description: Результат привязки кода.
       properties:
-        deviceId: { type: string, description: Идентификатор устройства }
-        message: { type: string, description: Сообщение }
+        deviceId: { type: string }
+        message: { type: string, example: Attached }
+        tenantId: { type: string }
     ClaimPollClaimed:
       type: object
-      description: Одноразовый ответ при успешной привязке. Содержит секрет устройства, который генерируется лениво в момент первого успешного опроса. Повторные опросы после получения секрета возвращают 404.
+      description: Одноразовый ответ; содержит секрет (только первый poll после attach)
       properties:
-        deviceId: { type: string, description: Идентификатор устройства }
-        deviceSecret: { type: string, description: Новый секрет устройства (plaintext; показывается только один раз) }
-        displayHash: { type: string, description: Текущий хеш инструкции (может быть пустым) }
-        expiresAt: { type: string, format: date-time, description: Истечение секрета }
-  examples:
-    InstructionExample:
-      summary: Инструкция отображения
-      value:
-        version: 7
-        hash: "sha256:ab12cd34ef56..."
-        symbol: BTC
-        mainText: "$98,500"
-        topLine: Bitcoin
-        topLineFontSize: 16
-        topLineAlign: center
-        mainTextFontSize: 32
-        mainTextAlign: center
-        bottomLine: "+2.5%"
-        bottomLineFontSize: 16
-        bottomLineAlign: center
-        ledColor: green
-        ledBrightness: mid
-        beep: false
-        flashCount: 0
-        refreshInterval: 30
-    HeartbeatInstructionExample:
-      summary: Хартбит с новой инструкцией
-      value:
-        instruction:
-          version: 8
-          hash: "sha256:99ccaa77..."
-          symbol: AAPL
-          mainText: "$221.34"
-          topLine: Apple Inc
-          topLineFontSize: 16
-          topLineShowDate: false
-          mainTextFontSize: 32
-          bottomLine: "-0.46%"
-          bottomLineFontSize: 16
-          ledColor: yellow
-          ledBrightness: low
-          beep: true
-          flashCount: 2
-          refreshInterval: 60
-        displayHash: "sha256:99ccaa77..."
+        deviceId: { type: string }
+        deviceSecret: { type: string, description: Plaintext секрет (показывается один раз) }
+        displayHash: { type: string, nullable: true }
+        expiresAt: { type: string, format: date-time }
+    # ---------- Admin ----------
+    MeResponse:
+      type: object
+      properties:
+        tenantId: { type: string }
+        scope: { type: string, enum: [ops, manage] }
+    AdminSettings:
+      type: object
+      properties:
+        autoProvisionNewDevices: { type: boolean }
+    AdminSettingsPatch:
+      type: object
+      additionalProperties: false
+      properties:
+        autoProvisionNewDevices: { type: boolean }

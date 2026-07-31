@@ -7,21 +7,14 @@ export const config = {
   deviceSecretTtlDays: 90,
   deviceSecretOverlapSeconds: 300,
   claimCodeTtlSeconds: 300,
-  
+
   // OTA firmware settings
   latestFirmwareVersion: parseInt(process.env.LATEST_FIRMWARE_VERSION ?? '3', 10),
   firmwareDownloadUrl: process.env.FIRMWARE_DOWNLOAD_URL ?? 'https://rd1-io.github.io/tigermeter-api/firmware/prod',
+
+  // Service-to-service auth tokens (JSON array in env)
+  serviceTokensJson: process.env.SERVICE_TOKENS ?? '',
 };
 
-
-
-
-
-
-
-
-
-
-
-
-
+// API version prefix — all routes use this
+export const V5_PREFIX = '/api/v5';

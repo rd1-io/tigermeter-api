@@ -1,196 +1,171 @@
+// v5 API client — service-token auth, no user JWTs
+
 export interface ApiClientOptions {
   baseUrl?: string;
-  firmwareVersion?: string;
 }
+
+const V5_PREFIX = '/api/v5';
 
 import { loggedFetch } from './logStore';
 
 export class ApiClient {
   private baseUrl: string;
-  private firmwareVersion: string;
+  private token: string | null = null;
 
   constructor(opts: ApiClientOptions = {}) {
-    this.baseUrl = (opts.baseUrl || import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/api').replace(/\/$/, '');
-    this.firmwareVersion = opts.firmwareVersion || import.meta.env.VITE_FIRMWARE_VERSION || '1.0.0';
+    this.baseUrl = (opts.baseUrl || import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001').replace(/\/$/, '');
   }
 
-  async issueClaim(mac: string): Promise<Response> {
-    const timestamp = Date.now();
-    const hmac = await this.createClaimHmac(mac, this.firmwareVersion, timestamp);
-    const body = { 
-      mac, 
-      firmwareVersion: this.firmwareVersion, 
-      timestamp,
-      hmac
-    };
-    return loggedFetch('POST', `${this.baseUrl}/device-claims`, { bodyJson: body });
+  // Auth
+  setToken(token: string) {
+    this.token = token;
+    localStorage.setItem('serviceToken', token);
   }
 
-  private async createClaimHmac(mac: string, firmwareVersion?: string, timestamp?: number): Promise<string> {
-    const ts = timestamp || Date.now();
-    const payload = `${mac}:${firmwareVersion || ''}:${ts}`;
-    const hmacKey = import.meta.env.VITE_HMAC_KEY || 'change-me-dev-hmac';
-    
-    const encoder = new TextEncoder();
-    const key = await crypto.subtle.importKey(
-      'raw',
-      encoder.encode(hmacKey),
-      { name: 'HMAC', hash: 'SHA-256' },
-      false,
-      ['sign']
-    );
-    
-    const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(payload));
-    return Array.from(new Uint8Array(signature))
-      .map(b => b.toString(16).padStart(2, '0'))
-      .join('');
+  getToken(): string | null {
+    if (!this.token) {
+      this.token = localStorage.getItem('serviceToken');
+    }
+    return this.token;
   }
 
-  async provisionDevice(mac: string, firmwareVersion?: string): Promise<Response> {
-    const body = { mac, firmwareVersion: firmwareVersion || this.firmwareVersion };
-    return loggedFetch('POST', `${this.baseUrl}/devices/provision`, { bodyJson: body });
+  clearToken() {
+    this.token = null;
+    localStorage.removeItem('serviceToken');
   }
 
-  async pollClaimCode(code: string): Promise<Response> {
-    return loggedFetch('GET', `${this.baseUrl}/device-claims/${code}/poll`, {});
+  private authHeaders(): Record<string, string> {
+    const t = this.getToken();
+    if (!t) return {};
+    return { 'Authorization': `Bearer ${t}` };
   }
 
-  async sendHeartbeat(deviceId: string, deviceSecret: string, heartbeatData: any): Promise<Response> {
-    return loggedFetch('POST', `${this.baseUrl}/devices/${deviceId}/heartbeat`, {
+  // Auth check
+  async me(): Promise<Response> {
+    return loggedFetch('GET', `${this.baseUrl}${V5_PREFIX}/admin/me`, {
+      headers: this.authHeaders(),
+    });
+  }
+
+  // === Devices (ops — all, manage — tenant-scoped) ===
+  async listDevices(): Promise<Response> {
+    return loggedFetch('GET', `${this.baseUrl}${V5_PREFIX}/devices`, {
+      headers: this.authHeaders(),
+    });
+  }
+
+  async getDevice(id: string): Promise<Response> {
+    return loggedFetch('GET', `${this.baseUrl}${V5_PREFIX}/devices/${id}`, {
+      headers: this.authHeaders(),
+    });
+  }
+
+  async getDeviceDisplay(id: string): Promise<Response> {
+    return loggedFetch('GET', `${this.baseUrl}${V5_PREFIX}/admin/devices/${id}/display`, {
+      headers: this.authHeaders(),
+    });
+  }
+
+  async setDisplayFrames(id: string, payload: any): Promise<Response> {
+    return loggedFetch('PUT', `${this.baseUrl}${V5_PREFIX}/devices/${id}/display`, {
       headers: {
-        'Authorization': `Bearer ${deviceSecret}`,
+        ...this.authHeaders(),
+        'Content-Type': 'application/json',
       },
-      bodyJson: heartbeatData
+      bodyJson: payload,
     });
   }
 
-  async attachClaim(code: string, userToken: string): Promise<Response> {
-    return loggedFetch('POST', `${this.baseUrl}/device-claims/${code}/attach`, {
+  async patchDevice(id: string, data: { name?: string; autoUpdate?: boolean; demoMode?: boolean }): Promise<Response> {
+    return loggedFetch('PATCH', `${this.baseUrl}${V5_PREFIX}/devices/${id}`, {
       headers: {
-        'Authorization': `Bearer ${userToken}`,
-      }
-    });
-  }
-
-  // Admin methods
-  async listDevicesAdmin(adminToken: string): Promise<Response> {
-    return loggedFetch('GET', `${this.baseUrl}/admin/devices`, {
-      headers: {
-        'Authorization': `Bearer ${adminToken}`,
-      }
-    });
-  }
-
-  async getDeviceAdmin(id: string, adminToken: string): Promise<Response> {
-    return loggedFetch('GET', `${this.baseUrl}/devices/${id}`, {
-      headers: {
-        'Authorization': `Bearer ${adminToken}`,
-      }
-    });
-  }
-
-  async revokeDeviceAdmin(id: string, adminToken: string): Promise<Response> {
-    return loggedFetch('POST', `${this.baseUrl}/admin/devices/${id}/revoke`, {
-      headers: {
-        'Authorization': `Bearer ${adminToken}`,
-      }
-    });
-  }
-
-  async deleteDeviceAdmin(id: string, adminToken: string): Promise<Response> {
-    return loggedFetch('DELETE', `${this.baseUrl}/admin/devices/${id}`, {
-      headers: {
-        'Authorization': `Bearer ${adminToken}`,
-      }
-    });
-  }
-
-  async factoryResetAdmin(id: string, adminToken: string): Promise<Response> {
-    return loggedFetch('POST', `${this.baseUrl}/admin/devices/${id}/factory-reset`, {
-      headers: {
-        'Authorization': `Bearer ${adminToken}`,
-      }
-    });
-  }
-
-  async updateDeviceSettings(id: string, adminToken: string, settings: { autoUpdate?: boolean; demoMode?: boolean }): Promise<Response> {
-    return loggedFetch('PATCH', `${this.baseUrl}/admin/devices/${id}/settings`, {
-      headers: {
-        'Authorization': `Bearer ${adminToken}`,
+        ...this.authHeaders(),
+        'Content-Type': 'application/json',
       },
-      bodyJson: settings
+      bodyJson: data,
     });
   }
 
-  async getAdminSettings(adminToken: string): Promise<Response> {
-    return loggedFetch('GET', `${this.baseUrl}/admin/settings`, {
-      headers: { 'Authorization': `Bearer ${adminToken}` },
+  async revokeDevice(id: string): Promise<Response> {
+    return loggedFetch('POST', `${this.baseUrl}${V5_PREFIX}/devices/${id}/revoke`, {
+      headers: this.authHeaders(),
     });
   }
 
-  async patchAdminSettings(adminToken: string, settings: { autoProvisionNewDevices?: boolean }): Promise<Response> {
-    return loggedFetch('PATCH', `${this.baseUrl}/admin/settings`, {
-      headers: { 'Authorization': `Bearer ${adminToken}` },
+  async deleteDevice(id: string): Promise<Response> {
+    return loggedFetch('DELETE', `${this.baseUrl}${V5_PREFIX}/admin/devices/${id}`, {
+      headers: this.authHeaders(),
+    });
+  }
+
+  async factoryReset(id: string): Promise<Response> {
+    return loggedFetch('POST', `${this.baseUrl}${V5_PREFIX}/admin/devices/${id}/factory-reset`, {
+      headers: this.authHeaders(),
+    });
+  }
+
+  async updateDeviceSettings(id: string, settings: { autoUpdate?: boolean; demoMode?: boolean }): Promise<Response> {
+    return loggedFetch('PATCH', `${this.baseUrl}${V5_PREFIX}/admin/devices/${id}/settings`, {
+      headers: {
+        ...this.authHeaders(),
+        'Content-Type': 'application/json',
+      },
       bodyJson: settings,
     });
   }
 
-  async listPendingDevicesAdmin(adminToken: string): Promise<Response> {
-    return loggedFetch('GET', `${this.baseUrl}/admin/pending-devices`, {
-      headers: {
-        'Authorization': `Bearer ${adminToken}`,
-      }
+  // === Pending devices (ops only) ===
+  async listPendingDevices(): Promise<Response> {
+    return loggedFetch('GET', `${this.baseUrl}${V5_PREFIX}/admin/pending-devices`, {
+      headers: this.authHeaders(),
     });
   }
 
-  async approvePendingDevice(id: string, adminToken: string): Promise<Response> {
-    return loggedFetch('POST', `${this.baseUrl}/admin/pending-devices/${id}/approve`, {
+  async approvePending(id: string, tenantId: string): Promise<Response> {
+    return loggedFetch('POST', `${this.baseUrl}${V5_PREFIX}/admin/pending-devices/${id}/approve`, {
       headers: {
-        'Authorization': `Bearer ${adminToken}`,
-      }
-    });
-  }
-
-  async rejectPendingDevice(id: string, adminToken: string): Promise<Response> {
-    return loggedFetch('POST', `${this.baseUrl}/admin/pending-devices/${id}/reject`, {
-      headers: {
-        'Authorization': `Bearer ${adminToken}`,
-      }
-    });
-  }
-
-  async setDisplay(id: string, userToken: string, instruction: any): Promise<Response> {
-    return loggedFetch('PUT', `${this.baseUrl}/devices/${id}/display`, {
-      headers: {
-        'Authorization': `Bearer ${userToken}`,
+        ...this.authHeaders(),
+        'Content-Type': 'application/json',
       },
-      bodyJson: instruction
+      bodyJson: { tenantId },
     });
   }
 
-  // Logo library
-  async listLogos(adminToken: string): Promise<Response> {
-    return loggedFetch('GET', `${this.baseUrl}/admin/logos`, {
-      headers: { 'Authorization': `Bearer ${adminToken}` }
+  async rejectPending(id: string): Promise<Response> {
+    return loggedFetch('POST', `${this.baseUrl}${V5_PREFIX}/admin/pending-devices/${id}/reject`, {
+      headers: this.authHeaders(),
     });
   }
 
-  async uploadLogo(file: File, name: string, adminToken: string): Promise<Response> {
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('name', name);
-    return loggedFetch('POST', `${this.baseUrl}/admin/logos`, {
-      headers: { 'Authorization': `Bearer ${adminToken}` },
-      body: formData,
+  // === Settings (ops only) ===
+  async getAdminSettings(): Promise<Response> {
+    return loggedFetch('GET', `${this.baseUrl}${V5_PREFIX}/admin/settings`, {
+      headers: this.authHeaders(),
     });
   }
 
-  async deleteLogo(id: string, adminToken: string): Promise<Response> {
-    return loggedFetch('DELETE', `${this.baseUrl}/admin/logos/${id}`, {
-      headers: { 'Authorization': `Bearer ${adminToken}` }
+  async patchAdminSettings(settings: { autoProvisionNewDevices?: boolean }): Promise<Response> {
+    return loggedFetch('PATCH', `${this.baseUrl}${V5_PREFIX}/admin/settings`, {
+      headers: {
+        ...this.authHeaders(),
+        'Content-Type': 'application/json',
+      },
+      bodyJson: settings,
     });
   }
 
+  // Attach claim code (manage scope)
+  async attachClaim(code: string, externalUserId: string): Promise<Response> {
+    return loggedFetch('POST', `${this.baseUrl}${V5_PREFIX}/device-claims/${code}/attach`, {
+      headers: {
+        ...this.authHeaders(),
+        'Content-Type': 'application/json',
+      },
+      bodyJson: { externalUserId },
+    });
+  }
+
+  // === Hash utilities ===
   // Recursively sort all keys in an object for deterministic JSON
   private sortObjectKeys(obj: unknown): unknown {
     if (obj === null || typeof obj !== 'object') return obj;
@@ -202,22 +177,16 @@ export class ApiClient {
     return sorted;
   }
 
-  // Helper to compute display instruction hash (without hash field)
-  // Must match backend's instructionHash: sorts ALL keys recursively
-  async computeDisplayHash(instruction: any): Promise<string> {
-    const copy = { ...instruction };
+  async computeDisplayHash(payload: any): Promise<string> {
+    const copy = { ...payload };
     delete copy.hash;
-    
-    // Sort ALL keys recursively for deterministic hashing
     const sorted = this.sortObjectKeys(copy);
     const json = JSON.stringify(sorted);
-    
     const encoder = new TextEncoder();
     const data = encoder.encode(json);
     const hashBuffer = await crypto.subtle.digest('SHA-256', data);
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-    
     return `sha256:${hashHex}`;
   }
 }

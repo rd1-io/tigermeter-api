@@ -1,15 +1,18 @@
 import { FastifyInstance } from 'fastify';
+import { z } from 'zod';
 import { addSeconds } from 'date-fns';
-import { createHash } from 'crypto';
 import { config } from '../config.js';
 import { generateDeviceSecret, hashPassword, normalizeMac, verifyClaimHmac } from '../utils/crypto.js';
 
 // Helper to generate a 6-digit code with leading zeros preserved
 const generateCode = () => String(Math.floor(Math.random() * 1_000_000)).padStart(6, '0');
 
+const AttachBody = z.object({
+  externalUserId: z.string().min(1).max(128),
+});
+
 export default async function deviceClaimsRoutes(app: FastifyInstance) {
-  // Issue claim code (unauthenticated, protected by future HMAC validation TODO)
-  // TODO: add rate limiting (per IP/MAC) to mitigate brute force
+  // --- ISSUE claim code (device, HMAC auth) ---
   app.post('/device-claims', {
     config: {
       rateLimit: {
@@ -22,15 +25,13 @@ export default async function deviceClaimsRoutes(app: FastifyInstance) {
     const rawMac = body.mac as string | undefined;
     if (!rawMac) return reply.code(400).send({ message: 'mac required' });
     const mac = normalizeMac(rawMac);
-    if (!mac) {
-      return reply.code(400).send({ message: 'invalid mac format' });
-    }
+    if (!mac) return reply.code(400).send({ message: 'invalid mac format' });
+
     const firmwareVersion = body.firmwareVersion as string | undefined;
     const hmac = body.hmac as string | undefined;
     const timestamp = body.timestamp as number | undefined;
     const ip = body.ip as string | undefined;
 
-    // Verify HMAC to prove device ownership
     if (!hmac || !timestamp) {
       return reply.code(400).send({ message: 'hmac and timestamp required' });
     }
@@ -38,10 +39,9 @@ export default async function deviceClaimsRoutes(app: FastifyInstance) {
       return reply.code(401).send({ message: 'invalid hmac' });
     }
 
-    // Device must already exist and be in awaiting_claim state (or we auto-provision if enabled)
+    // Device must already exist and be in awaiting_claim state
     let device = await app.prisma.device.findFirst({ where: { mac } });
     if (!device) {
-      // Check if admin enabled auto-provision for new devices
       const setting = await app.prisma.setting.findUnique({ where: { key: 'autoProvisionNewDevices' } });
       const autoProvision = setting?.value === 'true';
       if (autoProvision) {
@@ -53,16 +53,14 @@ export default async function deviceClaimsRoutes(app: FastifyInstance) {
             ip: ip ?? undefined,
           },
         });
-        // Mark any existing PendingDevice as approved for audit trail
         try {
           await app.prisma.pendingDevice.updateMany({
             where: { mac, status: 'pending' },
             data: { status: 'approved' },
           });
         } catch (_) {}
-        // Fall through to issue claim code
       } else {
-        // HMAC already validated above, so this is a legitimate device — log as pending for admin approval
+        // Log as pending for admin approval
         try {
           const existing = await app.prisma.pendingDevice.findUnique({ where: { mac } });
           if (existing) {
@@ -77,21 +75,17 @@ export default async function deviceClaimsRoutes(app: FastifyInstance) {
               },
             });
           } else {
-            await app.prisma.pendingDevice.create({
-              data: { mac, firmwareVersion, ip },
-            });
+            await app.prisma.pendingDevice.create({ data: { mac, firmwareVersion, ip } });
           }
-        } catch (err: any) {
-          // Ignore errors when saving pending device
-        }
+        } catch {}
         return reply.code(404).send({ message: 'device not found' });
       }
     }
+
     if (device.status !== 'awaiting_claim') {
-      // Device lost credentials (factory reset, revoke, etc.) — reset to awaiting_claim
       await app.prisma.device.update({
         where: { id: device.id },
-        data: { status: 'awaiting_claim', userId: null },
+        data: { status: 'awaiting_claim', tenantId: null, externalUserId: null },
       });
     }
 
@@ -99,78 +93,47 @@ export default async function deviceClaimsRoutes(app: FastifyInstance) {
     const expiresAt = addSeconds(new Date(), config.claimCodeTtlSeconds);
 
     await app.prisma.deviceClaim.create({
-      data: {
-        code,
-        deviceId: device.id,
-        mac,
-        firmwareVersion,
-        ip,
-        expiresAt,
-      },
+      data: { code, deviceId: device.id, mac, firmwareVersion, ip, expiresAt },
     });
 
     return reply.code(201).send({ code, expiresAt });
   });
 
-  // Attach claim code to authenticated user
-  // TODO: enforce max devices per user / abuse controls
+  // --- ATTACH claim code (tenant service token, replaces old user-JWT attach) ---
   app.post('/device-claims/:code/attach', {
     config: {
       rateLimit: {
-        max: 30,
+        max: 5,          // strict: 5 attempts per minute per IP (anti-brute-force on 6-digit code)
         timeWindow: '1 minute',
       },
     },
   }, async (request, reply) => {
-    const user = await app.requireUser(request);
-    const userId = (user as any).sub ?? (user as any).userId ?? 'user';
+    const auth = await app.requireScope(request, 'manage');
     const { code } = request.params as any;
+    const body = AttachBody.parse(request.body ?? {});
+
     const claim = await app.prisma.deviceClaim.findUnique({ where: { code } });
     if (!claim) return reply.code(400).send({ message: 'Invalid code' });
     if (claim.expiresAt < new Date()) return reply.code(400).send({ message: 'Expired code' });
     if (claim.status === 'claimed') return reply.code(409).send({ message: 'Already claimed' });
 
-    // Bind user & mark claimed
-    await app.prisma.deviceClaim.update({ where: { code }, data: { status: 'claimed', userId } });
+    // Mark claim as used
+    await app.prisma.deviceClaim.update({ where: { code }, data: { status: 'claimed' } });
 
-    // Set welcome display instruction for first-time setup
-    const welcomeInstruction = {
-      version: 1,
-      symbol: '$',
-      symbolCarousel: true,
-      topLineShowDate: true,
-      topLineFontSize: 16,
-      topLineAlign: 'center',
-      mainText: 'Настройте\\nдисплей',
-      mainTextFontSize: 24,
-      mainTextAlign: 'center',
-      bottomLine: 'tigermeter.com',
-      bottomLineFontSize: 16,
-      bottomLineAlign: 'center',
-      ledColor: 'rainbow',
-      ledBrightness: 'low',
-      refreshInterval: 60,
-      timezoneOffset: 3,
-    };
-    const welcomeJson = JSON.stringify(welcomeInstruction);
-    const welcomeHash = createHash('sha256').update(welcomeJson).digest('hex').slice(0, 16);
-
+    // Bind device to tenant (no welcome instruction — display stays empty until first PUT /display)
     await app.prisma.device.update({
       where: { id: claim.deviceId },
       data: {
-        userId,
+        tenantId: auth.tenantId,
+        externalUserId: body.externalUserId,
         status: 'active',
-        displayInstructionJson: welcomeJson,
-        displayHash: welcomeHash,
-        displayVersion: 1,
       },
     });
 
-    return { deviceId: claim.deviceId, message: 'Attached' };
+    return { deviceId: claim.deviceId, message: 'Attached', tenantId: auth.tenantId };
   });
 
-  // Poll claim status (unauthenticated, device side)
-  // TODO: add minimal polling backoff headers (e.g. Retry-After) when 202
+  // --- POLL claim status (device side, HMAC auth still via future TODO) ---
   app.get('/device-claims/:code/poll', {
     config: {
       rateLimit: {

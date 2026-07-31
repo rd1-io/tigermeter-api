@@ -29,18 +29,14 @@
   },
   "dependencies": {
     "@fastify/cors": "^10.0.0",
-    "@fastify/multipart": "^9.4.0",
     "@fastify/rate-limit": "^10.0.0",
     "@fastify/sensible": "^6.0.1",
     "@prisma/client": "^6.16.1",
     "bcryptjs": "^2.4.3",
     "date-fns": "^3.6.0",
     "fastify": "^5.6.0",
-    "fastify-jwt": "^4.2.0",
     "fastify-plugin": "^5.0.1",
-    "jose": "^6.1.0",
     "prisma": "^6.16.1",
-    "sharp": "^0.34.5",
     "zod": "^3.25.76",
     "zod-to-json-schema": "^3.24.6"
   }

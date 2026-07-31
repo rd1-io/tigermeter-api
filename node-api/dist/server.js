@@ -1,6 +1,7 @@
 import Fastify from 'fastify';
 import fastifyCors from '@fastify/cors';
 import sensible from '@fastify/sensible';
+import { ZodError } from 'zod';
 import prismaPlugin from './plugins/prisma.js';
 import rateLimitPlugin from './plugins/rate-limit.js';
 import authPlugin from './plugins/auth.js';
@@ -9,7 +10,8 @@ import deviceRoutes from './routes/devices.js';
 import portalRoutes from './routes/portal.js';
 import adminRoutes from './routes/admin.js';
 import devicesProvisionRoutes from './routes/devices-provision.js';
-import adminLogosRoutes from './routes/admin-logos.js';
+// admin-logos.ts removed — logos feature deleted
+import { V5_PREFIX } from './config.js';
 const buildServer = () => {
     const app = Fastify({ logger: true });
     app.register(prismaPlugin);
@@ -40,11 +42,22 @@ const buildServer = () => {
     app.register(rateLimitPlugin);
     app.register(authPlugin);
     app.get('/healthz', async () => ({ status: 'ok' }));
-    app.register(deviceClaimsRoutes, { prefix: '/api' });
-    app.register(deviceRoutes, { prefix: '/api' });
-    app.register(portalRoutes, { prefix: '/api' });
-    app.register(adminRoutes, { prefix: '/api/admin' });
-    app.register(adminLogosRoutes, { prefix: '/api/admin' });
+    // Global error handler: map ZodError → 400 with readable message
+    app.setErrorHandler((err, request, reply) => {
+        if (err instanceof ZodError) {
+            const issues = err.issues.map((i) => `${i.path.join('.') || '<root>'}: ${i.message}`);
+            return reply.code(400).send({ message: issues.join('; ') });
+        }
+        // Fastify's own errors (rate limit, body parse, etc.) keep their statusCode
+        const status = err.statusCode ?? 500;
+        reply.code(status).send({ message: err.message || 'Internal Server Error' });
+    });
+    // v5 routes (old unversioned registrations removed)
+    app.register(deviceClaimsRoutes, { prefix: V5_PREFIX });
+    app.register(deviceRoutes, { prefix: V5_PREFIX });
+    app.register(portalRoutes, { prefix: V5_PREFIX });
+    app.register(adminRoutes, { prefix: V5_PREFIX + '/admin' });
+    // admin-logos removed
     app.register(devicesProvisionRoutes);
     return app;
 };
