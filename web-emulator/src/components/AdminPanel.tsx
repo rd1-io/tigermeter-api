@@ -52,20 +52,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   }, []);
 
   const handleRevoke = async (id: string) => {
-    if (!confirm("Revoke this device?")) return;
+    if (!confirm("Отозвать это устройство?")) return;
     await apiClient.revokeDevice(id);
     fetchDevices(false);
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Delete this device permanently?")) return;
+    if (!confirm("Удалить это устройство безвозвратно?")) return;
     await apiClient.deleteDevice(id);
     if (selectedDevice?.id === id) onSelectDevice(null);
     fetchDevices(false);
   };
 
   const handleFactoryReset = async (id: string) => {
-    if (!confirm("Queue factory reset for this device?")) return;
+    if (!confirm("Поставить устройство на сброс к заводским настройкам?")) return;
     await apiClient.factoryReset(id);
     fetchDevices(false);
   };
@@ -92,9 +92,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   return (
     <div className="bg-white rounded-md border shadow-sm">
       <div className="px-4 py-3 border-b flex items-center justify-between">
-        <h2 className="font-semibold">Devices ({devices.length})</h2>
+        <h2 className="font-semibold">Устройства ({devices.length})</h2>
         <button onClick={() => fetchDevices(true)} className="text-xs text-blue-600">
-          {loading ? 'Loading...' : 'Refresh'}
+          {loading ? 'Загрузка...' : 'Обновить'}
         </button>
       </div>
       {error && <div className="px-4 py-2 text-sm text-red-600">{error}</div>}
@@ -102,7 +102,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       {/* Device list */}
       <div className="divide-y max-h-[500px] overflow-y-auto">
         {devices.length === 0 && !loading && (
-          <div className="px-4 py-8 text-sm text-neutral-500 text-center">No devices</div>
+          <div className="px-4 py-8 text-sm text-neutral-500 text-center">Нет устройств</div>
         )}
         {devices.map((d) => (
           <div
@@ -127,51 +127,51 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       {/* Device detail */}
       {selectedDevice && (
         <div className="border-t p-4">
-          <h3 className="font-semibold mb-3">Device: {selectedDevice.mac}</h3>
+          <h3 className="font-semibold mb-3">Устройство: {selectedDevice.mac}</h3>
           <div className="grid grid-cols-2 gap-2 text-sm mb-4">
             <div><span className="text-neutral-500">ID:</span> <span className="font-mono text-xs">{selectedDevice.id}</span></div>
-            <div><span className="text-neutral-500">Status:</span> {selectedDevice.status}</div>
+            <div><span className="text-neutral-500">Статус:</span> {selectedDevice.status}</div>
             <div><span className="text-neutral-500">FW:</span> v{selectedDevice.firmwareVersion || '?'}</div>
-            <div><span className="text-neutral-500">Battery:</span> {selectedDevice.battery ?? '?'}%</div>
-            <div><span className="text-neutral-500">Display v:</span> {selectedDevice.displayVersion}</div>
-            <div><span className="text-neutral-500">Display Hash:</span> <span className="font-mono text-xs">{selectedDevice.displayHash?.slice(0, 12) ?? '-'}</span></div>
+            <div><span className="text-neutral-500">Батарея:</span> {selectedDevice.battery ?? '?'}%</div>
+            <div><span className="text-neutral-500">Версия дисплея:</span> {selectedDevice.displayVersion}</div>
+            <div><span className="text-neutral-500">Хеш дисплея:</span> <span className="font-mono text-xs">{selectedDevice.displayHash?.slice(0, 12) ?? '-'}</span></div>
             {isOps && selectedDevice.tenantId && (
-              <div><span className="text-neutral-500">Tenant:</span> {selectedDevice.tenantId}</div>
+              <div><span className="text-neutral-500">Тенант:</span> {selectedDevice.tenantId}</div>
             )}
             {isOps && selectedDevice.externalUserId && (
-              <div><span className="text-neutral-500">Ext User:</span> {selectedDevice.externalUserId}</div>
+              <div><span className="text-neutral-500">Внешний пользователь:</span> {selectedDevice.externalUserId}</div>
             )}
-            <div><span className="text-neutral-500">Last Seen:</span> {formatDate(selectedDevice.lastSeen)}</div>
+            <div><span className="text-neutral-500">Последняя активность:</span> {formatDate(selectedDevice.lastSeen)}</div>
           </div>
 
           {/* Name edit */}
           <div className="flex gap-2 items-end mb-3">
             <div className="flex-1">
-              <label className="text-xs text-neutral-500">Name</label>
+              <label className="text-xs text-neutral-500">Название</label>
               <input
                 value={editName || selectedDevice.name || ''}
                 onChange={(e) => setEditName(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleSaveName(selectedDevice.id)}
-                placeholder="Device label"
+                placeholder="Название устройства"
                 className="w-full border rounded px-2 py-1 text-sm"
               />
             </div>
-            <button onClick={() => handleSaveName(selectedDevice.id)} className="text-xs bg-blue-600 text-white px-3 py-1.5 rounded">Save</button>
+            <button onClick={() => handleSaveName(selectedDevice.id)} className="text-xs bg-blue-600 text-white px-3 py-1.5 rounded">Сохранить</button>
           </div>
 
           {/* Actions */}
           <div className="flex flex-wrap gap-2">
             <button onClick={() => handleToggleAutoUpdate(selectedDevice)} className={`text-xs px-2 py-1 rounded ${selectedDevice.autoUpdate ? 'bg-green-100 text-green-700' : 'bg-neutral-100'}`}>
-              AutoUpdate: {selectedDevice.autoUpdate ? 'ON' : 'OFF'}
+              Автообновление: {selectedDevice.autoUpdate ? 'ВКЛ' : 'ВЫКЛ'}
             </button>
             <button onClick={() => handleToggleDemoMode(selectedDevice)} className={`text-xs px-2 py-1 rounded ${selectedDevice.demoMode ? 'bg-purple-100 text-purple-700' : 'bg-neutral-100'}`}>
-              Demo: {selectedDevice.demoMode ? 'ON' : 'OFF'}
+              Демо: {selectedDevice.demoMode ? 'ВКЛ' : 'ВЫКЛ'}
             </button>
             {isOps && (
               <>
-                <button onClick={() => handleRevoke(selectedDevice.id)} className="text-xs bg-yellow-100 text-yellow-700 px-2 py-1 rounded">Revoke</button>
-                <button onClick={() => handleFactoryReset(selectedDevice.id)} className="text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded">Factory Reset</button>
-                <button onClick={() => handleDelete(selectedDevice.id)} className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded">Delete</button>
+                <button onClick={() => handleRevoke(selectedDevice.id)} className="text-xs bg-yellow-100 text-yellow-700 px-2 py-1 rounded">Отозвать</button>
+                <button onClick={() => handleFactoryReset(selectedDevice.id)} className="text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded">Сброс</button>
+                <button onClick={() => handleDelete(selectedDevice.id)} className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded">Удалить</button>
               </>
             )}
           </div>

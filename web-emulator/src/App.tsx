@@ -40,10 +40,10 @@ const App: React.FC = () => {
         apiClient.clearToken();
         setToken("");
         setScope(null);
-        setAuthError("Invalid token");
+        setAuthError("Неверный токен");
       }
     } catch {
-      setAuthError("Connection failed");
+      setAuthError("Не удалось подключиться");
     }
     setLoading(false);
   };
@@ -65,8 +65,8 @@ const App: React.FC = () => {
     return (
       <div className="min-h-screen flex items-center justify-center bg-neutral-100">
         <div className="bg-white rounded-lg shadow-sm border p-8 w-full max-w-md">
-          <h1 className="text-xl font-bold mb-2">TigerMeter Admin</h1>
-          <p className="text-sm text-neutral-500 mb-6">Enter your service token to continue</p>
+          <h1 className="text-xl font-bold mb-2">TigerMeter — панель управления</h1>
+          <p className="text-sm text-neutral-500 mb-6">Введите service-токен для входа</p>
           <input
             type="password"
             value={token}
@@ -80,7 +80,7 @@ const App: React.FC = () => {
             disabled={loading || !token.trim()}
             className="w-full bg-blue-600 text-white rounded py-2 text-sm font-medium disabled:opacity-50"
           >
-            {loading ? 'Verifying...' : 'Login'}
+            {loading ? 'Проверка...' : 'Войти'}
           </button>
           {authError && <p className="text-red-600 text-sm mt-3">{authError}</p>}
         </div>
@@ -96,11 +96,11 @@ const App: React.FC = () => {
           <div className="flex items-center gap-4">
             <h1 className="text-lg font-semibold tracking-tight">TigerMeter</h1>
             <span className="text-xs bg-neutral-100 px-2 py-0.5 rounded-full">
-              {scope === 'ops' ? 'Admin' : tenantId}
+              {scope === 'ops' ? 'Админ' : tenantId}
             </span>
           </div>
           <button onClick={handleLogout} className="text-xs text-neutral-500 hover:text-red-600">
-            Logout
+            Выйти
           </button>
         </div>
 
@@ -116,7 +116,7 @@ const App: React.FC = () => {
                   : 'border-transparent text-neutral-500 hover:text-neutral-700'
               }`}
             >
-              {tab === 'devices' ? 'Devices' : tab === 'pending' ? 'Pending' : 'Settings'}
+              {tab === 'devices' ? 'Устройства' : tab === 'pending' ? 'На одобрении' : 'Настройки'}
             </button>
           ))}
         </div>
@@ -187,29 +187,29 @@ const PendingPanel: React.FC = () => {
   return (
     <div className="bg-white rounded-md border shadow-sm">
       <div className="px-4 py-3 border-b flex items-center gap-4">
-        <h2 className="font-semibold">Pending Devices</h2>
+        <h2 className="font-semibold">Устройства на одобрение</h2>
         <input
           value={tenantId}
           onChange={(e) => setTenantId(e.target.value)}
           placeholder="tenantId"
           className="border rounded px-2 py-1 text-xs w-32"
         />
-        <button onClick={fetchPending} className="text-xs text-blue-600">Refresh</button>
+        <button onClick={fetchPending} className="text-xs text-blue-600">Обновить</button>
       </div>
-      {loading && <div className="p-4 text-sm text-neutral-500">Loading...</div>}
+      {loading && <div className="p-4 text-sm text-neutral-500">Загрузка...</div>}
       {!loading && pending.length === 0 && (
-        <div className="p-4 text-sm text-neutral-500">No pending devices</div>
+        <div className="p-4 text-sm text-neutral-500">Нет устройств на одобрении</div>
       )}
       {pending.map((pd: any) => (
         <div key={pd.id} className="px-4 py-3 border-b last:border-b-0 flex items-center justify-between text-sm">
           <div>
             <span className="font-mono text-xs">{pd.mac}</span>
             <span className="text-neutral-500 ml-3">FW: {pd.firmwareVersion || '?'}</span>
-            <span className="text-neutral-400 ml-3">Attempts: {pd.attemptCount}</span>
+            <span className="text-neutral-400 ml-3">Попыток: {pd.attemptCount}</span>
           </div>
           <div className="flex gap-2">
-            <button onClick={() => approve(pd.id)} className="text-xs bg-green-600 text-white px-2 py-1 rounded">Approve</button>
-            <button onClick={() => reject(pd.id)} className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded">Reject</button>
+            <button onClick={() => approve(pd.id)} className="text-xs bg-green-600 text-white px-2 py-1 rounded">Одобрить</button>
+            <button onClick={() => reject(pd.id)} className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded">Отклонить</button>
           </div>
         </div>
       ))}
@@ -244,7 +244,7 @@ const SettingsPanel: React.FC = () => {
 
   return (
     <div className="bg-white rounded-md border shadow-sm p-4">
-      <h2 className="font-semibold mb-4">Settings</h2>
+      <h2 className="font-semibold mb-4">Настройки</h2>
       <label className="flex items-center gap-3 text-sm cursor-pointer">
         <input
           type="checkbox"
@@ -253,7 +253,7 @@ const SettingsPanel: React.FC = () => {
           disabled={loading}
           className="w-4 h-4"
         />
-        Auto-provision new devices (skip pending approval)
+        Авто-провижининг новых устройств (без ручного одобрения)
       </label>
     </div>
   );

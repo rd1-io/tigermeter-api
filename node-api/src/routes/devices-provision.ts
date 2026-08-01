@@ -2,7 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { normalizeMac } from '../utils/crypto.js';
 
 export async function devicesProvisionRoutes(app: FastifyInstance) {
-  app.post('/api/devices/provision', {
+  app.post('/devices/provision', {
     schema: {
       tags: ['devices'],
       summary: 'Provision a device (no auth, dev-only)',

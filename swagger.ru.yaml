@@ -127,6 +127,39 @@ paths:
         '404': { description: Не найдено / секрет уже выдан }
         '410': { description: Истёк срок действия }
         '429': { description: Too Many Requests (60/min/IP) }
+  /devices/provision:
+    post:
+      tags: [Device]
+      summary: Предварительная регистрация устройства (dev-only)
+      description: |
+        Dev-эндпоинт: создаёт устройство в статусе `awaiting_claim` по MAC.
+        Без аутентификации — только для отладки/эмулятора, в проде не используется.
+      operationId: provisionDevice
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mac, firmwareVersion]
+              additionalProperties: false
+              properties:
+                mac: { type: string, description: 'MAC адрес, формат AA:BB:CC:DD:EE:FF' }
+                firmwareVersion: { type: string }
+      responses:
+        '201':
+          description: Устройство создано
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string }
+                  mac: { type: string }
+                  status: { type: string }
+        '400': { description: mac required / invalid mac format }
+        '409': { description: device already exists }
   # ================= PORTAL (scope=manage) =================
   /devices:
     get:
@@ -245,6 +278,8 @@ paths:
         Hash совпал → базовая структура без frames. `displayFramesJson IS NULL` →
         `frames:[]` (устройство показывает "waiting for content").
       operationId: heartbeat
+      security:
+        - deviceSecretAuth: []
       parameters:
         - name: id
           in: path
@@ -273,6 +308,8 @@ paths:
       tags: [Device]
       summary: Получить текущий displayHash
       operationId: getDisplayHash
+      security:
+        - deviceSecretAuth: []
       parameters:
         - name: id
           in: path
@@ -294,6 +331,8 @@ paths:
       tags: [Device]
       summary: Получить полные кадры (debug)
       operationId: getDisplayFull
+      security:
+        - deviceSecretAuth: []
       parameters:
         - name: id
           in: path
@@ -317,6 +356,8 @@ paths:
       tags: [Device]
       summary: Обновить секрет устройства
       operationId: refreshSecret
+      security:
+        - deviceSecretAuth: []
       parameters:
         - name: id
           in: path
@@ -350,8 +391,8 @@ paths:
       tags: [Admin]
       summary: Все устройства (все тенанты)
       description: |
-        Оps-список. Включает `tenantId`, `externalUserId` и `displayFramesJson`
-        (ops может смотреть кадры для отладки).
+        Оps-список: все устройства всех тенантов с `tenantId` и `externalUserId`.
+        Кадры устройства — через GET /admin/devices/{id}/display.
       operationId: adminListDevices
       parameters:
         - name: tenantId
@@ -587,7 +628,12 @@ components:
       type: http
       scheme: bearer
       bearerFormat: Service Token
-      description: Service token (sk-...) из SERVICE_TOKENS env. Скоупы: ops / manage.
+      description: 'Service token (sk-...) из SERVICE_TOKENS env. Скоупы: ops / manage.'
+    deviceSecretAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: Device Secret
+      description: Секрет устройства (ds_...), выдаётся при poll после attach.
   schemas:
     # ---------- Display frames ----------
     DisplayFrame:
@@ -660,7 +706,6 @@ components:
         lastSeen: { type: string, format: date-time, nullable: true }
         battery: { type: integer, nullable: true }
         rssi: { type: integer, nullable: true }
-        ip: { type: string, nullable: true }
         firmwareVersion: { type: string, nullable: true }
         autoUpdate: { type: boolean }
         demoMode: { type: boolean }
@@ -671,10 +716,9 @@ components:
       allOf:
         - $ref: '#/components/schemas/Device'
         - type: object
-          description: Ops-поля (только scope=ops)
+          description: Ops-поля (только scope=ops). Кадры устройства — отдельно через GET /admin/devices/{id}/display.
           properties:
             deviceSecretHash: { type: string, nullable: true, description: Хеш текущего секрета }
-            displayFramesJson: { type: string, nullable: true, description: 'JSON DisplayFramesPayload (для отладки)' }
     DevicePatch:
       type: object
       additionalProperties: false

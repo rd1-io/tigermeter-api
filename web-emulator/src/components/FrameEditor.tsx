@@ -9,6 +9,25 @@ const SCALE = 2;
 const LED_COLORS: LedColor[] = ['green', 'red', 'blue', 'yellow', 'cyan', 'magenta', 'white', 'rainbow', 'off'];
 const LED_BRIGHTNESSES: LedBrightness[] = ['low', 'mid', 'high', 'off'];
 
+const LED_COLOR_LABELS: Record<LedColor, string> = {
+  green: 'Зелёный',
+  red: 'Красный',
+  blue: 'Синий',
+  yellow: 'Жёлтый',
+  cyan: 'Голубой',
+  magenta: 'Пурпурный',
+  white: 'Белый',
+  rainbow: 'Радуга',
+  off: 'Выкл',
+};
+
+const LED_BRIGHTNESS_LABELS: Record<LedBrightness, string> = {
+  low: 'Низкая',
+  mid: 'Средняя',
+  high: 'Высокая',
+  off: 'Выкл',
+};
+
 // Pack RGBA image data (WxH) into 1-bit bitmap, MSB-first per byte, 1=white, 0=black
 function packBitmap(pixels: boolean[][]): string {
   const bytes: number[] = [];
@@ -341,7 +360,7 @@ export const FrameEditor: React.FC<FrameEditorProps> = ({ deviceId, scope }) => 
   // Load current from server
   const handleLoadCurrent = async () => {
     if (scope !== 'ops') return;
-    setStatus("Loading...");
+    setStatus("Загрузка...");
     try {
       const resp = await apiClient.getDeviceDisplay(deviceId);
       if (resp.ok) {
@@ -349,19 +368,19 @@ export const FrameEditor: React.FC<FrameEditorProps> = ({ deviceId, scope }) => 
         setFrames(data.frames.length > 0 ? data.frames : [{ ...DEFAULT_FRAME }]);
         setRefreshInterval(data.refreshInterval);
         setActiveFrameIdx(0);
-        setStatus("Loaded");
+        setStatus("Загружено");
       } else {
-        setStatus("No frames yet");
+        setStatus("Кадров пока нет");
       }
     } catch (e: any) {
-      setStatus("Error: " + e.message);
+      setStatus("Ошибка: " + e.message);
     }
   };
 
   // Save to server
   const handleSave = async () => {
     syncFrameBitmap();
-    setStatus("Saving...");
+    setStatus("Сохранение...");
     try {
       const payload: DisplayFramesPayload = {
         frames: frames.filter(f => f.bitmap.length > 0),
@@ -371,13 +390,13 @@ export const FrameEditor: React.FC<FrameEditorProps> = ({ deviceId, scope }) => 
       const resp = await apiClient.setDisplayFrames(deviceId, payload);
       if (resp.ok) {
         const data = await resp.json();
-        setStatus(`Saved! v${data.displayVersion} — ${hash.slice(0, 16)}`);
+        setStatus(`Сохранено! v${data.displayVersion} — ${hash.slice(0, 16)}`);
       } else {
         const err = await resp.json().catch(() => ({}));
-        setStatus(err.message || `Error ${resp.status}`);
+        setStatus(err.message || `Ошибка ${resp.status}`);
       }
     } catch (e: any) {
-      setStatus("Error: " + e.message);
+      setStatus("Ошибка: " + e.message);
     }
   };
 
@@ -410,16 +429,16 @@ export const FrameEditor: React.FC<FrameEditorProps> = ({ deviceId, scope }) => 
           <div className="flex gap-1 mb-2 flex-wrap">
             {(['pencil', 'eraser', 'fill', 'line', 'rect'] as const).map(t => (
               <button key={t} onClick={() => setTool(t)} className={`text-xs px-2 py-1 rounded ${tool === t ? 'bg-blue-600 text-white' : 'bg-neutral-100'}`}>
-                {t === 'pencil' ? '✏️ Draw' : t === 'eraser' ? '🧹 Erase' : t === 'fill' ? '🪣 Fill' : t === 'line' ? '📏 Line' : '▭ Rect'}
+                {t === 'pencil' ? 'Карандаш' : t === 'eraser' ? 'Ластик' : t === 'fill' ? 'Заливка' : t === 'line' ? 'Линия' : 'Прямоугольник'}
               </button>
             ))}
             <button onClick={() => setTool('text')} className={`text-xs px-2 py-1 rounded ${tool === 'text' ? 'bg-blue-600 text-white' : 'bg-neutral-100'}`}>
-              🔤 Text
+              Текст
             </button>
-            <button onClick={handleClear} className="text-xs px-2 py-1 rounded bg-neutral-100">Clear</button>
-            <button onClick={handleInvert} className="text-xs px-2 py-1 rounded bg-neutral-100">Invert</button>
+            <button onClick={handleClear} className="text-xs px-2 py-1 rounded bg-neutral-100">Очистить</button>
+            <button onClick={handleInvert} className="text-xs px-2 py-1 rounded bg-neutral-100">Инверсия</button>
             <label className="text-xs px-2 py-1 rounded bg-neutral-100 cursor-pointer">
-              📷 Import PNG
+              Импорт PNG
               <input type="file" accept="image/png,image/jpeg" onChange={handleImport} className="hidden" />
             </label>
           </div>
@@ -428,11 +447,11 @@ export const FrameEditor: React.FC<FrameEditorProps> = ({ deviceId, scope }) => 
               <input
                 value={textInput}
                 onChange={(e) => setTextInput(e.target.value)}
-                placeholder="Text (click canvas to place)"
+                placeholder="Текст (кликните по холсту для размещения)"
                 className="flex-1 border rounded px-2 py-1 text-xs font-mono"
                 maxLength={60}
               />
-              <span className="text-[11px] text-neutral-500">5x7 font, uppercase</span>
+              <span className="text-[11px] text-neutral-500">шрифт 5×7, верхний регистр</span>
             </div>
           )}
           <canvas
@@ -443,7 +462,7 @@ export const FrameEditor: React.FC<FrameEditorProps> = ({ deviceId, scope }) => 
             onMouseLeave={handleMouseUp}
             style={{ width: WIDTH * SCALE, height: HEIGHT * SCALE, imageRendering: 'pixelated', border: '1px solid #ddd', cursor: previewRunning ? 'default' : 'crosshair' }}
           />
-          <div className="text-xs text-neutral-500 mt-1">384×168 — {WIDTH * HEIGHT / 8}B packed</div>
+          <div className="text-xs text-neutral-500 mt-1">384×168 — {WIDTH * HEIGHT / 8} байт упаковано</div>
         </div>
 
         {/* Frame list + controls */}
@@ -453,47 +472,47 @@ export const FrameEditor: React.FC<FrameEditorProps> = ({ deviceId, scope }) => 
               <span key={i} className={`text-xs px-2 py-1 rounded cursor-pointer flex items-center gap-1 ${
                 i === activeFrameIdx ? 'bg-blue-600 text-white' : 'bg-neutral-100'
               }`}>
-                <span onClick={() => { syncFrameBitmap(); setActiveFrameIdx(i); }}>Frame {i + 1}</span>
-                <button onClick={() => moveFrame(i, -1)} className="text-[10px]">◀</button>
-                <button onClick={() => moveFrame(i, 1)} className="text-[10px]">▶</button>
-                <button onClick={() => deleteFrame(i)} className="text-[10px] text-red-500">✕</button>
+                <span onClick={() => { syncFrameBitmap(); setActiveFrameIdx(i); }}>Кадр {i + 1}</span>
+                <button onClick={() => moveFrame(i, -1)} className="text-[10px]">Влево</button>
+                <button onClick={() => moveFrame(i, 1)} className="text-[10px]">Вправо</button>
+                <button onClick={() => deleteFrame(i)} className="text-[10px] text-red-500">Удалить</button>
               </span>
             ))}
             {frames.length < 8 && (
-              <button onClick={addFrame} className="text-xs px-2 py-1 rounded bg-green-100 text-green-700">+ Add</button>
+              <button onClick={addFrame} className="text-xs px-2 py-1 rounded bg-green-100 text-green-700">+ Добавить</button>
             )}
           </div>
 
           {/* Frame settings */}
           <div className="grid grid-cols-2 gap-2 text-sm">
             <div>
-              <label className="text-xs text-neutral-500">Duration (sec)</label>
+              <label className="text-xs text-neutral-500">Длительность (сек)</label>
               <input type="number" min={1} max={86400} value={frame.durationSec}
                 onChange={e => updateFrame(activeFrameIdx, 'durationSec', parseInt(e.target.value) || 30)}
                 className="w-full border rounded px-2 py-1" />
             </div>
             <div>
-              <label className="text-xs text-neutral-500">LED Color</label>
+              <label className="text-xs text-neutral-500">Цвет LED</label>
               <select value={frame.ledColor} onChange={e => updateFrame(activeFrameIdx, 'ledColor', e.target.value)}
                 className="w-full border rounded px-2 py-1">
-                {LED_COLORS.map(c => <option key={c} value={c}>{c}</option>)}
+                {LED_COLORS.map(c => <option key={c} value={c}>{LED_COLOR_LABELS[c]}</option>)}
               </select>
             </div>
             <div>
-              <label className="text-xs text-neutral-500">LED Brightness</label>
+              <label className="text-xs text-neutral-500">Яркость LED</label>
               <select value={frame.ledBrightness} onChange={e => updateFrame(activeFrameIdx, 'ledBrightness', e.target.value)}
                 className="w-full border rounded px-2 py-1">
-                {LED_BRIGHTNESSES.map(b => <option key={b} value={b}>{b}</option>)}
+                {LED_BRIGHTNESSES.map(b => <option key={b} value={b}>{LED_BRIGHTNESS_LABELS[b]}</option>)}
               </select>
             </div>
             <div className="flex items-end gap-4">
               <label className="flex items-center gap-1 text-xs">
                 <input type="checkbox" checked={frame.beep || false}
                   onChange={e => updateFrame(activeFrameIdx, 'beep', e.target.checked)} />
-                Beep
+                Звук
               </label>
               <div>
-                <label className="text-xs text-neutral-500">Flash</label>
+                <label className="text-xs text-neutral-500">Вспышки</label>
                 <input type="number" min={0} max={10} value={frame.flashCount || 0}
                   onChange={e => updateFrame(activeFrameIdx, 'flashCount', parseInt(e.target.value) || 0)}
                   className="w-16 border rounded px-2 py-1" />
@@ -504,19 +523,19 @@ export const FrameEditor: React.FC<FrameEditorProps> = ({ deviceId, scope }) => 
           {/* Controls */}
           <div className="flex items-center gap-2 mt-2">
             <div>
-              <label className="text-xs text-neutral-500">Refresh Interval (sec)</label>
+              <label className="text-xs text-neutral-500">Интервал обновления (сек)</label>
               <input type="number" min={10} max={3600} value={refreshInterval}
                 onChange={e => setRefreshInterval(parseInt(e.target.value) || 60)}
                 className="w-20 border rounded px-2 py-1 ml-2" />
             </div>
             <button onClick={() => setPreviewRunning(!previewRunning)}
               className={`text-xs px-3 py-1.5 rounded ${previewRunning ? 'bg-orange-100 text-orange-700' : 'bg-neutral-100'}`}>
-              {previewRunning ? '⏹ Stop Preview' : '▶ Preview'}
+              {previewRunning ? 'Стоп' : 'Превью'}
             </button>
             {scope === 'ops' && (
-              <button onClick={handleLoadCurrent} className="text-xs px-3 py-1.5 rounded bg-neutral-100">📥 Load</button>
+              <button onClick={handleLoadCurrent} className="text-xs px-3 py-1.5 rounded bg-neutral-100">Загрузить</button>
             )}
-            <button onClick={handleSave} className="text-xs px-3 py-1.5 rounded bg-blue-600 text-white font-medium">💾 Save to Device</button>
+            <button onClick={handleSave} className="text-xs px-3 py-1.5 rounded bg-blue-600 text-white font-medium">Отправить на устройство</button>
           </div>
 
           {status && <div className="text-xs text-neutral-600">{status}</div>}

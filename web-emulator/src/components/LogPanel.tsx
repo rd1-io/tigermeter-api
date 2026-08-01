@@ -21,18 +21,18 @@ export const LogPanel: React.FC = () => {
   return (
     <div className="bg-white border rounded-md flex flex-col h-80 shadow-sm">
       <div className="px-3 py-2 border-b flex items-center gap-3 text-xs">
-        <span className="font-semibold">API Log</span>
+        <span className="font-semibold">Журнал API</span>
         <span className="text-neutral-500">{entries.length}</span>
         <button
           className="ml-auto text-neutral-500 hover:text-red-600 transition-colors"
           onClick={() => requestLogStore.clear()}
         >
-          Clear
+          Очистить
         </button>
       </div>
       <div className="overflow-auto text-[11px] font-mono leading-snug">
         {entries.length === 0 && (
-          <div className="p-3 text-neutral-400">No requests yet</div>
+          <div className="p-3 text-neutral-400">Запросов пока нет</div>
         )}
         {entries.map((e) => {
           const statusClass = e.error
@@ -56,7 +56,7 @@ export const LogPanel: React.FC = () => {
                 {e.responseStatus !== undefined && (
                   <span className={statusClass}>{e.responseStatus}</span>
                 )}
-                {e.error && <span className="text-red-600">ERR</span>}
+                {e.error && <span className="text-red-600">ОШИБКА</span>}
                 <span className="text-neutral-400">
                   {expanded === e.id ? "−" : "+"}
                 </span>
@@ -64,10 +64,10 @@ export const LogPanel: React.FC = () => {
               {expanded === e.id && (
                 <div className="px-3 pb-2 space-y-1">
                   <div className="text-neutral-600">
-                    Duration: {Math.round(e.durationMs || 0)} ms
+                    Длительность: {Math.round(e.durationMs || 0)} мс
                   </div>
                   <details open>
-                    <summary className="cursor-pointer">Request</summary>
+                    <summary className="cursor-pointer">Запрос</summary>
                     <pre className="bg-neutral-100 p-2 rounded overflow-auto max-h-40 whitespace-pre-wrap">
                       {JSON.stringify(
                         { headers: e.requestHeaders, body: e.requestBody },
@@ -77,7 +77,7 @@ export const LogPanel: React.FC = () => {
                     </pre>
                   </details>
                   <details open>
-                    <summary className="cursor-pointer">Response</summary>
+                    <summary className="cursor-pointer">Ответ</summary>
                     <pre className="bg-neutral-100 p-2 rounded overflow-auto max-h-40 whitespace-pre-wrap">
                       {e.error
                         ? e.error

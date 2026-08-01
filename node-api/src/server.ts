@@ -60,7 +60,7 @@ const buildServer = () => {
   app.register(portalRoutes, { prefix: V5_PREFIX });
   app.register(adminRoutes, { prefix: V5_PREFIX + '/admin' });
   // admin-logos removed
-  app.register(devicesProvisionRoutes);
+  app.register(devicesProvisionRoutes, { prefix: V5_PREFIX });
 
   return app;
 };
