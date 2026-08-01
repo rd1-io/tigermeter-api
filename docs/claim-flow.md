@@ -1,37 +1,37 @@
-# Claim Flow & Secret Issuance (v5)
+# Привязка и выдача секрета (v5)
 
-This document describes the v5 provisioning pipeline — service tokens for attach, no welcome instruction.
+Описание pipeline провизионинга v5: service tokens для attach, без welcome-инструкции.
 
-## Sequence
+## Последовательность
 
-1. Device powers on, no credentials → shows captive portal for WiFi setup
-2. Device calls `POST /api/v5/device-claims` with HMAC (rate‑limited: 20/min/IP)
-3. Server returns `{ code, expiresAt }` (6-digit code, 5-minute TTL)
-4. Device displays the code on e-ink
-5. End user enters the code in the customer's app
-6. Customer backend calls:
+1. Устройство включается, нет учётных данных → captive portal для настройки Wi‑Fi
+2. Устройство вызывает `POST /api/v5/device-claims` с HMAC (rate limit: 20/мин/IP)
+3. Сервер возвращает `{ code, expiresAt }` (6-значный код, TTL 5 минут)
+4. Устройство показывает код на e-ink
+5. Пользователь вводит код в приложении интегратора
+6. Бэкенд интегратора вызывает:
    ```
    POST /api/v5/device-claims/{code}/attach
    Authorization: Bearer <service-token>  (scope=manage)
-   Body: { "externalUserId": "their-internal-id" }
+   Body: { "externalUserId": "внутренний-id-пользователя" }
    ```
-7. Server validates, binds device:
-   - `tenantId` = from service token
-   - `externalUserId` = from body
+7. Сервер валидирует и привязывает устройство:
+   - `tenantId` = из service token
+   - `externalUserId` = из тела запроса
    - `status` = "active"
-   - No welcome instruction (display stays empty until first PUT /display)
-8. Device polls `GET /api/v5/device-claims/{code}/poll` (60/min/IP):
-   - 202 pending (still waiting)
-   - 200 secret (first claimed access → one‑time secret generation)
-   - 404 after secret already issued
-   - 410 expired
-9. Device stores secret, starts heartbeats, shows "waiting for content" until first frames
+   - Welcome-инструкция не создаётся (экран пуст до первого PUT /display)
+8. Устройство опрашивает `GET /api/v5/device-claims/{code}/poll` (60/мин/IP):
+   - 202 pending (ещё ждёт)
+   - 200 secret (первый claimed → одноразовая генерация секрета)
+   - 404 после того, как секрет уже выдан
+   - 410 истёк
+9. Устройство сохраняет секрет, начинает heartbeat, показывает «ожидание контента» до первых кадров
 
-## Attach (v5 change)
+## Attach (изменение в v5)
 
-Attach is performed by **service token** (scope=manage), replacing the old user-JWT flow.
+Attach выполняется **service token** (scope=manage) вместо старого user-JWT flow.
 
-Request:
+Запрос:
 ```
 POST /api/v5/device-claims/{code}/attach
 Authorization: Bearer sk-tigermeter-...
@@ -39,37 +39,42 @@ Content-Type: application/json
 {"externalUserId": "user-12345"}
 ```
 
-Rate limit: **5 attempts per minute per IP** (strict anti-brute-force on 6-digit code).
+Rate limit: **5 попыток в минуту на IP** (защита от перебора 6-значного кода).
 
-## State Transitions
+Ответ (200):
+```json
+{ "deviceId": "uuid", "message": "Attached", "tenantId": "tigermeter" }
+```
 
-| State | Trigger | Next | Notes |
-| ----- | ------- | ---- | ----- |
-| awaiting_claim (Device.status) | Device created (pre-provision or auto-provision) | awaiting_claim | Pre-attach |
-| pending (Claim.status) | Issue | pending | TTL countdown |
-| claimed | Attach (service token) | claimed | tenantId + externalUserId set, no secret yet |
-| active (Device.status) | First successful poll (secret issued) | active | Secret hashed & stored |
+## Переходы состояний
 
-## One‑Time Secret Generation
+| Состояние | Триггер | Следующее | Примечания |
+| --------- | ------- | --------- | ---------- |
+| awaiting_claim (Device.status) | Устройство создано (pre-provision или auto-provision) | awaiting_claim | До attach |
+| pending (Claim.status) | Issue | pending | Обратный отсчёт TTL |
+| claimed | Attach (service token) | claimed | tenantId + externalUserId установлены, секрета ещё нет |
+| active (Device.status) | Первый успешный poll (секрет выдан) | active | Секрет захеширован и сохранён |
 
-- Happens inside poll handler when `status === claimed` and `secretIssued === false`.
-- Device secret: prefix `ds_` + hex random bytes.
-- Response body (200): `{ deviceId, deviceSecret, displayHash, expiresAt }`.
-- Subsequent poll of same code → 404 (prevents replay).
+## Одноразовая генерация секрета
 
-## Error Examples
+- Происходит в обработчике poll, когда `status === claimed` и `secretIssued === false`.
+- Секрет устройства: префикс `ds_` + случайные hex-байты.
+- Тело ответа (200): `{ deviceId, deviceSecret, displayHash, expiresAt }`.
+- Повторный poll того же кода → 404 (защита от replay).
+
+## Примеры ошибок
 
 ```jsonc
-// Expired code
+// Истёкший код
 { "message": "Expired code" }
-// Invalid code on attach
+// Неверный код при attach
 { "message": "Invalid code" }
-// Already claimed on attach
+// Уже привязан при attach
 { "message": "Already claimed" }
-// Invalid service token
+// Неверный service token
 { "message": "Missing service token" }
-// Wrong scope on attach (manage required)
+// Неверный scope при attach (нужен manage)
 { "message": "Forbidden" }
-// Rate limited
+// Rate limit
 { "message": "Too Many Requests" }
 ```

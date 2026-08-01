@@ -2,26 +2,26 @@ openapi: 3.0.0
 info:
   title: TigerMeter Cloud API v5
   description: |
-    API v5 — bitmap display microservice. Pure frame-delivery gateway:
-    the customer backend pushes pre-rendered 1-bit frames (384x168), devices
-    pull them on heartbeat and rotate locally by `durationSec`.
+    API v5 — микросервис доставки bitmap на e-paper. Шлюз кадров:
+    бэкенд интегратора отправляет готовые 1-bit кадры (384×168), устройства
+    забирают их на heartbeat и локально крутят по `durationSec`.
 
-    All routes are prefixed with `/api/v5/`. Old unversioned routes (v2, text
-    instructions, user JWT) were removed.
+    Все маршруты с префиксом `/api/v5/`. Старые неверсионированные маршруты
+    (v2, текстовые инструкции, user JWT) удалены.
 
-    Auth:
-    - Service tokens (`Authorization: Bearer sk-...`) — configured via
-      `SERVICE_TOKENS` env, scopes: `ops` (full fleet admin) / `manage`
-      (tenant-scoped control plane).
-    - Device secret (`Authorization: Bearer ds_...`) — device heartbeat.
-    - No user JWTs.
+    Аутентификация:
+    - Service tokens (`Authorization: Bearer sk-...`) — через env
+      `SERVICE_TOKENS`, scope: `ops` (полный admin флота) / `manage`
+      (control plane в рамках tenant).
+    - Device secret (`Authorization: Bearer ds_...`) — heartbeat устройства.
+    - User JWT не используется.
   version: 5.0.0
   x-language: ru
 servers:
   - url: https://api-tiger.rd1.io/api/v5
-    description: Prod
+    description: Прод
   - url: http://localhost:3001/api/v5
-    description: Local
+    description: Локально
 security:
   - serviceAuth: []
 tags:
@@ -55,10 +55,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ClaimCodeIssueResponse'
-        '400': { description: 'mac required / invalid mac format / hmac and timestamp required' }
-        '401': { description: invalid hmac }
-        '404': { description: device not found (auto-provision off) }
-        '429': { description: Too Many Requests (20/min/IP) }
+        '400': { description: 'mac обязателен / неверный формат MAC / hmac и timestamp обязательны' }
+        '401': { description: Неверный HMAC }
+        '404': { description: Устройство не найдено (auto-provision выключен) }
+        '429': { description: Слишком много запросов (20/мин/IP) }
   /device-claims/{code}/attach:
     post:
       tags: [Portal]
@@ -89,11 +89,11 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AttachResponse'
-        '400': { description: 'Invalid code / Expired code' }
-        '401': { description: Missing or invalid service token }
-        '403': { description: 'Scope manage required' }
-        '409': { description: Already claimed }
-        '429': { description: Too Many Requests (5/min/IP) }
+        '400': { description: 'Неверный код / истёкший код' }
+        '401': { description: Service token отсутствует или неверный }
+        '403': { description: 'Требуется scope manage' }
+        '409': { description: Уже привязан }
+        '429': { description: Слишком много запросов (5/мин/IP) }
   /device-claims/{code}/poll:
     get:
       tags: [Device]
@@ -126,7 +126,7 @@ paths:
                   status: { type: string, enum: [pending] }
         '404': { description: Не найдено / секрет уже выдан }
         '410': { description: Истёк срок действия }
-        '429': { description: Too Many Requests (60/min/IP) }
+        '429': { description: Слишком много запросов (60/мин/IP) }
   /devices/provision:
     post:
       tags: [Device]
@@ -158,8 +158,8 @@ paths:
                   id: { type: string }
                   mac: { type: string }
                   status: { type: string }
-        '400': { description: mac required / invalid mac format }
-        '409': { description: device already exists }
+        '400': { description: mac обязателен / неверный формат MAC }
+        '409': { description: Устройство уже существует }
   # ================= PORTAL (scope=manage) =================
   /devices:
     get:
@@ -176,7 +176,7 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/Device'
-        '401': { description: Missing or invalid service token }
+        '401': { description: Service token отсутствует или неверный }
   /devices/{id}:
     get:
       tags: [Portal]
@@ -217,7 +217,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/DevicePatchResponse'
-        '400': { description: No fields to update / validation error }
+        '400': { description: Нет полей для обновления / ошибка валидации }
         '404': { description: Не найдено или чужой тенант }
   /devices/{id}/display:
     put:
@@ -300,9 +300,9 @@ paths:
                 oneOf:
                   - $ref: '#/components/schemas/HeartbeatBase'
                   - $ref: '#/components/schemas/HeartbeatWithFrames'
-        '401': { description: Invalid or expired secret }
-        '403': { description: Device revoked }
-        '404': { description: Device not found }
+        '401': { description: Секрет неверный или истёк }
+        '403': { description: Устройство отозвано }
+        '404': { description: Устройство не найдено }
   /devices/{id}/display/hash:
     get:
       tags: [Device]
@@ -324,8 +324,8 @@ paths:
                 type: object
                 properties:
                   hash: { type: string, description: Хеш текущих кадров (может быть пустым) }
-        '401': { description: Invalid or expired secret }
-        '404': { description: Device not found }
+        '401': { description: Секрет неверный или истёк }
+        '404': { description: Устройство не найдено }
   /devices/{id}/display/full:
     get:
       tags: [Device]
@@ -370,8 +370,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ClaimPollClaimed'
-        '401': { description: Invalid or expired secret }
-        '404': { description: Device not found }
+        '401': { description: Секрет неверный или истёк }
+        '404': { description: Устройство не найдено }
   # ================= ADMIN (scope=ops) =================
   /admin/me:
     get:
@@ -385,7 +385,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/MeResponse'
-        '401': { description: Missing or invalid service token }
+        '401': { description: Service token отсутствует или неверный }
   /admin/devices:
     get:
       tags: [Admin]
@@ -418,8 +418,8 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/DeviceAdmin'
-        '401': { description: Missing or invalid service token }
-        '403': { description: Scope ops required }
+        '401': { description: Service token отсутствует или неверный }
+        '403': { description: Требуется scope ops }
   /admin/devices/{id}/display:
     get:
       tags: [Admin]
@@ -498,7 +498,7 @@ paths:
                 type: object
                 properties:
                   queued: { type: boolean, example: true }
-        '400': { description: Device must be active to queue factory reset }
+        '400': { description: Для factory reset устройство должно быть active }
         '404': { description: Не найдено }
   /admin/devices/{id}/settings:
     patch:
@@ -601,7 +601,7 @@ paths:
                       mac: { type: string }
                       tenantId: { type: string }
         '404': { description: Не найдено }
-        '409': { description: Already processed }
+        '409': { description: Уже обработано }
   /admin/pending-devices/{id}/reject:
     post:
       tags: [Admin]
@@ -701,7 +701,7 @@ components:
         mac: { type: string }
         name: { type: string, nullable: true, description: Человекочитаемая метка }
         tenantId: { type: string, nullable: true, description: Из service token при attach }
-        externalUserId: { type: string, nullable: true, description: Opaque id клиента }
+        externalUserId: { type: string, nullable: true, description: Произвольный id клиента }
         status: { type: string, enum: [awaiting_claim, active, revoked] }
         lastSeen: { type: string, format: date-time, nullable: true }
         battery: { type: integer, nullable: true }
@@ -791,7 +791,7 @@ components:
               type: array
               items:
                 $ref: '#/components/schemas/DisplayFrame'
-              description: 'Пустой массив = "waiting for content"'
+              description: 'Пустой массив = «ожидание контента»'
             refreshInterval: { type: integer }
             displayHash: { type: string, nullable: true }
     # ---------- Claims ----------
@@ -815,7 +815,7 @@ components:
       required: [externalUserId]
       additionalProperties: false
       properties:
-        externalUserId: { type: string, maxLength: 128, description: Opaque id пользователя клиента }
+        externalUserId: { type: string, maxLength: 128, description: Произвольный id пользователя клиента }
     AttachResponse:
       type: object
       properties:
@@ -827,7 +827,7 @@ components:
       description: Одноразовый ответ; содержит секрет (только первый poll после attach)
       properties:
         deviceId: { type: string }
-        deviceSecret: { type: string, description: Plaintext секрет (показывается один раз) }
+        deviceSecret: { type: string, description: Секрет в открытом виде (показывается один раз) }
         displayHash: { type: string, nullable: true }
         expiresAt: { type: string, format: date-time }
     # ---------- Admin ----------

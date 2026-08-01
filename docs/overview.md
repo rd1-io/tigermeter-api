@@ -1,54 +1,54 @@
-# TigerMeter Cloud API Documentation
+# Документация TigerMeter Cloud API
 
-This folder provides focused, task‑oriented guidance that complements the main `README.md` (concepts + diagrams) and `swagger.ru.yaml` (formal schema). Use these docs when implementing devices, portal integrations, or administrative tooling.
+Эта папка дополняет основной `README.md` (концепции и диаграммы) и `swagger.ru.yaml` (формальная схема). Используйте эти документы при интеграции устройств, бэкенда интегратора или ops-инструментов.
 
-## Contents
-- claim-flow.md — End‑to‑end device provisioning (issue → attach → poll → heartbeat)
-- errors.md — Canonical error patterns & sample payloads
-- overview.md — (this) Structure & navigation
+## Содержание
+- claim-flow.md — полный цикл провизионинга (issue → attach → poll → heartbeat)
+- errors.md — типовые ошибки и примеры ответов
+- overview.md — (этот файл) структура и навигация
 
-## Source of Truth Hierarchy
-1. `swagger.ru.yaml` — Path/method contracts & schemas (v5, `/api/v5/` prefix)
-2. Runtime behavior (code in `node-api/src/routes`) — Execution semantics
-3. `/docs/*.md` — Explanatory, non-authoritative narrative
+## Иерархия источников истины
+1. `swagger.ru.yaml` — контракты путей/методов и схемы (v5, префикс `/api/v5/`)
+2. Поведение рантайма (код в `node-api/src/routes`) — семантика выполнения
+3. `/docs/*.md` — пояснительный текст, не является авторитетным контрактом
 
-## Quick Start Sequence (Device + Tenant)
-1. Device: `POST /api/v5/device-claims` → get claim `code` (HMAC)
-2. Tenant backend: `POST /api/v5/device-claims/{code}/attach` (service token, scope=manage) with `{externalUserId}`
-3. Device polls: `GET /api/v5/device-claims/{code}/poll` until 200 → obtain `deviceSecret`
-4. Device heartbeats: `POST /api/v5/devices/{id}/heartbeat` with Bearer secret
-5. Tenant pushes bitmap frames: `PUT /api/v5/devices/{id}/display`
-6. Device receives new frames on next heartbeat (hash mismatch)
+## Быстрый старт (устройство + интегратор)
+1. Устройство: `POST /api/v5/device-claims` → получить код привязки (HMAC)
+2. Бэкенд интегратора: `POST /api/v5/device-claims/{code}/attach` (service token, scope=manage) с `{externalUserId}`
+3. Устройство опрашивает: `GET /api/v5/device-claims/{code}/poll` до 200 → получить `deviceSecret`
+4. Heartbeat устройства: `POST /api/v5/devices/{id}/heartbeat` с Bearer-секретом
+5. Интегратор отправляет bitmap-кадры: `PUT /api/v5/devices/{id}/display`
+6. Устройство получает новые кадры при следующем heartbeat (несовпадение hash)
 
-See `claim-flow.md` for deeper timing, state machine, and one‑time secret issuance logic.
+Подробнее о таймингах, state machine и одноразовой выдаче секрета — в `claim-flow.md`.
 
-## Display Hash Generation (Summary)
-- Canonicalization: recursive sorted-keys JSON (`displayPayloadHash` in `src/utils/crypto.ts`)
-- Hash format: `sha256:<hex>`
-- Hash covers ALL fields including `beep`/`flashCount` (no strip logic)
-- Device sends its known `displayHash` on heartbeat; server returns frames only on mismatch
+## Формирование display hash (кратко)
+- Канонизация: JSON с рекурсивно отсортированными ключами (`displayPayloadHash` в `src/utils/crypto.ts`)
+- Формат hash: `sha256:<hex>`
+- Hash включает все поля, в том числе `beep`/`flashCount` (логики strip нет)
+- Устройство передаёт известный `displayHash` в heartbeat; сервер отдаёт кадры только при несовпадении
 
-## Stability Guarantees
-| Aspect | Guarantee | Notes |
-| ------ | --------- | ----- |
-| Claim code TTL | ~5 minutes | Config: `claimCodeTtlSeconds` |
-| Device secret TTL | 90 days | Configurable; refresh overlap window ~5 min |
-| One‑time secret reveal | Enforced | Subsequent poll → 404 |
-| Display hash immutability | Stable per frame set | New PUT → new hash |
-| Heartbeat idempotence | Yes | Same `displayHash` → `{ ok: true }` (no frames) |
-| Attach rate limit | 5/min/IP | Anti-brute-force on 6-digit code |
+## Гарантии стабильности
+| Аспект | Гарантия | Примечания |
+| ------ | -------- | ---------- |
+| TTL кода привязки | ~5 минут | Конфиг: `claimCodeTtlSeconds` |
+| TTL секрета устройства | 90 дней | Настраивается; окно перекрытия при refresh ~5 мин |
+| Одноразовая выдача секрета | Да | Повторный poll → 404 |
+| Неизменность display hash | Стабилен для набора кадров | Новый PUT → новый hash |
+| Идемпотентность heartbeat | Да | Тот же `displayHash` → `{ ok: true }` (без кадров) |
+| Rate limit attach | 5/мин/IP | Защита от перебора 6-значного кода |
 
-## Security Roadmap (Upcoming)
-- Rate limit metrics & alerting
-- Optional device public key pair bootstrapping for forward secrecy
-- Replay guard for HMAC timestamp window (mac + minute bucket dedupe)
-- Secret refresh audit ledger
+## Дорожная карта безопасности (планируется)
+- Метрики rate limit и алерты
+- Опциональная пара ключей устройства для forward secrecy
+- Защита от replay для окна HMAC timestamp (dedupe mac + minute bucket)
+- Аудит-лог refresh секрета
 
-HMAC on claim issuance is enforced by default.
+HMAC при выдаче claim-кода включён по умолчанию.
 
-## Related Files
-- `prisma/schema.prisma` — Persistent model (`Device`, `DeviceClaim`, `PendingDevice`, `Setting`)
-- `src/routes/device-claims.ts` — Claim endpoints (lazy secret generation, tenant attach)
-- `src/routes/devices.ts` — Device‑authenticated endpoints (heartbeat, display hash/full, refresh)
-- `src/routes/portal.ts` — Tenant control plane (scope=manage): devices CRUD, PUT display
-- `src/routes/admin.ts` — Ops plane (scope=ops): fleet, pending, settings, factory-reset
+## Связанные файлы
+- `prisma/schema.prisma` — модель данных (`Device`, `DeviceClaim`, `PendingDevice`, `Setting`)
+- `src/routes/device-claims.ts` — claim-эндпоинты (ленивая выдача секрета, attach тенанта)
+- `src/routes/devices.ts` — эндпоинты с auth устройства (heartbeat, display hash/full, refresh)
+- `src/routes/portal.ts` — control plane тенанта (scope=manage): CRUD устройств, PUT display
+- `src/routes/admin.ts` — ops-плоскость (scope=ops): флот, pending, настройки, factory-reset

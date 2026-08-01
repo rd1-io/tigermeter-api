@@ -1,13 +1,13 @@
 # TigerMeter
 
-Pure frame-delivery gateway: a thin microservice that pushes pre-rendered 1-bit bitmaps to e-paper devices. The service knows nothing about tickers, quotes, fonts, or layout — the customer backend renders the content.
+Шлюз доставки кадров: тонкий микросервис, который отправляет на e-paper устройства заранее отрендеренные 1-bit bitmap. Сервис не знает о тикерах, котировках, шрифтах и вёрстке — контент рисует бэкенд интегратора.
 
-## Quick Links
+## Быстрые ссылки
 
-- **Flash Firmware**: https://rd1-io.github.io/tigermeter-api/
-- **API Docs**: `docs/overview.md`
+- **Прошивка через браузер**: https://rd1-io.github.io/tigermeter-api/
+- **Документация API**: `docs/overview.md`
 - **Swagger**: `swagger.ru.yaml`
-- **Web Admin**: web-emulator (Vite/React app, replaces old web-emulator)
+- **Web Admin**: web-emulator (Vite/React, заменяет старый web-emulator)
 
 ## Основные команды
 
@@ -22,35 +22,35 @@ make firmware-release # Собрать прошивку, запушить (ве�
 
 ## Концепция (v5)
 
-- **Customer backend** (`tigermeter` — single tenant) pushes **frames**: pre-rendered 1-bit bitmaps via service-token auth.
-- **Device** pulls frames on heartbeat, **rotates them locally** by per-frame `durationSec`.
-- **Web admin** (this repo) is an **ops + demo tool** for the firmware author: fleet overview, pending approve, frame editor for testing. The customer builds their own admin on top of the same API.
-- Partial update: one `displayHash` over the canonical frame payload; heartbeat returns frames only when hash changed.
+- **Бэкенд интегратора** (`tigermeter` — один tenant) отправляет **кадры**: готовые 1-bit bitmap через service-token auth.
+- **Устройство** забирает кадры на heartbeat и **локально крутит** их по `durationSec` каждого кадра.
+- **Web admin** (этот репозиторий) — **ops + demo** для автора прошивки: обзор флота, approve pending, редактор кадров для тестов. Интегратор строит свой кабинет поверх того же API.
+- Partial update: один `displayHash` на канонический payload кадров; heartbeat отдаёт кадры только при смене hash.
 
 ```mermaid
 sequenceDiagram
-    participant Cust as Customer Backend<br/>(tigermeter)
+    participant Cust as Бэкенд интегратора<br/>(tigermeter)
     participant API as tigermeter-api
-    participant Device
+    participant Device as Устройство
     Cust->>API: PUT /api/v5/devices/{id}/display (frames[])  [service token, scope=manage]
     API->>API: displayHash = sha256(canonical(frames + refreshInterval))
     API-->>Cust: 200 {displayHash, displayVersion}
     Device->>API: POST /api/v5/devices/{id}/heartbeat {displayHash: old}  [device secret]
     API-->>Device: 200 {frames[], refreshInterval, displayHash: new}
-    Device->>Device: rotate frames locally by durationSec
+    Device->>Device: локальная ротация кадров по durationSec
     Device->>API: POST /api/v5/devices/{id}/heartbeat {displayHash: new}
-    API-->>Device: 200 {ok:true}  (no payload)
+    API-->>Device: 200 {ok:true}  (без payload)
 ```
 
-## Display resolution
+## Разрешение экрана
 
-Confirmed `GDEY029T71H` = **384x168 landscape mono**. One frame = 384*168/8 = **8064 bytes** packed 1-bit; ~10.7 KB as base64. Cap frame count at **8** to bound ESP32 RAM (~64 KB for 8 raw frames).
+Подтверждено: `GDEY029T71H` = **384×168 landscape mono**. Один кадр = 384×168/8 = **8064 байт** packed 1-bit; ~10.7 KB в base64. Лимит кадров — **8** (ограничение RAM ESP32, ~64 KB на 8 сырых кадров).
 
 ## API v5
 
-All routes are prefixed with **`/api/v5/`**. Old unversioned routes were removed in the same deploy (no legacy support needed — no production users yet).
+Все маршруты с префиксом **`/api/v5/`**. Старые неверсионированные маршруты удалены в том же деплое (legacy не нужен — production-пользователей ещё нет).
 
-### Display payload (PUT /api/v5/devices/:id/display)
+### Payload display (PUT /api/v5/devices/:id/display)
 
 ```json
 {
@@ -68,33 +68,35 @@ All routes are prefixed with **`/api/v5/`**. Old unversioned routes were removed
 }
 ```
 
-- `bitmap`: packed 1-bit 384x168, row-major, MSB-first (1=white, 0=black). Device draws full-screen, no composition.
-- `ledColor` / `ledBrightness` / `durationSec` / `beep` / `flashCount` are **per-frame**.
-- `refreshInterval`: heartbeat cadence in seconds.
+- `bitmap`: packed 1-bit 384×168, row-major, MSB-first (1=белый, 0=чёрный). Устройство рисует на весь экран, без композиции.
+- `ledColor` / `ledBrightness` / `durationSec` / `beep` / `flashCount` — **на каждый кадр**.
+- `refreshInterval`: период heartbeat в секундах.
 
-#### Validation rules (PUT)
+#### Правила валидации (PUT)
 
-Server rejects with 400 if any of:
-- `frames` missing, not an array, length `0` or `> 8`
-- any `bitmap` invalid base64 or decodes to ≠ **8064 bytes**
-- `durationSec` not integer or outside `1..86400`
-- `refreshInterval` not integer or outside `10..3600`
-- `ledColor` not in `{green, red, blue, yellow, cyan, magenta, white, rainbow, off}`
-- `ledBrightness` not in `{low, mid, high, off}`
-- `flashCount` not integer or outside `0..10`
-- `beep` not boolean
+Сервер отвечает 400, если:
+- `frames` отсутствует, не массив, длина `0` или `> 8`
+- любой `bitmap` — невалидный base64 или декодируется не в **8064 байт**
+- `durationSec` не целое или вне `1..86400`
+- `refreshInterval` не целое или вне `10..3600`
+- `ledColor` не из `{green, red, blue, yellow, cyan, magenta, white, rainbow, off}`
+- `ledBrightness` не из `{low, mid, high, off}`
+- `flashCount` не целое или вне `0..10`
+- `beep` не boolean
 
-Unknown keys are **rejected** (`z.strict()`).
+Неизвестные ключи **отклоняются** (`z.strict()`).
 
-#### Hash semantics
+**Тело PUT** содержит только `frames` и `refreshInterval` — `displayHash` и `displayVersion` считает сервер. Ответ: `{ displayHash, displayVersion }`.
 
-`displayHash = "sha256:" + hex( sha256( canonical(frames + refreshInterval) ) )` where `canonical` = recursive sorted-keys JSON (see `displayPayloadHash` in `node-api/src/utils/crypto.ts`).
+#### Семантика hash
 
-**Hash includes one-shot fields (`beep`, `flashCount`).** No strip logic. If the customer wants to re-beep, they PUT the same frames with `beep:true` again — this produces a new hash, device re-downloads, beeps, and treats one-shot fields as consumed locally. Cost: one extra ~10KB-per-frame download per re-beep.
+`displayHash = "sha256:" + hex( sha256( canonical(frames + refreshInterval) ) )`, где `canonical` = JSON с рекурсивно отсортированными ключами (см. `displayPayloadHash` в `node-api/src/utils/crypto.ts`).
 
-### Auth model
+**Hash включает one-shot поля (`beep`, `flashCount`).** Логики strip нет. Чтобы повторить beep, нужен повторный PUT с теми же кадрами и `beep:true` — это новый hash, устройство снова скачивает кадры и локально «потребляет» one-shot поля. Стоимость: ~10 KB на кадр за каждый повторный beep.
 
-#### Service tokens (env config, no DB)
+### Модель auth
+
+#### Service tokens (env, без БД)
 
 ```bash
 # .env
@@ -104,45 +106,45 @@ SERVICE_TOKENS='[
 ]'
 ```
 
-- Loaded at boot in `node-api/src/config.ts` via zod; fail-fast on parse error.
-- `requireService(request)` reads `Authorization: Bearer <token>`, looks up in the list, attaches `request.serviceAuth = { tenantId, scope }`.
-- Two scopes:
-  - **`ops`** — full access: all devices regardless of tenant, pending approve/reject, factory reset, delete, settings, view frames of any device (for debugging).
-  - **`manage`** — scoped to own tenant: CRUD on devices where `Device.tenantId = <tenant>`, PUT display, PATCH settings. Cannot see other tenants' devices (404, not 403 — don't leak existence).
+- Загружаются при старте в `node-api/src/config.ts` через zod; fail-fast при ошибке парсинга.
+- `requireService(request)` читает `Authorization: Bearer <token>`, ищет в списке, проставляет `request.serviceAuth = { tenantId, scope }`.
+- Два scope:
+  - **`ops`** — полный доступ: все устройства любого tenant, approve/reject pending, factory reset, delete, settings, просмотр кадров любого устройства (отладка).
+  - **`manage`** — только свой tenant: CRUD устройств с `Device.tenantId = <tenant>`, PUT display, PATCH settings. Чужие устройства не видны (404, не 403 — не раскрываем существование).
 
-Since there's exactly one tenant (`tigermeter`) today, the implementation uses plain string equality on `tenantId`. The schema already supports a second customer.
+Сейчас один tenant (`tigermeter`); сравнение по `tenantId` — строковое равенство. Схема уже готова ко второму клиенту.
 
-#### Device auth
+#### Auth устройства
 
-`requireDevice` (device-secret JWT) unchanged.
+`requireDevice` (device-secret) без изменений.
 
-#### User JWT — REMOVED
+#### User JWT — УДАЛЁН
 
-`requireUser` / `requireAdmin` decorators are deleted. The admin UI logs in with a service token directly (paste-once, stored in localStorage). There are no human users of this API — only services.
+Декораторы `requireUser` / `requireAdmin` удалены. Admin UI логинится service token напрямую (вставить один раз, хранится в localStorage). «Человеческих» пользователей API нет — только сервисы.
 
-### Claim flow (device generates code, tenant attaches)
+### Claim flow (код генерирует устройство, attach делает интегратор)
 
 ```
-1. Device powers on, no WiFi credentials → AP mode + captive portal
-2. User configures WiFi via captive portal (unchanged)
-3. Device calls POST /api/v5/device-claims {mac, firmwareVersion, hmac} → gets {code, expiresAt}
-4. Device displays the 6-digit code on e-ink (unchanged)
-5. End user enters the code in the customer's app
-6. Customer backend calls:
+1. Устройство включается, нет WiFi → AP + captive portal
+2. Пользователь настраивает WiFi через captive portal (без изменений)
+3. Устройство: POST /api/v5/device-claims {mac, firmwareVersion, hmac} → {code, expiresAt}
+4. Устройство показывает 6-значный код на e-ink (без изменений)
+5. Пользователь вводит код в приложении интегратора
+6. Бэкенд интегратора:
      POST /api/v5/device-claims/:code/attach
      Authorization: Bearer <tigermeter-token>
-     Body: {"externalUserId": "their-internal-user-id"}
-7. Server validates code, binds device:
-     Device.tenantId = "tigermeter"  (from service token)
-     Device.externalUserId = "their-internal-user-id"
+     Body: {"externalUserId": "внутренний-id-пользователя"}
+7. Сервер валидирует код, привязывает устройство:
+     Device.tenantId = "tigermeter"  (из service token)
+     Device.externalUserId = "внутренний-id-пользователя"
      Device.status = "active"
-8. Device polls claim status on next heartbeat (or GET /device-claims/:code/poll), sees "claimed", stops showing code
-9. Customer pushes first frames → device shows content
+8. Устройство на следующем heartbeat/poll видит "claimed", перестаёт показывать код
+9. Интегратор отправляет первые кадры → устройство показывает контент
 ```
 
-**Composite ownership key:** `Device` has `tenantId` (from service token) + `externalUserId` (opaque string from customer). Tenant-scoped queries filter `WHERE tenantId = ?`. The `externalUserId` is purely informational and shows up in ops admin for debugging.
+**Составной ключ владения:** у `Device` есть `tenantId` (из service token) + `externalUserId` (opaque строка от клиента). Запросы tenant фильтруют `WHERE tenantId = ?`. `externalUserId` — справочное поле, видно в ops admin для отладки.
 
-**Rate limit:** `POST /device-claims/:code/attach` gets a strict rate limit (5 attempts/minute per IP) to prevent 6-digit brute force. Codes expire after 15 minutes.
+**Rate limit:** `POST /device-claims/:code/attach` — строгий лимит (5 попыток/мин/IP) против перебора 6-значного кода. Коды живут **5 минут** (`claimCodeTtlSeconds: 300`).
 
 ## Прошивка устройства
 
@@ -174,48 +176,49 @@ make firmware-release  # Собрать прошивку и запушить (в
 
 Доступ к проду настроен через GitHub secrets (см. репозиторий → Settings → Secrets): `PVE_HOST`, `PVE_PORT`, `PVE_USER`, `PVE_SSH_KEY`.
 
-Локально ничего настраивать не нужно — просто пушите в `main`.
+Локально ничего настраивать не нужно — достаточно пушить в `main`.
 
 ## Экраны устройства
 
-### Системные экраны (firmware-rendered, text)
-- Приветствие / Wi-Fi Setup (captive portal)
+### Системные экраны (текст, рисует прошивка)
+- Приветствие / Wi‑Fi Setup (captive portal)
 - Код привязки (Claim)
 - Низкий заряд батареи
 - Нет сети / Reconnecting
-- "Waiting for content" — до первого PUT /display
+- «Ожидание контента» — до первого PUT /display
 
 ### Основной контент
-Полностью bitmap-кадры, присылаемые с сервера. Устройство не рендерит текст/логотипы на основном экране — только рисует 1-bit bitmap полный экран и крутит кадры по `durationSec`.
+Полностью bitmap-кадры с сервера. На основном экране устройство не рендерит текст и логотипы — только 1-bit bitmap на весь экран и ротация по `durationSec`.
 
 ## Web Admin (web-emulator)
 
-Replaces the old web-emulator. Ops + demo tool: fleet management + frame editor for testing.
+Заменяет старый web-emulator. Ops + demo: управление флотом и редактор кадров для тестов.
 
 ### Auth
-- `/login` — paste service token (stored in localStorage). Server exposes `GET /api/v5/admin/me` → `{tenantId, scope}`.
-- No user JWT anywhere.
+- `/login` — вставить service token (localStorage). Сервер: `GET /api/v5/admin/me` → `{tenantId, scope}`.
+- User JWT нигде не используется.
 
-### Routes / views
-- `/devices` — all devices (ops). Columns: name, mac, tenantId, externalUserId, status, lastSeen, battery, firmwareVersion, displayHash, displayVersion. Row click → device detail.
-- Device detail — tabs: **Overview** (telemetry, name edit, autoUpdate/demoMode toggles, revoke/factory-reset/delete), **Frames** (editor), **Activity** (heartbeat log polling).
-- `/pending` — approve/reject. Approve modal asks for `tenantId` (default `"tigermeter"`).
-- `/settings` — auto-provision toggle.
+### Маршруты / экраны
+- `/devices` — все устройства (ops). Колонки: name, mac, tenantId, externalUserId, status, lastSeen, battery, firmwareVersion, displayHash, displayVersion. Клик по строке → карточка устройства.
+- Карточка устройства — вкладки: **Overview** (телеметрия, имя, autoUpdate/demoMode, revoke/factory-reset/delete), **Frames** (редактор), **Activity** (лог heartbeat).
+- `/pending` — approve/reject. В модалке approve — `tenantId` (по умолчанию `"tigermeter"`).
+- `/settings` — переключатель auto-provision.
 
-### Frame editor
-- Canvas 384x168, 1-bit, 2x nearest-neighbor scale.
-- Tools: pencil, eraser, fill, clear, invert. PNG import → client-side resize + Floyd-Steinberg dithering.
-- Frame list (up to 8): per-frame `durationSec`, `ledColor`, `ledBrightness`, `beep`, `flashCount`; reorder; duplicate; delete.
-- Preview: plays rotation at real speed.
-- Save: convert canvases → packed base64 → build payload → PUT `/api/v5/devices/:id/display`.
-- Load current: GET `/api/v5/admin/devices/:id/display` (ops only).
+### Редактор кадров
+- Canvas 384×168, 1-bit, масштаб 2× nearest-neighbor.
+- Инструменты: карандаш, ластик, заливка, очистка, инверсия. Импорт PNG → resize на клиенте + Floyd-Steinberg dithering.
+- Список кадров (до 8): на каждый — `durationSec`, `ledColor`, `ledBrightness`, `beep`, `flashCount`; reorder, duplicate, delete.
+- Preview: ротация в реальном tempo.
+- Save: canvas → packed base64 → payload → PUT `/api/v5/devices/:id/display`.
+- Load: GET `/api/v5/admin/devices/:id/display` (только ops).
 
 ## Документация
 
+- `docs/proposal-display-service.md` — краткое предложение для интегратора (суть подхода)
 - `docs/overview.md` — обзор, иерархия источников истины, быстрый старт
-- `docs/claim-flow.md` — детальный flow привязки и одноразовой выдачи секрета
+- `docs/claim-flow.md` — flow привязки и одноразовой выдачи секрета
 - `docs/errors.md` — каталог типовых ошибок и обработка на клиенте
-- `swagger.ru.yaml` — формальная OpenAPI спецификация
+- `swagger.ru.yaml` — формальная OpenAPI-спецификация
 
 ## Локальный запуск API (Node/Fastify) и примеры curl
 
@@ -236,7 +239,7 @@ export SERVICE_TOKEN=sk-tigermeter-XXX   # scope=manage (см. SERVICE_TOKENS в
 export OPS_TOKEN=sk-ops-XXX              # scope=ops
 ```
 
-- **1) Device Claim: запрос кода** (HMAC-подпись обычно генерирует прошивка):
+- **1) Device Claim: запрос кода** (HMAC обычно генерирует прошивка):
 ```bash
 CODE=$(curl -s "$BASE/api/v5/device-claims" \
   -H 'content-type: application/json' \
@@ -244,7 +247,7 @@ CODE=$(curl -s "$BASE/api/v5/device-claims" \
 echo "CODE=$CODE"
 ```
 
-- **2) Tenant Attach: привязать код (service token, scope=manage)**:
+- **2) Attach: привязать код (service token, scope=manage)**:
 ```bash
 curl -s "$BASE/api/v5/device-claims/$CODE/attach" \
   -H "authorization: Bearer $SERVICE_TOKEN" \
@@ -262,7 +265,7 @@ DEVSECRET=$(echo "$CLAIM" | jq -r .deviceSecret)
 echo "DID=$DID"
 ```
 
-- **4) Device Heartbeat (Bearer: секрет устройства)**:
+- **4) Heartbeat устройства (Bearer: секрет устройства)**:
 ```bash
 curl -s "$BASE/api/v5/devices/$DID/heartbeat" \
   -H "authorization: Bearer $DEVSECRET" \
@@ -270,9 +273,9 @@ curl -s "$BASE/api/v5/devices/$DID/heartbeat" \
   -d '{"battery":95,"rssi":-55,"displayHash":""}' | jq .
 ```
 
-- **5) Portal: установить bitmap-кадры**:
+- **5) Отправить bitmap-кадры**:
 ```bash
-# Сгенерируем пустой кадр 8064 байт (0x00) в base64
+# Пустой кадр 8064 байт (0x00) в base64
 BITMAP=$(node -e "console.log(Buffer.alloc(8064).toString('base64'))")
 curl -s "$BASE/api/v5/devices/$DID/display" \
   -H "authorization: Bearer $SERVICE_TOKEN" \
@@ -284,7 +287,7 @@ curl -s "$BASE/api/v5/devices/$DID/display" \
   }" | jq .
 ```
 
-- **6) Portal: список/детали/обновление устройства**:
+- **6) Список / детали / обновление устройства**:
 ```bash
 curl -s "$BASE/api/v5/devices" -H "authorization: Bearer $SERVICE_TOKEN" | jq .
 curl -s "$BASE/api/v5/devices/$DID" -H "authorization: Bearer $SERVICE_TOKEN" | jq .
@@ -295,7 +298,7 @@ curl -s "$BASE/api/v5/devices/$DID" \
   -d '{"name":"Kitchen","autoUpdate":true,"demoMode":false}' | jq .
 ```
 
-- **7) Ops Admin (scope=ops)**: список всех устройств, просмотр кадров, approve/reject:
+- **7) Ops Admin (scope=ops)**: флот, кадры, approve/reject:
 ```bash
 curl -s "$BASE/api/v5/admin/devices" -H "authorization: Bearer $OPS_TOKEN" | jq .
 curl -s "$BASE/api/v5/admin/devices/$DID/display" -H "authorization: Bearer $OPS_TOKEN" | jq .
@@ -307,11 +310,11 @@ curl -s "$BASE/api/v5/admin/pending-devices/$PENDING_ID/approve" \
   -d '{"tenantId":"tigermeter"}' | jq .
 ```
 
-- **8) Device: обновить секрет (refresh)**:
+- **8) Refresh секрета устройства**:
 ```bash
 curl -s "$BASE/api/v5/devices/$DID/secret/refresh" -H "authorization: Bearer $DEVSECRET" -X POST | jq .
 ```
 
 Примечания:
-- Хеш кадров вычисляется на бэкенде (`displayPayloadHash`: канонический JSON → SHA-256, префикс `sha256:`). Клиентская часть web admin считает тот же хеш для отображения.
-- Для простоты примеров используется SQLite (`node-api/dev.db`). В проде замените секреты в `SERVICE_TOKENS` и HMAC_KEY.
+- Hash кадров считается на бэкенде (`displayPayloadHash`: канонический JSON → SHA-256, префикс `sha256:`). Web admin считает тот же hash для отображения.
+- Для примеров используется SQLite (`node-api/dev.db`). В проде замените секреты в `SERVICE_TOKENS` и `HMAC_KEY`.
