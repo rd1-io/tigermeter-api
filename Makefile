@@ -5,10 +5,13 @@ FW_DIR := firmware
 UPLOAD_PORT ?=
 DEVICE_HOST ?=
 
-.PHONY: help deploy firmware-release flash fw-build log
+.PHONY: help setup dev emulator deploy firmware-release flash fw-build log
 
 help:
 	@echo "Available targets:"
+	@echo "  setup            - Install deps, create node-api/.env and firmware/secrets.ini from examples, migrate local DB"
+	@echo "  dev              - Run API locally (http://127.0.0.1:3001)"
+	@echo "  emulator         - Run web admin locally (http://localhost:5175)"
 	@echo "  deploy           - Commit + push (deploy to prod is done by GitHub Actions)"
 	@echo "                     Usage: make deploy [m=\"commit message\"]"
 	@echo "  firmware-release - Build firmware, commit + push (prod version updated by GitHub Actions)"
@@ -16,6 +19,18 @@ help:
 	@echo "                     Usage: make flash [DEVICE_HOST=ip] [UPLOAD_PORT=/dev/cu.*]"
 	@echo "  log              - Serial monitor"
 	@echo "                     Usage: make log [UPLOAD_PORT=/dev/cu.*]"
+
+setup:
+	@[ -f node-api/.env ] || cp node-api/.env.example node-api/.env
+	@[ -f $(FW_DIR)/secrets.ini ] || cp $(FW_DIR)/secrets.ini.example $(FW_DIR)/secrets.ini
+	cd node-api && npm install && npx prisma generate && npx prisma migrate deploy
+	cd web-emulator && npm install
+
+dev:
+	cd node-api && npm run dev
+
+emulator:
+	cd web-emulator && npm run dev
 
 deploy:
 	@echo "==> Committing and pushing (GitHub Actions will deploy)..."
