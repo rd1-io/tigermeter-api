@@ -229,7 +229,7 @@ OTA работает только у привязанного устройств
 - **Настройки** (ops) — auto-provision и автообновление непривязанных устройств.
 
 ### Привязка по коду
-Код с экрана устройства (6 цифр, живёт 5 минут). С ops-токеном тенант выбирается из `GET /api/v5/admin/tenants` (тенанты `SERVICE_TOKENS` без `staging`), запрос — `POST /api/v5/admin/device-claims/:code/attach` с `{tenantId, externalUserId?}`. С manage-токеном — обычный `POST /api/v5/device-claims/:code/attach` к своему тенанту, `externalUserId` обязателен. Ошибки показываются по-русски (неверный / истёкший / уже использованный код, staging, 429).
+Код с экрана устройства (6 цифр, живёт 5 минут). С ops-токеном тенант выбирается из `GET /api/v5/admin/tenants` (тенанты с manage-токеном в `SERVICE_TOKENS`, без `staging` и служебного `ops`), запрос — `POST /api/v5/admin/device-claims/:code/attach` с `{tenantId, externalUserId?}`. С manage-токеном — обычный `POST /api/v5/device-claims/:code/attach` к своему тенанту, `externalUserId` обязателен. Ошибки показываются по-русски (неверный / истёкший / уже использованный код, staging, 429).
 
 ### Тест устройства
 - **Состояние** (опрос раз в 3 с): последний heartbeat, прошивка против `LATEST_FIRMWARE_VERSION`, батарея, RSSI, IP, аптайм; доставка кадров — хеш на сервере, доставлено (кадры отданы в ответе heartbeat), показывает устройство (хеш из следующего heartbeat) и ожидаемое время следующего heartbeat.
@@ -353,7 +353,7 @@ curl -s "$BASE/api/v5/admin/pending-devices/$PENDING_ID/approve" \
   -X POST \
   -d '{"tenantId":"tigermeter"}' | jq .
 
-# Привязка кода к выбранному тенанту (тенанты — из SERVICE_TOKENS, без staging)
+# Привязка кода к выбранному тенанту (тенанты с manage-токеном, без staging и ops)
 curl -s "$BASE/api/v5/admin/tenants" -H "authorization: Bearer $OPS_TOKEN" | jq .
 curl -s "$BASE/api/v5/admin/device-claims/$CODE/attach" \
   -H "authorization: Bearer $OPS_TOKEN" \

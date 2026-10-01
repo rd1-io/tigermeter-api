@@ -31,9 +31,10 @@ const AdminAttachBody = z.object({
   externalUserId: z.string().min(1).max(128).optional(),
 });
 
-// Tenants an admin may act for: those with a service token, minus the reserved OTA tenant
+// Tenants an admin may attach devices to: those with a manage token, minus the reserved OTA tenant.
+// Tenants with only ops tokens (the admin's own) are not customer tenants.
 const attachableTenants = (app: FastifyInstance) =>
-  app.listServiceTenants().filter((t) => t.tenantId !== config.stagingTenantId);
+  app.listServiceTenants().filter((t) => t.tenantId !== config.stagingTenantId && t.scopes.includes('manage'));
 
 export default async function adminRoutes(app: FastifyInstance) {
   // --- LIST all devices (ops only) ---
@@ -113,12 +114,11 @@ export default async function adminRoutes(app: FastifyInstance) {
     await app.requireScope(request, 'ops');
     const { code } = request.params as any;
     const body = AdminAttachBody.parse(request.body ?? {});
-    if (body.tenantId === config.stagingTenantId) {
+    const known = app.listServiceTenants().find((t) => t.tenantId === body.tenantId);
+    if (body.tenantId === config.stagingTenantId || (known && !known.scopes.includes('manage'))) {
       return reply.code(400).send({ message: 'Tenant is reserved' });
     }
-    if (!attachableTenants(app).some((t) => t.tenantId === body.tenantId)) {
-      return reply.code(400).send({ message: 'Unknown tenant' });
-    }
+    if (!known) return reply.code(400).send({ message: 'Unknown tenant' });
 
     const result = await attachClaim(app.prisma, {
       code: String(code),

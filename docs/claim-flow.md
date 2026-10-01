@@ -62,7 +62,7 @@ Authorization: Bearer sk-ops-...
 {"tenantId": "tigermeter", "externalUserId": "qa-1"}   // externalUserId необязателен
 ```
 
-- `tenantId` — только из тенантов `SERVICE_TOKENS` (список отдаёт `GET /admin/tenants`, токены не раскрываются), `staging` запрещён;
+- `tenantId` — только тенант с manage-токеном в `SERVICE_TOKENS` (список отдаёт `GET /admin/tenants`, токены не раскрываются); `staging` и служебные тенанты только с ops-токенами (например, `ops`) запрещены — 400 `Tenant is reserved`;
 - логика общая с tenant attach (`utils/claims.ts`): те же проверки кода и ошибки (`Invalid code`, `Expired code`, `Already claimed`), тот же лимит 120/мин на токен, код помечается использованным атомарно;
 - с manage-токеном форма в админке вызывает обычный `POST /device-claims/{code}/attach` и привязывает к своему тенанту.
 

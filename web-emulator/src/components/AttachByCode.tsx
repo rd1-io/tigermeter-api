@@ -13,7 +13,7 @@ const describeError = (status: number, message: string): string => {
   if (message === 'Invalid code') return 'Код не найден. Проверьте цифры на экране устройства.';
   if (message === 'Expired code') return 'Код истёк (живёт 5 минут). Устройство само запросит новый — введите код с экрана.';
   if (message === 'Already claimed') return 'Код уже использован: устройство привязано.';
-  if (message === 'Tenant is reserved') return 'Тенант staging зарезервирован для автообновления, к нему привязывать нельзя.';
+  if (message === 'Tenant is reserved') return 'Тенант зарезервирован (staging или служебный ops), к нему привязывать нельзя.';
   if (message === 'Unknown tenant') return 'Тенант не найден среди service-токенов (SERVICE_TOKENS).';
   if (status === 401) return 'Токен недействителен, войдите заново.';
   if (status === 403) return `Недостаточно прав: ${message}`;

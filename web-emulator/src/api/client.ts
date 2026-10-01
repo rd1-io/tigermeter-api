@@ -185,7 +185,7 @@ export class ApiClient {
     });
   }
 
-  // Tenants an ops admin can attach devices to (from SERVICE_TOKENS, without staging)
+  // Tenants an ops admin can attach devices to (with a manage token in SERVICE_TOKENS, without staging)
   async listTenants(): Promise<Response> {
     return loggedFetch('GET', `${this.baseUrl}${V5_PREFIX}/admin/tenants`, {
       headers: this.authHeaders(),

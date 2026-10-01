@@ -34,7 +34,7 @@
 | POST /api/v5/device-claims/{code}/attach | 409 | Уже привязан | `{ "message": "Already claimed" }` |
 | POST /api/v5/device-claims/{code}/attach | 429 | Rate limit (120/мин на token) | `{ "message": "Too Many Requests" }` |
 | POST /api/v5/admin/device-claims/{code}/attach | 400/409/429 | Те же, что у attach выше (общий код) | `Invalid code` / `Expired code` / `Already claimed` |
-| POST /api/v5/admin/device-claims/{code}/attach | 400 | `tenantId` = `staging` | `{ "message": "Tenant is reserved" }` |
+| POST /api/v5/admin/device-claims/{code}/attach | 400 | `tenantId` = `staging` или тенант только с ops-токенами (например, `ops`) | `{ "message": "Tenant is reserved" }` |
 | POST /api/v5/admin/device-claims/{code}/attach | 400 | `tenantId` нет среди тенантов `SERVICE_TOKENS` | `{ "message": "Unknown tenant" }` |
 | POST /api/v5/admin/device-claims/{code}/attach | 400 | Нет `tenantId` | `{ "message": "tenantId: Required" }` |
 | GET /api/v5/device-claims/{code}/poll | 202 | Pending | `{ "status": "pending" }` |

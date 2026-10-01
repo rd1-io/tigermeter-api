@@ -472,7 +472,8 @@ paths:
       tags: [Admin]
       summary: Тенанты, от имени которых может действовать админ
       description: |
-        Уникальные `tenantId` из `SERVICE_TOKENS` со скоупами их токенов, без зарезервированного `staging`.
+        Уникальные `tenantId` из `SERVICE_TOKENS`, у которых есть токен со scope `manage`, со скоупами их токенов.
+        Не входят зарезервированный `staging` и служебные тенанты только с ops-токенами (например, `ops`).
         Сами токены не возвращаются. Используется формой привязки по коду в админке.
       operationId: adminListTenants
       responses:
@@ -492,7 +493,7 @@ paths:
       summary: Привязать код к выбранному тенанту (scope=ops)
       description: |
         То же, что POST /device-claims/{code}/attach, но тенант задаёт админ в теле: `tenantId`
-        должен быть среди тенантов `SERVICE_TOKENS` (GET /admin/tenants), `staging` запрещён.
+        должен быть среди тенантов GET /admin/tenants; `staging` и тенанты только с ops-токенами запрещены (400 Tenant is reserved).
         `externalUserId` необязателен. Та же логика и те же ошибки (общий код), тот же лимит —
         120 попыток/мин на service token.
       operationId: adminAttachClaimCode
@@ -515,7 +516,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AttachResponse'
-        '400': { description: 'Invalid code / Expired code / Tenant is reserved / Unknown tenant / ошибка валидации' }
+        '400': { description: 'Invalid code / Expired code / Tenant is reserved (staging или тенант только с ops-токенами) / Unknown tenant / ошибка валидации' }
         '401': { description: Service token отсутствует или неверный }
         '403': { description: Требуется scope ops }
         '409': { description: Уже привязан (Already claimed) }
@@ -988,7 +989,7 @@ components:
       required: [tenantId]
       additionalProperties: false
       properties:
-        tenantId: { type: string, maxLength: 64, description: 'Тенант из GET /admin/tenants (не staging)', example: tigermeter }
+        tenantId: { type: string, maxLength: 64, description: 'Тенант из GET /admin/tenants (с manage-токеном, не staging)', example: tigermeter }
         externalUserId: { type: string, maxLength: 128, description: Необязательно }
     AttachResponse:
       type: object
