@@ -4,6 +4,7 @@ import { addSeconds } from 'date-fns';
 import { createHash, randomInt } from 'crypto';
 import { config } from '../config.js';
 import { generateDeviceSecret, hashPassword, normalizeMac, verifyClaimHmac } from '../utils/crypto.js';
+import { AUTO_UPGRADE_SETTING, getBoolSetting, parseFirmwareVersion } from '../utils/firmware.js';
 
 // Helper to generate a 6-digit code with leading zeros preserved
 const generateCode = () => String(randomInt(0, 1_000_000)).padStart(6, '0');
@@ -35,7 +36,38 @@ const attachRateLimitKey = (request: FastifyRequest) => {
 
 const isUniqueViolation = (err: unknown) => (err as any)?.code === 'P2002';
 
-export default async function deviceClaimsRoutes(app: FastifyInstance) {
+// Polls are limited per code so devices behind one NAT IP don't share a budget; guessing
+// codes is limited separately by counting unknown codes per IP.
+const pollRateLimitKey = (request: FastifyRequest) => 'poll:' + String((request.params as any)?.code ?? '');
+
+const unknownCodePolls = new Map<string, { count: number; resetAt: number }>();
+
+const unknownCodeBudgetExceeded = (ip: string, now: number): boolean => {
+  const entry = unknownCodePolls.get(ip);
+  return !!entry && entry.resetAt > now && entry.count >= config.pollUnknownCodesPerIpPerMinute;
+};
+
+const recordUnknownCodePoll = (ip: string, now: number) => {
+  for (const [key, entry] of unknownCodePolls) {
+    if (entry.resetAt <= now) unknownCodePolls.delete(key);
+  }
+  const entry = unknownCodePolls.get(ip);
+  if (entry) entry.count++;
+  else unknownCodePolls.set(ip, { count: 1, resetAt: now + 60_000 });
+};
+
+export interface DeviceClaimsRoutesOptions {
+  // Legacy prefix serves only what old firmware calls (issue + poll)
+  deviceOnly?: boolean;
+}
+
+export default async function deviceClaimsRoutes(app: FastifyInstance, opts: DeviceClaimsRoutesOptions = {}) {
+  const perMacClaimLimit = app.createRateLimit({
+    max: config.claimRateLimitPerMacPerMinute,
+    timeWindow: '1 minute',
+    keyGenerator: (req: FastifyRequest) => 'claim-mac:' + normalizeMac(String((req.body as any)?.mac ?? '')),
+  });
+
   // Codes are primary keys and claims are kept after use, so a fresh code can collide
   // with an old row: expired rows are recycled, live ones force another attempt.
   const createClaim = async (data: { deviceId: string; mac: string; firmwareVersion?: string; ip?: string }) => {
@@ -61,7 +93,7 @@ export default async function deviceClaimsRoutes(app: FastifyInstance) {
   app.post('/device-claims', {
     config: {
       rateLimit: {
-        max: 20,
+        max: config.claimRateLimitPerIpPerMinute,
         timeWindow: '1 minute',
       },
     },
@@ -71,6 +103,12 @@ export default async function deviceClaimsRoutes(app: FastifyInstance) {
     if (!rawMac) return reply.code(400).send({ message: 'mac required' });
     const mac = normalizeMac(rawMac);
     if (!mac) return reply.code(400).send({ message: 'invalid mac format' });
+
+    const macLimit = await perMacClaimLimit(request);
+    if (!macLimit.isAllowed && macLimit.isExceeded) {
+      reply.header('retry-after', macLimit.ttlInSeconds);
+      return reply.code(429).send({ message: 'Rate limit exceeded, retry later' });
+    }
 
     const firmwareVersion = body.firmwareVersion as string | undefined;
     const hmac = body.hmac as string | undefined;
@@ -92,12 +130,20 @@ export default async function deviceClaimsRoutes(app: FastifyInstance) {
       request.log.warn({ mac, firmwareVersion }, 'claim signed with legacy uptime timestamp');
     }
 
-    // Device must already exist and be in awaiting_claim state
+    // Outdated firmware on a device no real tenant owns is parked on the staging tenant, so it
+    // heartbeats, receives latestFirmwareVersion and updates itself over OTA.
     let device = await app.prisma.device.findFirst({ where: { mac } });
+    const reportedVersion = parseFirmwareVersion(firmwareVersion);
+    const autoUpgrade =
+      reportedVersion !== null &&
+      reportedVersion < config.latestFirmwareVersion &&
+      (!device || !device.tenantId || device.tenantId === config.stagingTenantId) &&
+      (await getBoolSetting(app.prisma, AUTO_UPGRADE_SETTING));
+
+    // Device must already exist and be in awaiting_claim state
     if (!device) {
-      const setting = await app.prisma.setting.findUnique({ where: { key: 'autoProvisionNewDevices' } });
-      const autoProvision = setting?.value === 'true';
-      if (autoProvision) {
+      const autoProvision = await getBoolSetting(app.prisma, 'autoProvisionNewDevices');
+      if (autoProvision || autoUpgrade) {
         device = await app.prisma.device.create({
           data: {
             mac,
@@ -147,11 +193,32 @@ export default async function deviceClaimsRoutes(app: FastifyInstance) {
 
     const { code, expiresAt } = await createClaim({ deviceId: device.id, mac, firmwareVersion, ip });
 
+    if (autoUpgrade) {
+      await app.prisma.deviceClaim.update({ where: { code }, data: { status: 'claimed' } });
+      await app.prisma.device.update({
+        where: { id: device.id },
+        data: {
+          tenantId: config.stagingTenantId,
+          externalUserId: null,
+          status: 'active',
+          autoUpdate: true,
+          demoMode: false,
+          firmwareVersion: firmwareVersion ?? device.firmwareVersion,
+          displayFramesJson: null,
+          displayHash: null,
+        },
+      });
+      request.log.info(
+        { deviceId: device.id, mac, firmwareVersion, latestFirmwareVersion: config.latestFirmwareVersion },
+        'auto-upgrade: outdated device attached to staging tenant for OTA',
+      );
+    }
+
     return reply.code(201).send({ code, expiresAt });
   });
 
   // --- ATTACH claim code (tenant service token, replaces old user-JWT attach) ---
-  app.post('/device-claims/:code/attach', {
+  if (!opts.deviceOnly) app.post('/device-claims/:code/attach', {
     config: {
       rateLimit: {
         max: config.attachRateLimitPerMinute,
@@ -189,14 +256,22 @@ export default async function deviceClaimsRoutes(app: FastifyInstance) {
   app.get('/device-claims/:code/poll', {
     config: {
       rateLimit: {
-        max: 60,
+        max: config.pollRateLimitPerCodePerMinute,
         timeWindow: '1 minute',
+        keyGenerator: pollRateLimitKey,
       },
     },
   }, async (request, reply) => {
     const { code } = request.params as any;
+    const now = Date.now();
+    if (unknownCodeBudgetExceeded(request.ip, now)) {
+      return reply.code(429).send({ message: 'Too many unknown claim codes, retry later' });
+    }
     const claim = await app.prisma.deviceClaim.findUnique({ where: { code } });
-    if (!claim) return reply.code(404).send({ message: 'Not found' });
+    if (!claim) {
+      recordUnknownCodePoll(request.ip, now);
+      return reply.code(404).send({ message: 'Not found' });
+    }
     if (claim.expiresAt < new Date()) return reply.code(410).send({ message: 'Expired' });
     if (claim.status !== 'claimed') return reply.code(202).send({ status: claim.status });
     if (claim.secretIssued) return reply.code(404).send({ message: 'Not found' });

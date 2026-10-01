@@ -1,5 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { config } from '../config.js';
+import { AUTO_UPGRADE_SETTING, getBoolSetting } from '../utils/firmware.js';
 
 const DeviceSettingsSchema = z.object({
   autoUpdate: z.boolean().optional(),
@@ -8,6 +10,13 @@ const DeviceSettingsSchema = z.object({
 
 const AdminSettingsSchema = z.object({
   autoProvisionNewDevices: z.boolean().optional(),
+  autoUpgradeOutdatedDevices: z.boolean().optional(),
+});
+
+const readAdminSettings = async (app: FastifyInstance) => ({
+  autoProvisionNewDevices: await getBoolSetting(app.prisma, 'autoProvisionNewDevices'),
+  autoUpgradeOutdatedDevices: await getBoolSetting(app.prisma, AUTO_UPGRADE_SETTING),
+  latestFirmwareVersion: config.latestFirmwareVersion,
 });
 
 const ApproveBody = z.object({
@@ -137,8 +146,7 @@ export default async function adminRoutes(app: FastifyInstance) {
   // --- ADMIN SETTINGS ---
   app.get('/settings', async (request) => {
     await app.requireScope(request, 'ops');
-    const setting = await app.prisma.setting.findUnique({ where: { key: 'autoProvisionNewDevices' } });
-    return { autoProvisionNewDevices: setting?.value === 'true' };
+    return readAdminSettings(app);
   });
 
   app.patch('/settings', async (request, reply) => {
@@ -172,8 +180,16 @@ export default async function adminRoutes(app: FastifyInstance) {
         }
       }
     }
-    const setting = await app.prisma.setting.findUnique({ where: { key: 'autoProvisionNewDevices' } });
-    return { autoProvisionNewDevices: setting?.value === 'true' };
+    if (body.autoUpgradeOutdatedDevices !== undefined) {
+      const value = body.autoUpgradeOutdatedDevices ? 'true' : 'false';
+      await app.prisma.setting.upsert({
+        where: { key: AUTO_UPGRADE_SETTING },
+        create: { key: AUTO_UPGRADE_SETTING, value },
+        update: { value },
+      });
+      request.log.info({ enabled: body.autoUpgradeOutdatedDevices }, 'auto-upgrade of outdated unclaimed devices toggled');
+    }
+    return readAdminSettings(app);
   });
 
   // --- PENDING DEVICES ---

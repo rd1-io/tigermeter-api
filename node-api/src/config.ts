@@ -13,6 +13,17 @@ export const config = {
   allowLegacyClaimTimestamps: process.env.ALLOW_LEGACY_CLAIM_TIMESTAMPS !== 'false',
   // Attach is called by the integrator backend, so the limit is per service token, not per IP
   attachRateLimitPerMinute: parseInt(process.env.ATTACH_RATE_LIMIT_PER_MINUTE ?? '120', 10),
+  // A whole batch of devices can sit behind one NAT IP (warehouse, office): an unprovisioned
+  // device retries a claim every ~5s, so 100 devices need ~1200/min from a single IP.
+  claimRateLimitPerIpPerMinute: parseInt(process.env.CLAIM_RATE_LIMIT_PER_IP_PER_MINUTE ?? '1500', 10),
+  claimRateLimitPerMacPerMinute: parseInt(process.env.CLAIM_RATE_LIMIT_PER_MAC_PER_MINUTE ?? '30', 10),
+  // Firmware polls every 3s (20/min); keyed per code, unknown codes are limited per IP instead
+  pollRateLimitPerCodePerMinute: parseInt(process.env.POLL_RATE_LIMIT_PER_CODE_PER_MINUTE ?? '60', 10),
+  pollUnknownCodesPerIpPerMinute: parseInt(process.env.POLL_UNKNOWN_CODES_PER_IP_PER_MINUTE ?? '30', 10),
+  heartbeatRateLimitPerDevicePerMinute: parseInt(process.env.HEARTBEAT_RATE_LIMIT_PER_DEVICE_PER_MINUTE ?? '60', 10),
+
+  // Reserved tenant for outdated unclaimed devices that are attached only to receive OTA
+  stagingTenantId: 'staging',
 
   // Proxies whose X-Forwarded-For is trusted (proxy-addr syntax); the API runs behind Caddy
   trustProxy: process.env.TRUST_PROXY ?? 'loopback,linklocal,uniquelocal',
@@ -27,3 +38,5 @@ export const config = {
 
 // API version prefix — all routes use this
 export const V5_PREFIX = '/api/v5';
+// Firmware <= v36 was built against the unversioned prefix and calls only device endpoints there
+export const LEGACY_DEVICE_PREFIX = '/api';

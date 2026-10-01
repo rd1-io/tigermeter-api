@@ -4,6 +4,7 @@ import { addSeconds } from 'date-fns';
 import bcrypt from 'bcryptjs';
 import { config } from '../config.js';
 import { generateDeviceSecret, hashPassword } from '../utils/crypto.js';
+import { parseFirmwareVersion } from '../utils/firmware.js';
 
 const HeartbeatSchema = z.object({
   battery: z.number().int().optional(),
@@ -14,7 +15,12 @@ const HeartbeatSchema = z.object({
   displayHash: z.string().optional(),
 });
 
-export default async function deviceRoutes(app: FastifyInstance) {
+export interface DeviceRoutesOptions {
+  // Legacy prefix serves only what old firmware calls (heartbeat)
+  deviceOnly?: boolean;
+}
+
+export default async function deviceRoutes(app: FastifyInstance, opts: DeviceRoutesOptions = {}) {
   // Simple device-secret authorization (unchanged)
   app.decorate('requireDevice', async (id: string, authorization?: string) => {
     if (!authorization?.startsWith('Bearer ')) throw (app as any).httpErrors.unauthorized('Missing device secret');
@@ -37,7 +43,16 @@ export default async function deviceRoutes(app: FastifyInstance) {
   });
 
   // --- HEARTBEAT ---
-  app.post('/devices/:id/heartbeat', async (request, reply) => {
+  // Keyed per device: a whole fleet can heartbeat from one NAT IP
+  app.post('/devices/:id/heartbeat', {
+    config: {
+      rateLimit: {
+        max: config.heartbeatRateLimitPerDevicePerMinute,
+        timeWindow: '1 minute',
+        keyGenerator: (req) => 'hb:' + String((req.params as any)?.id ?? ''),
+      },
+    },
+  }, async (request, reply) => {
     const { id } = request.params as any;
     const device = await app.requireDevice(id, request.headers['authorization']);
     const body = HeartbeatSchema.parse(request.body ?? {});
@@ -52,6 +67,41 @@ export default async function deviceRoutes(app: FastifyInstance) {
         },
       });
       return { factoryReset: true };
+    }
+
+    // A staging device that reached the latest firmware is released: 401 makes the firmware
+    // drop only its device credentials (WiFi stays) and show a claim code for a customer.
+    const reportedVersion = parseFirmwareVersion(body.firmwareVersion);
+    if (
+      device.tenantId === config.stagingTenantId &&
+      reportedVersion !== null &&
+      reportedVersion >= config.latestFirmwareVersion
+    ) {
+      await app.prisma.deviceClaim.deleteMany({ where: { deviceId: device.id, status: 'pending' } });
+      await app.prisma.device.update({
+        where: { id: device.id },
+        data: {
+          tenantId: null,
+          externalUserId: null,
+          status: 'awaiting_claim',
+          lastSeen: new Date(),
+          battery: body.battery ?? device.battery,
+          rssi: body.rssi ?? device.rssi,
+          ip: body.ip ?? device.ip,
+          firmwareVersion: body.firmwareVersion,
+          displayFramesJson: null,
+          displayHash: null,
+          currentSecretHash: null,
+          currentSecretExpiresAt: null,
+          previousSecretHash: null,
+          previousSecretExpiresAt: null,
+        },
+      });
+      request.log.info(
+        { deviceId: device.id, mac: device.mac, firmwareVersion: body.firmwareVersion },
+        'auto-upgrade: device updated, released from staging tenant',
+      );
+      return reply.code(401).send({ message: 'Firmware updated, claim the device again' });
     }
 
     // Update telemetry
@@ -99,6 +149,8 @@ export default async function deviceRoutes(app: FastifyInstance) {
       displayHash: null,
     };
   });
+
+  if (opts.deviceOnly) return;
 
   // --- GET display hash ---
   app.get('/devices/:id/display/hash', async (request, reply) => {

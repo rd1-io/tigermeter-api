@@ -11,7 +11,7 @@ import portalRoutes from './routes/portal.js';
 import adminRoutes from './routes/admin.js';
 import devicesProvisionRoutes from './routes/devices-provision.js';
 // admin-logos.ts removed — logos feature deleted
-import { V5_PREFIX, config } from './config.js';
+import { LEGACY_DEVICE_PREFIX, V5_PREFIX, config } from './config.js';
 
 const parseTrustProxy = (value: string): boolean | string => {
   if (value === 'true') return true;
@@ -67,6 +67,9 @@ const buildServer = () => {
   app.register(adminRoutes, { prefix: V5_PREFIX + '/admin' });
   // admin-logos removed
   app.register(devicesProvisionRoutes, { prefix: V5_PREFIX });
+  // Firmware <= v36: claim, poll and heartbeat only, so devices in the field can still OTA-update
+  app.register(deviceClaimsRoutes, { prefix: LEGACY_DEVICE_PREFIX, deviceOnly: true });
+  app.register(deviceRoutes, { prefix: LEGACY_DEVICE_PREFIX, deviceOnly: true });
 
   return app;
 };
