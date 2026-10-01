@@ -5,6 +5,7 @@ import bcrypt from 'bcryptjs';
 import { config } from '../config.js';
 import { generateDeviceSecret, hashPassword } from '../utils/crypto.js';
 import { parseFirmwareVersion } from '../utils/firmware.js';
+import { DISPLAY_REBOOT_LIMIT } from '../utils/display.js';
 
 const HeartbeatSchema = z.object({
   battery: z.number().int().optional(),
@@ -106,11 +107,31 @@ export default async function deviceRoutes(app: FastifyInstance, opts: DeviceRou
 
     // Hash match — no new content (empty frames means no content yet, NOT a match)
     const hashMatches = !!device.displayHash && !!body.displayHash && body.displayHash === device.displayHash;
-    const servesFrames = !hashMatches && !!device.displayFramesJson && !!device.displayHash;
+    const now = new Date();
+
+    // The device rebooted after the current frames were served and before confirming them
+    // (uptime is shorter than the time since delivery): count it, and stop serving at the limit
+    const rebootedAfterDelivery =
+      !hashMatches &&
+      device.displayRebootCount < DISPLAY_REBOOT_LIMIT &&
+      !!device.displayHash &&
+      device.deliveredDisplayHash === device.displayHash &&
+      device.reportedDisplayHash !== device.displayHash &&
+      !!device.displayDeliveredAt &&
+      typeof body.uptimeSeconds === 'number' &&
+      body.uptimeSeconds * 1000 < now.getTime() - device.displayDeliveredAt.getTime();
+    const displayRebootCount = hashMatches ? 0 : device.displayRebootCount + (rebootedAfterDelivery ? 1 : 0);
+    const displayBlocked = displayRebootCount >= DISPLAY_REBOOT_LIMIT;
+    const servesFrames = !hashMatches && !displayBlocked && !!device.displayFramesJson && !!device.displayHash;
+    if (rebootedAfterDelivery) {
+      request.log.warn(
+        { deviceId: device.id, mac: device.mac, displayHash: device.displayHash, displayRebootCount, blocked: displayBlocked },
+        'device rebooted after receiving frames without confirming them',
+      );
+    }
 
     // Update telemetry; the reported hash only changes on the heartbeat after a delivery,
     // since the device sends the hash of what it shows when the request starts
-    const now = new Date();
     await app.prisma.device.update({
       where: { id: device.id },
       data: {
@@ -121,6 +142,7 @@ export default async function deviceRoutes(app: FastifyInstance, opts: DeviceRou
         firmwareVersion: body.firmwareVersion ?? device.firmwareVersion,
         uptimeSeconds: body.uptimeSeconds ?? device.uptimeSeconds,
         reportedDisplayHash: body.displayHash || null,
+        displayRebootCount,
         ...(servesFrames ? { deliveredDisplayHash: device.displayHash, displayDeliveredAt: now } : {}),
       },
     });

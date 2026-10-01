@@ -420,6 +420,7 @@ export const DeviceTestPage: React.FC<DeviceTestPageProps> = ({ scope, deviceId,
 
   const delivery = (() => {
     if (!state?.displayHash) return { cls: 'bg-neutral-100 text-neutral-600', text: 'Кадров нет — устройство показывает «Waiting for content»' };
+    if (state.displayBlocked) return { cls: 'bg-red-100 text-red-800', text: `Доставка остановлена: устройство ${state.displayRebootCount} раза перезагрузилось сразу после получения этих кадров. Отправьте новые кадры, чтобы попробовать снова` };
     if (state.reportedDisplayHash === state.displayHash) return { cls: 'bg-green-100 text-green-800', text: 'Применено: устройство подтвердило текущий хеш' };
     if (state.deliveredDisplayHash === state.displayHash) return { cls: 'bg-blue-100 text-blue-800', text: `Доставлено ${ago(state.displayDeliveredAt, now)}, подтверждение придёт со следующим heartbeat` };
     return { cls: 'bg-amber-100 text-amber-800', text: 'Ожидает heartbeat: устройство ещё не забрало новые кадры' };
@@ -525,6 +526,11 @@ export const DeviceTestPage: React.FC<DeviceTestPageProps> = ({ scope, deviceId,
                   {delivery.text}
                   {eta && <span className="opacity-80"> · {eta}</span>}
                 </div>
+                {!state.displayBlocked && state.displayRebootCount > 0 && (
+                  <div className="text-sm px-3 py-2 rounded bg-red-50 text-red-800">
+                    Устройство перезагрузилось сразу после получения кадров ({state.displayRebootCount}). Если повторится, сервер перестанет их отдавать.
+                  </div>
+                )}
                 {isStaging && (
                   <div className="text-sm px-3 py-2 rounded bg-amber-50 text-amber-800">
                     Устройство на тенанте staging: оно обновляет прошивку и затем снова покажет код привязки. Отправка кадров недоступна.

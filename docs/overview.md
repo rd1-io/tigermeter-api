@@ -19,7 +19,7 @@
 4. Heartbeat устройства: `POST /api/v5/devices/{id}/heartbeat` с Bearer-секретом
 5. Интегратор отправляет bitmap-кадры: `PUT /api/v5/devices/{id}/display`
 6. Устройство получает новые кадры при следующем heartbeat (несовпадение hash)
-7. Проверить доставку: `GET /api/v5/devices/{id}` — `deliveredDisplayHash` (кадры отданы в heartbeat) и `reportedDisplayHash` (устройство прислало этот хеш на следующем heartbeat, т.е. показывает их)
+7. Проверить доставку: `GET /api/v5/devices/{id}` — `deliveredDisplayHash` (кадры отданы в heartbeat) и `reportedDisplayHash` (устройство прислало этот хеш на следующем heartbeat, т.е. показывает их). Если устройство дважды перезагрузилось сразу после получения кадров, не подтвердив их, сервер перестаёт их отдавать (`displayBlocked: true`, предупреждение в логе API) до следующего PUT /display
 
 Подробнее о таймингах, state machine и одноразовой выдаче секрета — в `claim-flow.md`.
 

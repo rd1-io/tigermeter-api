@@ -68,6 +68,8 @@ export interface DeviceStateDto extends DeviceDto {
   deliveredDisplayHash: string | null;
   displayDeliveredAt: string | null;
   reportedDisplayHash: string | null;
+  displayRebootCount: number;
+  displayBlocked: boolean;
   frameCount: number;
   refreshInterval: number | null;
   pendingFactoryReset: boolean;

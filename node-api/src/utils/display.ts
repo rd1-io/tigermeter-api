@@ -6,6 +6,10 @@ import { displayPayloadHash } from './crypto.js';
 // 384x168 1-bit, MSB-first, rows top to bottom; 1 = white, 0 = black
 export const DISPLAY_BITMAP_BYTES = 8064;
 
+// After this many reboots right after receiving the same frames (never confirmed), the heartbeat
+// stops serving them: a device that crashes on frames would otherwise refetch them on every boot.
+export const DISPLAY_REBOOT_LIMIT = 2;
+
 // Per-frame LED/beep enums
 export const LedColor = z.enum(['green', 'red', 'blue', 'yellow', 'cyan', 'magenta', 'white', 'rainbow', 'off']);
 export const LedBrightness = z.enum(['low', 'mid', 'high', 'off']);
@@ -46,6 +50,7 @@ export const setDeviceDisplay = async (prisma: PrismaClient, device: Device, pay
       displayHash,
       displayVersion,
       displayUpdatedAt: new Date(),
+      displayRebootCount: 0,
     },
   });
   return { displayHash, displayVersion };
@@ -89,6 +94,8 @@ export const deviceStateDto = (d: Device) => {
     deliveredDisplayHash: d.deliveredDisplayHash,
     displayDeliveredAt: d.displayDeliveredAt,
     reportedDisplayHash: d.reportedDisplayHash,
+    displayRebootCount: d.displayRebootCount,
+    displayBlocked: !!d.displayHash && d.displayRebootCount >= DISPLAY_REBOOT_LIMIT,
     frameCount,
     refreshInterval,
     pendingFactoryReset: d.pendingFactoryReset,

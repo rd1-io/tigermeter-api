@@ -206,6 +206,9 @@ paths:
         `deliveredDisplayHash` — кадры, отданные устройству в ответе heartbeat, `reportedDisplayHash` —
         хеш, который устройство прислало в последнем heartbeat (совпадает с `displayHash` со следующего
         heartbeat после доставки, т.е. кадры применены).
+        Если устройство перезагружается сразу после получения кадров и не подтверждает их
+        (`uptimeSeconds` меньше времени с доставки), растёт `displayRebootCount`; после 2 таких перезагрузок
+        heartbeat перестаёт отдавать эти кадры (`displayBlocked: true`) до следующего PUT /display.
       operationId: getDevice
       parameters:
         - name: id
@@ -881,6 +884,8 @@ components:
             deliveredDisplayHash: { type: string, nullable: true, description: Хеш кадров, отданных в ответе heartbeat }
             displayDeliveredAt: { type: string, format: date-time, nullable: true }
             reportedDisplayHash: { type: string, nullable: true, description: 'Хеш из последнего heartbeat; = displayHash → кадры применены' }
+            displayRebootCount: { type: integer, description: 'Перезагрузки сразу после получения текущих кадров без подтверждения; сбрасывается при подтверждении и PUT /display' }
+            displayBlocked: { type: boolean, description: 'true — после 2 таких перезагрузок heartbeat не отдаёт текущие кадры (защита от цикла перезагрузок)' }
             frameCount: { type: integer }
             refreshInterval: { type: integer, nullable: true, description: Из текущих кадров на сервере }
             pendingFactoryReset: { type: boolean }

@@ -1,0 +1,1 @@
+ALTER TABLE "Device" ADD COLUMN "displayRebootCount" INTEGER NOT NULL DEFAULT 0;
