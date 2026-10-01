@@ -74,6 +74,11 @@ export const deviceDto = (d: Device) => ({
   createdAt: d.createdAt,
 });
 
+const parseDiagnostics = (json: string | null): Record<string, string | number | boolean> | null => {
+  if (!json) return null;
+  try { return JSON.parse(json); } catch { return null; }
+};
+
 // Single-device view: telemetry plus display delivery state, so a caller can see whether the
 // device has fetched (delivered) and applied (reported back on the next heartbeat) the current frames
 export const deviceStateDto = (d: Device) => {
@@ -96,6 +101,7 @@ export const deviceStateDto = (d: Device) => {
     reportedDisplayHash: d.reportedDisplayHash,
     displayRebootCount: d.displayRebootCount,
     displayBlocked: !!d.displayHash && d.displayRebootCount >= DISPLAY_REBOOT_LIMIT,
+    diagnostics: parseDiagnostics(d.diagnosticsJson),
     frameCount,
     refreshInterval,
     pendingFactoryReset: d.pendingFactoryReset,

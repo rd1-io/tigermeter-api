@@ -885,6 +885,7 @@ components:
             displayDeliveredAt: { type: string, format: date-time, nullable: true }
             reportedDisplayHash: { type: string, nullable: true, description: 'Хеш из последнего heartbeat; = displayHash → кадры применены' }
             displayRebootCount: { type: integer, description: 'Перезагрузки сразу после получения текущих кадров без подтверждения; сбрасывается при подтверждении и PUT /display' }
+            diagnostics: { type: object, nullable: true, additionalProperties: true, description: 'Диагностика из последнего heartbeat (v38+), см. HeartbeatRequest.diag' }
             displayBlocked: { type: boolean, description: 'true — после 2 таких перезагрузок heartbeat не отдаёт текущие кадры (защита от цикла перезагрузок)' }
             frameCount: { type: integer }
             refreshInterval: { type: integer, nullable: true, description: Из текущих кадров на сервере }
@@ -946,6 +947,25 @@ components:
         firmwareVersion: { type: string }
         uptimeSeconds: { type: integer }
         displayHash: { type: string, description: Хеш, который устройство считает актуальным }
+        diag:
+          type: object
+          description: |
+            Прошивка v38+: диагностика загрузки и памяти. Плоский объект, до 24 полей (строки до 120 символов);
+            некорректное значение не отклоняет heartbeat, а просто не сохраняется. Отдаётся в `DeviceState.diagnostics`.
+          properties:
+            resetReason: { type: string, description: 'poweron / sw / panic / int_wdt / task_wdt / wdt / brownout / …' }
+            prevStage: { type: string, description: 'Этап прошивки перед перезагрузкой (RTC): none / idle / hb_request / hb_read / hb_parse / frame_decode / frame_apply / render / led / ota' }
+            psram: { type: boolean }
+            psramSize: { type: integer }
+            freePsram: { type: integer }
+            freeHeap: { type: integer }
+            minFreeHeap: { type: integer }
+            maxAllocHeap: { type: integer }
+            stackFree: { type: integer, description: Минимальный запас стека основной задачи, байт }
+            frameBuffers: { type: integer, description: 'Выделено буферов кадров (8 с PSRAM, до 2 без неё)' }
+            lastResponseBytes: { type: integer }
+            lastError: { type: string, description: 'Последняя проблема с кадрами: too_large / json:… / no_buffer:i / bitmap_size:i:len / no_valid_frames:n' }
+          additionalProperties: true
     HeartbeatBase:
       type: object
       description: Hash совпал (или нет контента) — без кадров

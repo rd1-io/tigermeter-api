@@ -14,7 +14,21 @@ const HeartbeatSchema = z.object({
   firmwareVersion: z.string().optional(),
   uptimeSeconds: z.number().int().optional(),
   displayHash: z.string().optional(),
+  // Firmware v38+: boot/heap diagnostics; never rejects the heartbeat, sanitized by sanitizeDiagnostics()
+  diag: z.unknown().optional(),
 });
+
+// Keep up to 24 flat primitive fields, strings capped, so a bad diag can't bloat the row
+const sanitizeDiagnostics = (diag: unknown): Record<string, string | number | boolean> | null => {
+  if (!diag || typeof diag !== 'object' || Array.isArray(diag)) return null;
+  const out: Record<string, string | number | boolean> = {};
+  for (const [k, v] of Object.entries(diag as Record<string, unknown>).slice(0, 24)) {
+    if (k.length > 32) continue;
+    if (typeof v === 'string') out[k] = v.slice(0, 120);
+    else if ((typeof v === 'number' && Number.isFinite(v)) || typeof v === 'boolean') out[k] = v;
+  }
+  return Object.keys(out).length ? out : null;
+};
 
 export interface DeviceRoutesOptions {
   // Legacy prefix serves only what old firmware calls (heartbeat)
@@ -123,9 +137,10 @@ export default async function deviceRoutes(app: FastifyInstance, opts: DeviceRou
     const displayRebootCount = hashMatches ? 0 : device.displayRebootCount + (rebootedAfterDelivery ? 1 : 0);
     const displayBlocked = displayRebootCount >= DISPLAY_REBOOT_LIMIT;
     const servesFrames = !hashMatches && !displayBlocked && !!device.displayFramesJson && !!device.displayHash;
+    const diagnostics = sanitizeDiagnostics(body.diag);
     if (rebootedAfterDelivery) {
       request.log.warn(
-        { deviceId: device.id, mac: device.mac, displayHash: device.displayHash, displayRebootCount, blocked: displayBlocked },
+        { deviceId: device.id, mac: device.mac, displayHash: device.displayHash, displayRebootCount, blocked: displayBlocked, diag: diagnostics },
         'device rebooted after receiving frames without confirming them',
       );
     }
@@ -143,6 +158,7 @@ export default async function deviceRoutes(app: FastifyInstance, opts: DeviceRou
         uptimeSeconds: body.uptimeSeconds ?? device.uptimeSeconds,
         reportedDisplayHash: body.displayHash || null,
         displayRebootCount,
+        ...(diagnostics ? { diagnosticsJson: JSON.stringify(diagnostics) } : {}),
         ...(servesFrames ? { deliveredDisplayHash: device.displayHash, displayDeliveredAt: now } : {}),
       },
     });

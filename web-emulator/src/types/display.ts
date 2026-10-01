@@ -70,6 +70,9 @@ export interface DeviceStateDto extends DeviceDto {
   reportedDisplayHash: string | null;
   displayRebootCount: number;
   displayBlocked: boolean;
+  // Firmware v38+: resetReason, prevStage, psram, psramSize, freePsram, freeHeap, minFreeHeap,
+  // maxAllocHeap, stackFree, frameBuffers, lastResponseBytes, lastError
+  diagnostics: Record<string, string | number | boolean> | null;
   frameCount: number;
   refreshInterval: number | null;
   pendingFactoryReset: boolean;

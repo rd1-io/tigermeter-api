@@ -43,6 +43,7 @@ model Device {
   displayDeliveredAt      DateTime?
   reportedDisplayHash     String?   // hash the device sent in its last heartbeat
   displayRebootCount      Int      @default(0) // reboots right after receiving the current frames, without confirming them
+  diagnosticsJson         String?   // boot/heap diagnostics from the last heartbeat (firmware v38+)
 
   // Secrets
   currentSecretHash       String?

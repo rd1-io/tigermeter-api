@@ -97,6 +97,11 @@ const formatUptime = (sec: number | null) => {
   return h ? `${h} ч ${m} мин` : `${m} мин ${sec % 60} с`;
 };
 
+const formatKb = (bytes: unknown) => {
+  if (typeof bytes !== 'number') return '?';
+  return bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} МБ` : `${Math.round(bytes / 1024)} КБ`;
+};
+
 const toFrame = (f: LedSettings & { mono: Mono }): DisplayFrame => ({
   bitmap: packMono(f.mono),
   ledColor: f.ledColor,
@@ -530,6 +535,47 @@ export const DeviceTestPage: React.FC<DeviceTestPageProps> = ({ scope, deviceId,
                   <div className="text-sm px-3 py-2 rounded bg-red-50 text-red-800">
                     Устройство перезагрузилось сразу после получения кадров ({state.displayRebootCount}). Если повторится, сервер перестанет их отдавать.
                   </div>
+                )}
+                {state.diagnostics ? (
+                  <div className="border-t pt-3 text-sm">
+                    <div className="text-neutral-500 mb-1">Диагностика прошивки (последний heartbeat)</div>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-1.5">
+                      <div title="Причина последней перезагрузки (esp_reset_reason)">
+                        <span className="text-neutral-500">Перезагрузка:</span>{' '}
+                        <span className={['panic', 'int_wdt', 'task_wdt', 'wdt', 'brownout'].includes(String(state.diagnostics.resetReason)) ? 'text-red-700 font-medium' : ''}>
+                          {String(state.diagnostics.resetReason ?? '?')}
+                        </span>
+                      </div>
+                      <div title="Где была прошивка перед перезагрузкой (сохраняется в RTC; none — после включения питания)">
+                        <span className="text-neutral-500">Этап до неё:</span> <span className="font-mono text-xs">{String(state.diagnostics.prevStage ?? '?')}</span>
+                      </div>
+                      <div>
+                        <span className="text-neutral-500">PSRAM:</span>{' '}
+                        {state.diagnostics.psram
+                          ? `есть, ${formatKb(state.diagnostics.psramSize)} (свободно ${formatKb(state.diagnostics.freePsram)})`
+                          : <span className="text-amber-700">нет</span>}
+                      </div>
+                      <div title="Буферы кадров: с PSRAM — 8, без неё — до 2 в обычной памяти">
+                        <span className="text-neutral-500">Буферов кадров:</span> {String(state.diagnostics.frameBuffers ?? '?')}
+                      </div>
+                      <div title="Свободно / минимум с загрузки / крупнейший блок">
+                        <span className="text-neutral-500">Heap:</span> {formatKb(state.diagnostics.freeHeap)} / мин. {formatKb(state.diagnostics.minFreeHeap)} / блок {formatKb(state.diagnostics.maxAllocHeap)}
+                      </div>
+                      <div title="Минимальный запас стека основной задачи">
+                        <span className="text-neutral-500">Запас стека:</span> {String(state.diagnostics.stackFree ?? '?')} Б
+                      </div>
+                      {state.diagnostics.lastResponseBytes != null && (
+                        <div><span className="text-neutral-500">Ответ heartbeat:</span> {formatKb(state.diagnostics.lastResponseBytes)}</div>
+                      )}
+                      {state.diagnostics.lastError && (
+                        <div className="md:col-span-2">
+                          <span className="text-neutral-500">Последняя ошибка:</span> <span className="font-mono text-xs text-red-700">{String(state.diagnostics.lastError)}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-xs text-neutral-400">Диагностика прошивки появится с v38.</div>
                 )}
                 {isStaging && (
                   <div className="text-sm px-3 py-2 rounded bg-amber-50 text-amber-800">
