@@ -6,6 +6,7 @@ import { DisplayFramesPayload, deviceStateDto, setDeviceDisplay } from '../utils
 import { AUTO_UPGRADE_SETTING, getBoolSetting } from '../utils/firmware.js';
 
 const DeviceSettingsSchema = z.object({
+  name: z.string().max(128).optional(),
   autoUpdate: z.boolean().optional(),
   demoMode: z.boolean().optional(),
 });
@@ -207,6 +208,7 @@ export default async function adminRoutes(app: FastifyInstance) {
     if (!d) return reply.code(404).send({ message: 'Not found' });
 
     const updateData: any = {};
+    if (body.name !== undefined) updateData.name = body.name;
     if (body.autoUpdate !== undefined) updateData.autoUpdate = body.autoUpdate;
     if (body.demoMode !== undefined) updateData.demoMode = body.demoMode;
 
@@ -215,7 +217,7 @@ export default async function adminRoutes(app: FastifyInstance) {
     }
 
     const updated = await app.prisma.device.update({ where: { id }, data: updateData });
-    return { id: updated.id, autoUpdate: updated.autoUpdate, demoMode: updated.demoMode };
+    return { id: updated.id, name: updated.name, autoUpdate: updated.autoUpdate, demoMode: updated.demoMode };
   });
 
   // --- ADMIN SETTINGS ---
