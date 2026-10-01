@@ -52,6 +52,18 @@ export default fp(async (app) => {
     return auth;
   });
 
+  // Tenants that have a service token; tokens themselves are never exposed
+  app.decorate('listServiceTenants', () => {
+    const scopesByTenant = new Map<string, Set<ServiceAuth['scope']>>();
+    for (const t of serviceTokens) {
+      if (!scopesByTenant.has(t.tenantId)) scopesByTenant.set(t.tenantId, new Set());
+      scopesByTenant.get(t.tenantId)!.add(t.scope);
+    }
+    return [...scopesByTenant.entries()]
+      .map(([tenantId, scopes]) => ({ tenantId, scopes: [...scopes].sort() }))
+      .sort((a, b) => a.tenantId.localeCompare(b.tenantId));
+  });
+
   // GET /api/v5/admin/me — return current service auth info
   app.get('/api/v5/admin/me', async (request) => {
     const auth = await app.requireService(request);
@@ -63,5 +75,6 @@ declare module 'fastify' {
   interface FastifyInstance {
     requireService(request: FastifyRequest): Promise<ServiceAuth>;
     requireScope(request: FastifyRequest, scope: 'ops' | 'manage'): Promise<ServiceAuth>;
+    listServiceTenants(): { tenantId: string; scopes: ServiceAuth['scope'][] }[];
   }
 }

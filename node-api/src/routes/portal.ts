@@ -1,34 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { displayPayloadHash } from '../utils/crypto.js';
-
-// Per-frame LED/beep enums
-const LedColor = z.enum(['green', 'red', 'blue', 'yellow', 'cyan', 'magenta', 'white', 'rainbow', 'off']);
-const LedBrightness = z.enum(['low', 'mid', 'high', 'off']);
-
-// Single display frame
-const DisplayFrame = z.strictObject({
-  bitmap: z.string().refine(
-    (val) => {
-      try {
-        const decoded = Buffer.from(val, 'base64');
-        return decoded.length === 8064;
-      } catch { return false; }
-    },
-    { message: 'bitmap must be valid base64 of exactly 8064 bytes (384x168 1-bit packed)' }
-  ),
-  ledColor: LedColor,
-  ledBrightness: LedBrightness,
-  durationSec: z.number().int().min(1).max(86400),
-  beep: z.boolean().optional(),
-  flashCount: z.number().int().min(0).max(10).optional(),
-});
-
-// Full display payload
-const DisplayFramesPayload = z.strictObject({
-  frames: z.array(DisplayFrame).min(1).max(8),
-  refreshInterval: z.number().int().min(10).max(3600),
-});
+import { DisplayFramesPayload, deviceDto, deviceStateDto, setDeviceDisplay } from '../utils/display.js';
 
 // PATCH device body
 const DevicePatchSchema = z.object({
@@ -42,23 +14,7 @@ export default async function portalRoutes(app: FastifyInstance) {
   app.get('/devices', async (request) => {
     const auth = await app.requireScope(request, 'manage');
     const devices = await app.prisma.device.findMany({ where: { tenantId: auth.tenantId } });
-    return devices.map((d: any) => ({
-      id: d.id,
-      mac: d.mac,
-      name: d.name,
-      tenantId: d.tenantId,
-      externalUserId: d.externalUserId,
-      status: d.status,
-      lastSeen: d.lastSeen,
-      battery: d.battery,
-      rssi: d.rssi,
-      firmwareVersion: d.firmwareVersion,
-      autoUpdate: d.autoUpdate,
-      demoMode: d.demoMode,
-      displayHash: d.displayHash,
-      displayVersion: d.displayVersion,
-      createdAt: d.createdAt,
-    }));
+    return devices.map(deviceDto);
   });
 
   // --- GET single device (tenant-scoped) ---
@@ -67,24 +23,17 @@ export default async function portalRoutes(app: FastifyInstance) {
     const { id } = request.params as any;
     const d = await app.prisma.device.findUnique({ where: { id } });
     if (!d || d.tenantId !== auth.tenantId) return reply.code(404).send({ message: 'Not found' });
+    return deviceStateDto(d);
+  });
 
-    return {
-      id: d.id,
-      mac: d.mac,
-      name: d.name,
-      tenantId: d.tenantId,
-      externalUserId: d.externalUserId,
-      status: d.status,
-      lastSeen: d.lastSeen,
-      battery: d.battery,
-      rssi: d.rssi,
-      firmwareVersion: d.firmwareVersion,
-      autoUpdate: d.autoUpdate,
-      demoMode: d.demoMode,
-      displayHash: d.displayHash,
-      displayVersion: d.displayVersion,
-      createdAt: d.createdAt,
-    };
+  // --- GET current display frames (tenant-scoped) ---
+  app.get('/devices/:id/display', async (request, reply) => {
+    const auth = await app.requireScope(request, 'manage');
+    const { id } = request.params as any;
+    const d = await app.prisma.device.findUnique({ where: { id } });
+    if (!d || d.tenantId !== auth.tenantId) return reply.code(404).send({ message: 'Not found' });
+    if (!d.displayFramesJson) return reply.code(404).send({ message: 'No frames' });
+    return JSON.parse(d.displayFramesJson);
   });
 
   // --- PATCH device settings (tenant-scoped) ---
@@ -120,18 +69,7 @@ export default async function portalRoutes(app: FastifyInstance) {
     if (!d || d.tenantId !== auth.tenantId) return reply.code(404).send({ message: 'Not found' });
 
     const payload = DisplayFramesPayload.parse(request.body);
-    const displayHash = displayPayloadHash(payload);
-
-    await app.prisma.device.update({
-      where: { id },
-      data: {
-        displayFramesJson: JSON.stringify(payload),
-        displayHash,
-        displayVersion: (d.displayVersion ?? 0) + 1,
-      },
-    });
-
-    return { displayHash, displayVersion: (d.displayVersion ?? 0) + 1 };
+    return setDeviceDisplay(app.prisma, d, payload);
   });
 
   // --- REVOKE device (tenant-scoped) ---

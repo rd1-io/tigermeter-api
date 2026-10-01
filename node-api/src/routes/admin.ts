@@ -1,6 +1,8 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { config } from '../config.js';
+import { attachClaim, attachRateLimitKey } from '../utils/claims.js';
+import { DisplayFramesPayload, deviceStateDto, setDeviceDisplay } from '../utils/display.js';
 import { AUTO_UPGRADE_SETTING, getBoolSetting } from '../utils/firmware.js';
 
 const DeviceSettingsSchema = z.object({
@@ -22,6 +24,15 @@ const readAdminSettings = async (app: FastifyInstance) => ({
 const ApproveBody = z.object({
   tenantId: z.string().min(1).max(64),
 });
+
+const AdminAttachBody = z.object({
+  tenantId: z.string().min(1).max(64),
+  externalUserId: z.string().min(1).max(128).optional(),
+});
+
+// Tenants an admin may act for: those with a service token, minus the reserved OTA tenant
+const attachableTenants = (app: FastifyInstance) =>
+  app.listServiceTenants().filter((t) => t.tenantId !== config.stagingTenantId);
 
 export default async function adminRoutes(app: FastifyInstance) {
   // --- LIST all devices (ops only) ---
@@ -49,9 +60,73 @@ export default async function adminRoutes(app: FastifyInstance) {
       demoMode: d.demoMode,
       displayHash: d.displayHash,
       displayVersion: d.displayVersion,
+      reportedDisplayHash: d.reportedDisplayHash,
+      ip: d.ip,
       deviceSecretHash: d.currentSecretHash,
       createdAt: d.createdAt,
     }));
+  });
+
+  // --- GET single device with display delivery state (ops only, any tenant) ---
+  app.get('/devices/:id', async (request, reply) => {
+    await app.requireScope(request, 'ops');
+    const { id } = request.params as any;
+    const d = await app.prisma.device.findUnique({ where: { id } });
+    if (!d) return reply.code(404).send({ message: 'Not found' });
+    return deviceStateDto(d);
+  });
+
+  // --- PUT display frames on behalf of the device's tenant (ops only) ---
+  app.put('/devices/:id/display', async (request, reply) => {
+    await app.requireScope(request, 'ops');
+    const { id } = request.params as any;
+    const d = await app.prisma.device.findUnique({ where: { id } });
+    if (!d) return reply.code(404).send({ message: 'Not found' });
+    // Frames on an unattached device would surface for whichever tenant claims it next
+    if (d.status !== 'active' || !d.tenantId) {
+      return reply.code(409).send({ message: 'Device is not attached to a tenant' });
+    }
+    if (d.tenantId === config.stagingTenantId) {
+      return reply.code(409).send({ message: 'Device is on the staging tenant for OTA' });
+    }
+    const payload = DisplayFramesPayload.parse(request.body);
+    return setDeviceDisplay(app.prisma, d, payload);
+  });
+
+  // --- TENANTS known from service tokens (ops only) ---
+  app.get('/tenants', async (request) => {
+    await app.requireScope(request, 'ops');
+    return attachableTenants(app);
+  });
+
+  // --- ATTACH claim code to a chosen tenant (ops only) ---
+  app.post('/device-claims/:code/attach', {
+    config: {
+      rateLimit: {
+        max: config.attachRateLimitPerMinute,
+        timeWindow: '1 minute',
+        keyGenerator: attachRateLimitKey,
+      },
+    },
+  }, async (request, reply) => {
+    await app.requireScope(request, 'ops');
+    const { code } = request.params as any;
+    const body = AdminAttachBody.parse(request.body ?? {});
+    if (body.tenantId === config.stagingTenantId) {
+      return reply.code(400).send({ message: 'Tenant is reserved' });
+    }
+    if (!attachableTenants(app).some((t) => t.tenantId === body.tenantId)) {
+      return reply.code(400).send({ message: 'Unknown tenant' });
+    }
+
+    const result = await attachClaim(app.prisma, {
+      code: String(code),
+      tenantId: body.tenantId,
+      externalUserId: body.externalUserId ?? null,
+    });
+    if (!result.ok) return reply.code(result.status).send({ message: result.message });
+    request.log.info({ code, deviceId: result.deviceId, tenantId: result.tenantId }, 'admin attached claim code');
+    return { deviceId: result.deviceId, message: 'Attached', tenantId: result.tenantId };
   });
 
   // --- GET device display frames (ops only, for debugging) ---

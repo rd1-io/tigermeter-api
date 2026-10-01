@@ -104,15 +104,24 @@ export default async function deviceRoutes(app: FastifyInstance, opts: DeviceRou
       return reply.code(401).send({ message: 'Firmware updated, claim the device again' });
     }
 
-    // Update telemetry
+    // Hash match — no new content (empty frames means no content yet, NOT a match)
+    const hashMatches = !!device.displayHash && !!body.displayHash && body.displayHash === device.displayHash;
+    const servesFrames = !hashMatches && !!device.displayFramesJson && !!device.displayHash;
+
+    // Update telemetry; the reported hash only changes on the heartbeat after a delivery,
+    // since the device sends the hash of what it shows when the request starts
+    const now = new Date();
     await app.prisma.device.update({
       where: { id: device.id },
       data: {
-        lastSeen: new Date(),
+        lastSeen: now,
         battery: body.battery ?? device.battery,
         rssi: body.rssi ?? device.rssi,
         ip: body.ip ?? device.ip,
         firmwareVersion: body.firmwareVersion ?? device.firmwareVersion,
+        uptimeSeconds: body.uptimeSeconds ?? device.uptimeSeconds,
+        reportedDisplayHash: body.displayHash || null,
+        ...(servesFrames ? { deliveredDisplayHash: device.displayHash, displayDeliveredAt: now } : {}),
       },
     });
 
@@ -125,14 +134,11 @@ export default async function deviceRoutes(app: FastifyInstance, opts: DeviceRou
       firmwareDownloadUrl: config.firmwareDownloadUrl,
     };
 
-    // Hash match — no new content (empty frames means no content yet, NOT a match)
-    if (device.displayHash && body.displayHash && body.displayHash === device.displayHash) {
-      return baseResponse;
-    }
+    if (hashMatches) return baseResponse;
 
     // Hash mismatch or missing — serve frames
-    if (device.displayFramesJson && device.displayHash) {
-      const payload = JSON.parse(device.displayFramesJson);
+    if (servesFrames) {
+      const payload = JSON.parse(device.displayFramesJson!);
       return {
         ...baseResponse,
         frames: payload.frames,

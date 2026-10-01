@@ -1,8 +1,9 @@
 import { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { addSeconds } from 'date-fns';
-import { createHash, randomInt } from 'crypto';
+import { randomInt } from 'crypto';
 import { config } from '../config.js';
+import { attachClaim, attachRateLimitKey } from '../utils/claims.js';
 import { generateDeviceSecret, hashPassword, normalizeMac, verifyClaimHmac } from '../utils/crypto.js';
 import { AUTO_UPGRADE_SETTING, getBoolSetting, parseFirmwareVersion } from '../utils/firmware.js';
 
@@ -27,11 +28,6 @@ const markClaimHmacUsed = (hmac: string, now: number): boolean => {
   if (usedClaimHmacs.has(key)) return false;
   usedClaimHmacs.set(key, now + config.claimHmacToleranceMs);
   return true;
-};
-
-const attachRateLimitKey = (request: FastifyRequest) => {
-  const auth = request.headers['authorization'] ?? '';
-  return 'attach:' + createHash('sha256').update(auth).digest('hex');
 };
 
 const isUniqueViolation = (err: unknown) => (err as any)?.code === 'P2002';
@@ -231,25 +227,13 @@ export default async function deviceClaimsRoutes(app: FastifyInstance, opts: Dev
     const { code } = request.params as any;
     const body = AttachBody.parse(request.body ?? {});
 
-    const claim = await app.prisma.deviceClaim.findUnique({ where: { code } });
-    if (!claim) return reply.code(400).send({ message: 'Invalid code' });
-    if (claim.expiresAt < new Date()) return reply.code(400).send({ message: 'Expired code' });
-    if (claim.status === 'claimed') return reply.code(409).send({ message: 'Already claimed' });
-
-    // Mark claim as used
-    await app.prisma.deviceClaim.update({ where: { code }, data: { status: 'claimed' } });
-
-    // Bind device to tenant (no welcome instruction — display stays empty until first PUT /display)
-    await app.prisma.device.update({
-      where: { id: claim.deviceId },
-      data: {
-        tenantId: auth.tenantId,
-        externalUserId: body.externalUserId,
-        status: 'active',
-      },
+    const result = await attachClaim(app.prisma, {
+      code: String(code),
+      tenantId: auth.tenantId,
+      externalUserId: body.externalUserId,
     });
-
-    return { deviceId: claim.deviceId, message: 'Attached', tenantId: auth.tenantId };
+    if (!result.ok) return reply.code(result.status).send({ message: result.message });
+    return { deviceId: result.deviceId, message: 'Attached', tenantId: result.tenantId };
   });
 
   // --- POLL claim status (device side, HMAC auth still via future TODO) ---

@@ -32,11 +32,16 @@ model Device {
   rssi                    Int?
   ip                      String?
   firmwareVersion         String?
+  uptimeSeconds           Int?
 
   // Display state (v5: bitmap frames, no text fields)
   displayHash             String?
   displayVersion          Int      @default(0)
   displayFramesJson       String?  // JSON array of DisplayFrame objects
+  displayUpdatedAt        DateTime? // last PUT /display
+  deliveredDisplayHash    String?   // hash of the frames last served in a heartbeat response
+  displayDeliveredAt      DateTime?
+  reportedDisplayHash     String?   // hash the device sent in its last heartbeat
 
   // Secrets
   currentSecretHash       String?
