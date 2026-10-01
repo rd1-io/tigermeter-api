@@ -11,10 +11,16 @@ import portalRoutes from './routes/portal.js';
 import adminRoutes from './routes/admin.js';
 import devicesProvisionRoutes from './routes/devices-provision.js';
 // admin-logos.ts removed — logos feature deleted
-import { V5_PREFIX } from './config.js';
+import { V5_PREFIX, config } from './config.js';
+
+const parseTrustProxy = (value: string): boolean | string => {
+  if (value === 'true') return true;
+  if (value === 'false' || value === '') return false;
+  return value;
+};
 
 const buildServer = () => {
-  const app = Fastify({ logger: true });
+  const app = Fastify({ logger: true, trustProxy: parseTrustProxy(config.trustProxy) });
 
   app.register(prismaPlugin);
   app.register(sensible);

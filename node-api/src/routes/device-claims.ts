@@ -1,17 +1,62 @@
-import { FastifyInstance } from 'fastify';
+import { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { addSeconds } from 'date-fns';
+import { createHash, randomInt } from 'crypto';
 import { config } from '../config.js';
 import { generateDeviceSecret, hashPassword, normalizeMac, verifyClaimHmac } from '../utils/crypto.js';
 
 // Helper to generate a 6-digit code with leading zeros preserved
-const generateCode = () => String(Math.floor(Math.random() * 1_000_000)).padStart(6, '0');
+const generateCode = () => String(randomInt(0, 1_000_000)).padStart(6, '0');
+
+const CODE_GENERATION_ATTEMPTS = 10;
 
 const AttachBody = z.object({
   externalUserId: z.string().min(1).max(128),
 });
 
+// HMACs accepted within the tolerance window; a repeated one is a replayed request.
+// In-memory is enough while the API runs as a single instance.
+const usedClaimHmacs = new Map<string, number>();
+
+const markClaimHmacUsed = (hmac: string, now: number): boolean => {
+  for (const [key, expiresAt] of usedClaimHmacs) {
+    if (expiresAt <= now) usedClaimHmacs.delete(key);
+  }
+  const key = hmac.toLowerCase();
+  if (usedClaimHmacs.has(key)) return false;
+  usedClaimHmacs.set(key, now + config.claimHmacToleranceMs);
+  return true;
+};
+
+const attachRateLimitKey = (request: FastifyRequest) => {
+  const auth = request.headers['authorization'] ?? '';
+  return 'attach:' + createHash('sha256').update(auth).digest('hex');
+};
+
+const isUniqueViolation = (err: unknown) => (err as any)?.code === 'P2002';
+
 export default async function deviceClaimsRoutes(app: FastifyInstance) {
+  // Codes are primary keys and claims are kept after use, so a fresh code can collide
+  // with an old row: expired rows are recycled, live ones force another attempt.
+  const createClaim = async (data: { deviceId: string; mac: string; firmwareVersion?: string; ip?: string }) => {
+    for (let attempt = 0; attempt < CODE_GENERATION_ATTEMPTS; attempt++) {
+      const code = generateCode();
+      const now = new Date();
+      const existing = await app.prisma.deviceClaim.findUnique({ where: { code } });
+      if (existing && existing.expiresAt >= now) continue;
+      if (existing) await app.prisma.deviceClaim.deleteMany({ where: { code, expiresAt: { lt: now } } });
+      const expiresAt = addSeconds(now, config.claimCodeTtlSeconds);
+      try {
+        await app.prisma.deviceClaim.create({ data: { code, expiresAt, ...data } });
+        return { code, expiresAt };
+      } catch (err) {
+        if (isUniqueViolation(err)) continue;
+        throw err;
+      }
+    }
+    throw (app as any).httpErrors.serviceUnavailable('Could not allocate claim code, retry later');
+  };
+
   // --- ISSUE claim code (device, HMAC auth) ---
   app.post('/device-claims', {
     config: {
@@ -35,8 +80,16 @@ export default async function deviceClaimsRoutes(app: FastifyInstance) {
     if (!hmac || !timestamp) {
       return reply.code(400).send({ message: 'hmac and timestamp required' });
     }
-    if (!verifyClaimHmac(mac, hmac, firmwareVersion, timestamp)) {
-      return reply.code(401).send({ message: 'invalid hmac' });
+    const now = Date.now();
+    const hmacCheck = verifyClaimHmac(mac, hmac, firmwareVersion, timestamp, now);
+    if (!hmacCheck.ok) {
+      return reply.code(401).send({ message: hmacCheck.message });
+    }
+    if (!markClaimHmacUsed(hmac, now)) {
+      return reply.code(401).send({ message: 'hmac already used' });
+    }
+    if (hmacCheck.legacyTimestamp) {
+      request.log.warn({ mac, firmwareVersion }, 'claim signed with legacy uptime timestamp');
     }
 
     // Device must already exist and be in awaiting_claim state
@@ -89,12 +142,10 @@ export default async function deviceClaimsRoutes(app: FastifyInstance) {
       });
     }
 
-    const code = generateCode();
-    const expiresAt = addSeconds(new Date(), config.claimCodeTtlSeconds);
+    // A device only polls its latest code, so earlier unattached codes are dead weight
+    await app.prisma.deviceClaim.deleteMany({ where: { deviceId: device.id, status: 'pending' } });
 
-    await app.prisma.deviceClaim.create({
-      data: { code, deviceId: device.id, mac, firmwareVersion, ip, expiresAt },
-    });
+    const { code, expiresAt } = await createClaim({ deviceId: device.id, mac, firmwareVersion, ip });
 
     return reply.code(201).send({ code, expiresAt });
   });
@@ -103,8 +154,9 @@ export default async function deviceClaimsRoutes(app: FastifyInstance) {
   app.post('/device-claims/:code/attach', {
     config: {
       rateLimit: {
-        max: 5,          // strict: 5 attempts per minute per IP (anti-brute-force on 6-digit code)
+        max: config.attachRateLimitPerMinute,
         timeWindow: '1 minute',
+        keyGenerator: attachRateLimitKey,
       },
     },
   }, async (request, reply) => {

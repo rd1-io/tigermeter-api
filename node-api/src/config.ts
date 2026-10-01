@@ -7,6 +7,15 @@ export const config = {
   deviceSecretTtlDays: 90,
   deviceSecretOverlapSeconds: 300,
   claimCodeTtlSeconds: 300,
+  claimHmacToleranceMs: 300_000,
+  // Firmware <= v36 signs claims with device uptime (millis()) instead of unix ms, so its
+  // timestamps can't be checked for freshness. Set to "false" once those devices are updated.
+  allowLegacyClaimTimestamps: process.env.ALLOW_LEGACY_CLAIM_TIMESTAMPS !== 'false',
+  // Attach is called by the integrator backend, so the limit is per service token, not per IP
+  attachRateLimitPerMinute: parseInt(process.env.ATTACH_RATE_LIMIT_PER_MINUTE ?? '120', 10),
+
+  // Proxies whose X-Forwarded-For is trusted (proxy-addr syntax); the API runs behind Caddy
+  trustProxy: process.env.TRUST_PROXY ?? 'loopback,linklocal,uniquelocal',
 
   // OTA firmware settings
   latestFirmwareVersion: parseInt(process.env.LATEST_FIRMWARE_VERSION ?? '3', 10),

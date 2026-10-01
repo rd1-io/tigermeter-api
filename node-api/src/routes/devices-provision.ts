@@ -3,9 +3,12 @@ import { normalizeMac } from '../utils/crypto.js';
 
 export async function devicesProvisionRoutes(app: FastifyInstance) {
   app.post('/devices/provision', {
+    onRequest: async (req) => {
+      await app.requireScope(req, 'ops');
+    },
     schema: {
       tags: ['devices'],
-      summary: 'Provision a device (no auth, dev-only)',
+      summary: 'Pre-register a device by MAC (ops only)',
       body: {
         type: 'object',
         required: ['mac', 'firmwareVersion'],
