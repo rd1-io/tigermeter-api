@@ -431,6 +431,9 @@ export const DeviceTestPage: React.FC<DeviceTestPageProps> = ({ scope, deviceId,
     const of = (i: number) => (n > 1 ? `кадр ${i + 1}/${n}` : 'кадр');
     if (state.deviceFrameIndex != null && state.deviceFrameIndex === state.deliveredFrameIndex)
       return { cls: 'bg-green-100 text-green-800', text: `Применено: устройство показывает ${of(state.deviceFrameIndex)} и подтвердило его хеш` };
+    // Rotation heartbeats land at frame switches: each one confirms the previous frame and gets the next
+    if (n > 1 && state.deviceFrameIndex != null && state.deliveredFrameIndex != null && state.displayRebootCount === 0)
+      return { cls: 'bg-green-100 text-green-800', text: `Ротация идёт: устройство подтвердило кадр ${state.deviceFrameIndex + 1}/${n} и ${ago(state.displayDeliveredAt, now)} получило кадр ${state.deliveredFrameIndex + 1}/${n}` };
     if (state.deliveredFrameIndex != null) return { cls: 'bg-blue-100 text-blue-800', text: `Доставлен ${of(state.deliveredFrameIndex)} ${ago(state.displayDeliveredAt, now)}, подтверждение придёт со следующим heartbeat` };
     return { cls: 'bg-amber-100 text-amber-800', text: 'Ожидает heartbeat: устройство ещё не забрало новые кадры' };
   })();
