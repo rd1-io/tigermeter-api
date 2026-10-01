@@ -44,3 +44,15 @@ body { font-feature-settings: "tnum" on, "lnum" on; }
 }
 
 .led-flash { will-change: filter; animation-timing-function: steps(2,end); }
+
+/* Device test page LED preview */
+@keyframes ledPulse {
+  0%, 100% { opacity: 0; }
+  50% { opacity: 1; }
+}
+
+@keyframes ledRainbowSpin {
+  to { transform: rotate(360deg); }
+}
+
+.led-rainbow { animation: ledRainbowSpin 6s linear infinite; }

@@ -3,6 +3,28 @@
 export type LedColor = 'green' | 'red' | 'blue' | 'yellow' | 'cyan' | 'magenta' | 'white' | 'rainbow' | 'off';
 export type LedBrightness = 'low' | 'mid' | 'high' | 'off';
 
+export const LED_COLORS: LedColor[] = ['green', 'red', 'blue', 'yellow', 'cyan', 'magenta', 'white', 'rainbow', 'off'];
+export const LED_BRIGHTNESSES: LedBrightness[] = ['low', 'mid', 'high', 'off'];
+
+export const LED_COLOR_LABELS: Record<LedColor, string> = {
+  green: 'Зелёный',
+  red: 'Красный',
+  blue: 'Синий',
+  yellow: 'Жёлтый',
+  cyan: 'Голубой',
+  magenta: 'Пурпурный',
+  white: 'Белый',
+  rainbow: 'Радуга',
+  off: 'Выкл',
+};
+
+export const LED_BRIGHTNESS_LABELS: Record<LedBrightness, string> = {
+  low: 'Низкая',
+  mid: 'Средняя',
+  high: 'Высокая',
+  off: 'Выкл',
+};
+
 export interface DisplayFrame {
   bitmap: string;          // base64, 8064 bytes decoded (384x168 1-bit packed)
   ledColor: LedColor;
@@ -33,7 +55,23 @@ export interface DeviceDto {
   demoMode: boolean;
   displayHash: string | null;
   displayVersion: number;
+  reportedDisplayHash?: string | null;
+  ip?: string | null;
   createdAt?: string;
+}
+
+// GET /devices/:id (manage) and /admin/devices/:id (ops)
+export interface DeviceStateDto extends DeviceDto {
+  ip: string | null;
+  uptimeSeconds: number | null;
+  displayUpdatedAt: string | null;
+  deliveredDisplayHash: string | null;
+  displayDeliveredAt: string | null;
+  reportedDisplayHash: string | null;
+  frameCount: number;
+  refreshInterval: number | null;
+  pendingFactoryReset: boolean;
+  latestFirmwareVersion: number;
 }
 
 export interface PendingDeviceDto {

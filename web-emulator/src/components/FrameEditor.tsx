@@ -1,32 +1,10 @@
 import React, { useState, useEffect, useRef } from "react";
 import { apiClient } from "../api/client";
-import { DisplayFrame, DisplayFramesPayload, DEFAULT_FRAME, LedColor, LedBrightness } from "../types/display";
+import { DisplayFrame, DisplayFramesPayload, DEFAULT_FRAME, LED_COLORS, LED_BRIGHTNESSES, LED_COLOR_LABELS, LED_BRIGHTNESS_LABELS } from "../types/display";
 
 const WIDTH = 384;
 const HEIGHT = 168;
 const SCALE = 2;
-
-const LED_COLORS: LedColor[] = ['green', 'red', 'blue', 'yellow', 'cyan', 'magenta', 'white', 'rainbow', 'off'];
-const LED_BRIGHTNESSES: LedBrightness[] = ['low', 'mid', 'high', 'off'];
-
-const LED_COLOR_LABELS: Record<LedColor, string> = {
-  green: 'Зелёный',
-  red: 'Красный',
-  blue: 'Синий',
-  yellow: 'Жёлтый',
-  cyan: 'Голубой',
-  magenta: 'Пурпурный',
-  white: 'Белый',
-  rainbow: 'Радуга',
-  off: 'Выкл',
-};
-
-const LED_BRIGHTNESS_LABELS: Record<LedBrightness, string> = {
-  low: 'Низкая',
-  mid: 'Средняя',
-  high: 'Высокая',
-  off: 'Выкл',
-};
 
 // Pack RGBA image data (WxH) into 1-bit bitmap, MSB-first per byte, 1=white, 0=black
 function packBitmap(pixels: boolean[][]): string {
@@ -171,10 +149,9 @@ function drawTextOnPixels(pixels: boolean[][], x: number, y: number, text: strin
 
 interface FrameEditorProps {
   deviceId: string;
-  scope: string;
 }
 
-export const FrameEditor: React.FC<FrameEditorProps> = ({ deviceId, scope }) => {
+export const FrameEditor: React.FC<FrameEditorProps> = ({ deviceId }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [pixels, setPixels] = useState<boolean[][]>(() => Array.from({ length: HEIGHT }, () => new Array(WIDTH).fill(false)));
   const [frames, setFrames] = useState<DisplayFrame[]>([{ ...DEFAULT_FRAME }]);
@@ -359,7 +336,6 @@ export const FrameEditor: React.FC<FrameEditorProps> = ({ deviceId, scope }) => 
 
   // Load current from server
   const handleLoadCurrent = async () => {
-    if (scope !== 'ops') return;
     setStatus("Загрузка...");
     try {
       const resp = await apiClient.getDeviceDisplay(deviceId);
@@ -438,8 +414,8 @@ export const FrameEditor: React.FC<FrameEditorProps> = ({ deviceId, scope }) => 
             <button onClick={handleClear} className="text-xs px-2 py-1 rounded bg-neutral-100">Очистить</button>
             <button onClick={handleInvert} className="text-xs px-2 py-1 rounded bg-neutral-100">Инверсия</button>
             <label className="text-xs px-2 py-1 rounded bg-neutral-100 cursor-pointer">
-              Импорт PNG
-              <input type="file" accept="image/png,image/jpeg" onChange={handleImport} className="hidden" />
+              Импорт изображения
+              <input type="file" accept="image/png,image/jpeg,image/bmp,image/gif,image/webp,.bmp" onChange={handleImport} className="hidden" />
             </label>
           </div>
           {tool === 'text' && (
@@ -532,9 +508,7 @@ export const FrameEditor: React.FC<FrameEditorProps> = ({ deviceId, scope }) => 
               className={`text-xs px-3 py-1.5 rounded ${previewRunning ? 'bg-orange-100 text-orange-700' : 'bg-neutral-100'}`}>
               {previewRunning ? 'Стоп' : 'Превью'}
             </button>
-            {scope === 'ops' && (
-              <button onClick={handleLoadCurrent} className="text-xs px-3 py-1.5 rounded bg-neutral-100">Загрузить</button>
-            )}
+            <button onClick={handleLoadCurrent} className="text-xs px-3 py-1.5 rounded bg-neutral-100">Загрузить</button>
             <button onClick={handleSave} className="text-xs px-3 py-1.5 rounded bg-blue-600 text-white font-medium">Отправить на устройство</button>
           </div>
 

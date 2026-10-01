@@ -9,6 +9,13 @@ const V5_PREFIX = '/api/v5';
 // Reserved tenant the server parks outdated unclaimed devices on while they OTA-update
 export const STAGING_TENANT_ID = 'staging';
 
+export type Scope = 'ops' | 'manage';
+
+export interface TenantDto {
+  tenantId: string;
+  scopes: Scope[];
+}
+
 export interface AdminSettings {
   autoProvisionNewDevices: boolean;
   autoUpgradeOutdatedDevices: boolean;
@@ -20,6 +27,8 @@ import { loggedFetch } from './logStore';
 export class ApiClient {
   private baseUrl: string;
   private token: string | null = null;
+  // ops acts across tenants through /admin endpoints; manage stays on its own tenant's endpoints
+  private scope: Scope | null = null;
 
   constructor(opts: ApiClientOptions = {}) {
     this.baseUrl = (opts.baseUrl || import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001').replace(/\/$/, '');
@@ -40,7 +49,16 @@ export class ApiClient {
 
   clearToken() {
     this.token = null;
+    this.scope = null;
     localStorage.removeItem('serviceToken');
+  }
+
+  setScope(scope: Scope | null) {
+    this.scope = scope;
+  }
+
+  private get isOps(): boolean {
+    return this.scope === 'ops';
   }
 
   private authHeaders(): Record<string, string> {
@@ -57,26 +75,33 @@ export class ApiClient {
   }
 
   // === Devices (ops — all, manage — tenant-scoped) ===
-  async listDevices(): Promise<Response> {
-    return loggedFetch('GET', `${this.baseUrl}${V5_PREFIX}/devices`, {
+  private devicesPath(): string {
+    return `${this.baseUrl}${V5_PREFIX}${this.isOps ? '/admin' : ''}/devices`;
+  }
+
+  async listDevices(quiet = false): Promise<Response> {
+    return loggedFetch('GET', this.devicesPath(), {
       headers: this.authHeaders(),
+      quiet,
     });
   }
 
-  async getDevice(id: string): Promise<Response> {
-    return loggedFetch('GET', `${this.baseUrl}${V5_PREFIX}/devices/${id}`, {
+  // Telemetry + display delivery state
+  async getDevice(id: string, quiet = false): Promise<Response> {
+    return loggedFetch('GET', `${this.devicesPath()}/${id}`, {
       headers: this.authHeaders(),
+      quiet,
     });
   }
 
   async getDeviceDisplay(id: string): Promise<Response> {
-    return loggedFetch('GET', `${this.baseUrl}${V5_PREFIX}/admin/devices/${id}/display`, {
+    return loggedFetch('GET', `${this.devicesPath()}/${id}/display`, {
       headers: this.authHeaders(),
     });
   }
 
   async setDisplayFrames(id: string, payload: any): Promise<Response> {
-    return loggedFetch('PUT', `${this.baseUrl}${V5_PREFIX}/devices/${id}/display`, {
+    return loggedFetch('PUT', `${this.devicesPath()}/${id}/display`, {
       headers: {
         ...this.authHeaders(),
         'Content-Type': 'application/json',
@@ -86,7 +111,10 @@ export class ApiClient {
   }
 
   async patchDevice(id: string, data: { name?: string; autoUpdate?: boolean; demoMode?: boolean }): Promise<Response> {
-    return loggedFetch('PATCH', `${this.baseUrl}${V5_PREFIX}/devices/${id}`, {
+    const url = this.isOps
+      ? `${this.baseUrl}${V5_PREFIX}/admin/devices/${id}/settings`
+      : `${this.baseUrl}${V5_PREFIX}/devices/${id}`;
+    return loggedFetch('PATCH', url, {
       headers: {
         ...this.authHeaders(),
         'Content-Type': 'application/json',
@@ -96,7 +124,7 @@ export class ApiClient {
   }
 
   async revokeDevice(id: string): Promise<Response> {
-    return loggedFetch('POST', `${this.baseUrl}${V5_PREFIX}/devices/${id}/revoke`, {
+    return loggedFetch('POST', `${this.devicesPath()}/${id}/revoke`, {
       headers: this.authHeaders(),
     });
   }
@@ -114,13 +142,7 @@ export class ApiClient {
   }
 
   async updateDeviceSettings(id: string, settings: { autoUpdate?: boolean; demoMode?: boolean }): Promise<Response> {
-    return loggedFetch('PATCH', `${this.baseUrl}${V5_PREFIX}/admin/devices/${id}/settings`, {
-      headers: {
-        ...this.authHeaders(),
-        'Content-Type': 'application/json',
-      },
-      bodyJson: settings,
-    });
+    return this.patchDevice(id, settings);
   }
 
   // === Pending devices (ops only) ===
@@ -163,14 +185,27 @@ export class ApiClient {
     });
   }
 
-  // Attach claim code (manage scope)
-  async attachClaim(code: string, externalUserId: string): Promise<Response> {
-    return loggedFetch('POST', `${this.baseUrl}${V5_PREFIX}/device-claims/${code}/attach`, {
+  // Tenants an ops admin can attach devices to (from SERVICE_TOKENS, without staging)
+  async listTenants(): Promise<Response> {
+    return loggedFetch('GET', `${this.baseUrl}${V5_PREFIX}/admin/tenants`, {
+      headers: this.authHeaders(),
+    });
+  }
+
+  // Attach claim code: manage attaches to its own tenant, ops to the chosen one
+  async attachClaim(code: string, params: { tenantId?: string; externalUserId?: string }): Promise<Response> {
+    const url = this.isOps
+      ? `${this.baseUrl}${V5_PREFIX}/admin/device-claims/${encodeURIComponent(code)}/attach`
+      : `${this.baseUrl}${V5_PREFIX}/device-claims/${encodeURIComponent(code)}/attach`;
+    const bodyJson = this.isOps
+      ? { tenantId: params.tenantId, ...(params.externalUserId ? { externalUserId: params.externalUserId } : {}) }
+      : { externalUserId: params.externalUserId };
+    return loggedFetch('POST', url, {
       headers: {
         ...this.authHeaders(),
         'Content-Type': 'application/json',
       },
-      bodyJson: { externalUserId },
+      bodyJson,
     });
   }
 

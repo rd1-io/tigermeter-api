@@ -1,11 +1,20 @@
 import React, { useState, useEffect } from "react";
 import { apiClient, AdminSettings, STAGING_TENANT_ID } from "./api/client";
 import { AdminPanel } from "./components/AdminPanel";
+import { AttachByCode } from "./components/AttachByCode";
+import { DeviceTestPage } from "./components/DeviceTestPage";
 import { LogPanel } from "./components/LogPanel";
 import { FrameEditor } from "./components/FrameEditor";
 import { DeviceDto } from "./types/display";
 
-type Tab = 'devices' | 'pending' | 'settings';
+type Tab = 'devices' | 'test' | 'pending' | 'settings';
+
+const TAB_LABELS: Record<Tab, string> = {
+  devices: 'Устройства',
+  test: 'Тест устройства',
+  pending: 'На одобрении',
+  settings: 'Настройки',
+};
 
 const App: React.FC = () => {
   const [token, setToken] = useState(apiClient.getToken() || "");
@@ -16,6 +25,18 @@ const App: React.FC = () => {
 
   const [selectedDevice, setSelectedDevice] = useState<DeviceDto | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>('devices');
+  const [testDeviceId, setTestDeviceId] = useState<string | null>(localStorage.getItem('testDeviceId'));
+
+  const selectTestDevice = (id: string | null) => {
+    setTestDeviceId(id);
+    if (id) localStorage.setItem('testDeviceId', id);
+    else localStorage.removeItem('testDeviceId');
+  };
+
+  const openTest = (id: string) => {
+    selectTestDevice(id);
+    setActiveTab('test');
+  };
 
   // Check stored token on mount
   useEffect(() => {
@@ -33,6 +54,7 @@ const App: React.FC = () => {
       const resp = await apiClient.me();
       if (resp.ok) {
         const data = await resp.json();
+        apiClient.setScope(data.scope);
         setScope(data.scope);
         setTenantId(data.tenantId);
         setAuthError("");
@@ -58,6 +80,8 @@ const App: React.FC = () => {
     setScope(null);
     setTenantId("");
     setSelectedDevice(null);
+    selectTestDevice(null);
+    setActiveTab('devices');
   };
 
   // Login screen
@@ -106,7 +130,7 @@ const App: React.FC = () => {
 
         {/* Tabs */}
         <div className="mx-auto max-w-7xl px-6 flex gap-0">
-          {(['devices', 'pending', 'settings'] as Tab[]).map((tab) => (
+          {((scope === 'ops' ? ['devices', 'test', 'pending', 'settings'] : ['devices', 'test']) as Tab[]).map((tab) => (
             <button
               key={tab}
               onClick={() => { setActiveTab(tab); setSelectedDevice(null); }}
@@ -116,7 +140,7 @@ const App: React.FC = () => {
                   : 'border-transparent text-neutral-500 hover:text-neutral-700'
               }`}
             >
-              {tab === 'devices' ? 'Устройства' : tab === 'pending' ? 'На одобрении' : 'Настройки'}
+              {TAB_LABELS[tab]}
             </button>
           ))}
         </div>
@@ -125,15 +149,21 @@ const App: React.FC = () => {
       <main className="flex-1 mx-auto w-full max-w-7xl px-6 py-6">
         {activeTab === 'devices' && (
           <div className="flex flex-col gap-6">
+            <AttachByCode scope={scope!} tenantId={tenantId} onAttached={openTest} />
             <AdminPanel
               selectedDevice={selectedDevice}
               onSelectDevice={setSelectedDevice}
+              onOpenTest={(d) => openTest(d.id)}
               scope={scope!}
             />
             {selectedDevice && (
-              <FrameEditor deviceId={selectedDevice.id} scope={scope!} />
+              <FrameEditor deviceId={selectedDevice.id} />
             )}
           </div>
+        )}
+
+        {activeTab === 'test' && (
+          <DeviceTestPage scope={scope!} deviceId={testDeviceId} onSelectDevice={selectTestDevice} />
         )}
 
         {activeTab === 'pending' && scope === 'ops' && (

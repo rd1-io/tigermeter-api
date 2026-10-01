@@ -5,6 +5,7 @@ import { DeviceDto, PendingDeviceDto } from "../types/display";
 interface AdminPanelProps {
   selectedDevice: DeviceDto | null;
   onSelectDevice: (d: DeviceDto | null) => void;
+  onOpenTest: (d: DeviceDto) => void;
   scope: string;
 }
 
@@ -13,6 +14,7 @@ const POLL_INTERVAL_MS = 5000;
 export const AdminPanel: React.FC<AdminPanelProps> = ({
   selectedDevice,
   onSelectDevice,
+  onOpenTest,
   scope,
 }) => {
   const [devices, setDevices] = useState<DeviceDto[]>([]);
@@ -26,7 +28,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     if (showLoading) setLoading(true);
     setError(null);
     try {
-      const resp = await apiClient.listDevices();
+      const resp = await apiClient.listDevices(!showLoading);
       if (resp.ok) {
         const data = await resp.json();
         setDevices(data);
@@ -124,7 +126,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               <span className="text-xs bg-neutral-100 px-1.5 py-0.5 rounded">{d.tenantId}</span>
             )}
             <span className="text-xs text-neutral-400">{d.status}</span>
-            <span className="text-xs text-neutral-400 ml-auto">v{d.firmwareVersion || '?'}</span>
+            <span className="text-xs text-neutral-400 ml-auto">v{(d.firmwareVersion || '?').replace(/^v/i, '')}</span>
           </div>
         ))}
       </div>
@@ -136,7 +138,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           <div className="grid grid-cols-2 gap-2 text-sm mb-4">
             <div><span className="text-neutral-500">ID:</span> <span className="font-mono text-xs">{selectedDevice.id}</span></div>
             <div><span className="text-neutral-500">Статус:</span> {selectedDevice.status}</div>
-            <div><span className="text-neutral-500">FW:</span> v{selectedDevice.firmwareVersion || '?'}</div>
+            <div><span className="text-neutral-500">FW:</span> v{(selectedDevice.firmwareVersion || '?').replace(/^v/i, '')}</div>
             <div><span className="text-neutral-500">Батарея:</span> {selectedDevice.battery ?? '?'}%</div>
             <div><span className="text-neutral-500">Версия дисплея:</span> {selectedDevice.displayVersion}</div>
             <div><span className="text-neutral-500">Хеш дисплея:</span> <span className="font-mono text-xs">{selectedDevice.displayHash?.slice(0, 12) ?? '-'}</span></div>
@@ -166,6 +168,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
           {/* Actions */}
           <div className="flex flex-wrap gap-2">
+            {selectedDevice.status === 'active' && (
+              <button onClick={() => onOpenTest(selectedDevice)} className="text-xs bg-blue-600 text-white px-2 py-1 rounded">Тест устройства</button>
+            )}
             <button onClick={() => handleToggleAutoUpdate(selectedDevice)} className={`text-xs px-2 py-1 rounded ${selectedDevice.autoUpdate ? 'bg-green-100 text-green-700' : 'bg-neutral-100'}`}>
               Автообновление: {selectedDevice.autoUpdate ? 'ВКЛ' : 'ВЫКЛ'}
             </button>

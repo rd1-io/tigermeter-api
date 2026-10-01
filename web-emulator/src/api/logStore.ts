@@ -55,7 +55,8 @@ class LogStore {
   }
 
   private emit() {
-    for (const l of this.listeners) l(this.entries);
+    const snapshot = [...this.entries];
+    for (const l of this.listeners) l(snapshot);
   }
 }
 
@@ -63,6 +64,8 @@ export const requestLogStore = new LogStore(Number(import.meta.env.VITE_REQUEST_
 
 export interface FetchOptions extends RequestInit {
   bodyJson?: any;
+  // Background polling stays out of the request log so it doesn't push real actions out
+  quiet?: boolean;
 }
 
 export async function loggedFetch(method: string, url: string, opts: FetchOptions = {}): Promise<Response> {
@@ -73,7 +76,8 @@ export async function loggedFetch(method: string, url: string, opts: FetchOption
     for (const [k, v] of Object.entries(opts.headers as any)) headers[k] = String(v);
   }
   let requestBody: any;
-  const init: RequestInit = { ...opts, method };
+  const { quiet, bodyJson: _bodyJson, ...rest } = opts;
+  const init: RequestInit = { ...rest, method };
   if (opts.bodyJson !== undefined) {
     requestBody = opts.bodyJson;
     headers['Content-Type'] = headers['Content-Type'] || 'application/json';
@@ -86,6 +90,7 @@ export async function loggedFetch(method: string, url: string, opts: FetchOption
     requestBody = opts.body;
   }
   init.headers = headers;
+  if (quiet) return fetch(url, init);
 
   requestLogStore.add({ id, ts: Date.now(), method, url, requestHeaders: headers, requestBody });
   try {
