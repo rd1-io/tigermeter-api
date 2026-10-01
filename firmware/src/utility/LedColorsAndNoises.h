@@ -267,6 +267,21 @@ void led_Blue()
     setLedPWMWithBrightness(255, 255, 0); // Blue ON, Red + Green OFF
 }
 
+void led_Cyan()
+{
+    setLedPWMWithBrightness(255, 0, 0); // Green + Blue ON, Red OFF
+}
+
+void led_Magenta()
+{
+    setLedPWMWithBrightness(0, 255, 0); // Red + Blue ON, Green OFF
+}
+
+void led_White()
+{
+    setLedPWMWithBrightness(0, 0, 0); // All channels ON
+}
+
 void led_Off()
 {
     // Stop LEDC channels to fully turn off LED (PWM at 255 still leaks some light)
@@ -279,8 +294,22 @@ void led_Off()
     currentB = 255;
 }
 
+// Solid LED color by API name (static colors only; "rainbow" is animated by the caller)
+// Unknown names turn the LED off
+void setLedColorByName(const String& color)
+{
+    if (color == "green") led_Green();
+    else if (color == "red") led_Red();
+    else if (color == "blue") led_Blue();
+    else if (color == "yellow") led_Yellow();
+    else if (color == "cyan") led_Cyan();
+    else if (color == "magenta" || color == "purple") led_Magenta();
+    else if (color == "white") led_White();
+    else led_Off();
+}
+
 // Pulse LED by color name with smooth breathing effect
-// color: "green", "red", "blue", "yellow", "purple"
+// color: "green", "red", "blue", "yellow", "cyan", "magenta"/"purple", "white"
 // durationMs: total duration for one pulse cycle (default 800ms)
 void pulseColorByName(const String& color, uint16_t durationMs = 800)
 {
@@ -292,8 +321,12 @@ void pulseColorByName(const String& color, uint16_t durationMs = 800)
         pulseColor(255, 255, 0, durationMs);      // Blue ON
     } else if (color == "yellow") {
         pulseColor(0, 180, 255, durationMs);      // Amber (Red + partial Green)
-    } else if (color == "purple") {
-        pulseColor(0, 255, 0, durationMs);        // Purple (Red + Blue)
+    } else if (color == "cyan") {
+        pulseColor(255, 0, 0, durationMs);        // Green + Blue
+    } else if (color == "magenta" || color == "purple") {
+        pulseColor(0, 255, 0, durationMs);        // Red + Blue
+    } else if (color == "white") {
+        pulseColor(0, 0, 0, durationMs);          // All channels
     } else {
         // Default to green for unknown colors
         pulseColor(255, 0, 255, durationMs);

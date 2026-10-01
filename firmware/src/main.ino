@@ -74,6 +74,10 @@ TaskHandle_t amberPulseTaskHandle = NULL;
 
 // Battery reading
 const float BATTERY_MULTIPLIER = 2.19f;
+// Badge appears below LOW and clears only above CLEAR so a noisy ADC doesn't redraw every heartbeat
+const int LOW_BATTERY_PERCENT = 5;
+const int LOW_BATTERY_CLEAR_PERCENT = 8;
+bool lowBattery = false;
 
 int getBatteryPercent() {
     int raw = analogRead(35);
@@ -84,8 +88,9 @@ int getBatteryPercent() {
     return percent;
 }
 
-// Draw battery icon (white on black background)
+// Draw battery icon (white on a black box, so it stays visible on any frame)
 void drawBatteryIcon(int x, int y) {
+    display.fillRect(x - 3, y - 3, 33, 18, true);
     display.drawRoundRect(x, y, 24, 12, 2, false);
     display.fillRect(x + 24, y + 3, 3, 6, false);
     display.fillRoundRect(x + 2, y + 2, 2, 8, 1, false);
@@ -101,6 +106,8 @@ void displayError(const char *msg);
 void displaySystemScreen(const char* tag, const char* line1, const char* line2);
 void handleApiStateMachine();
 void applyFrameLedBeep(uint8_t frameIndex);
+void applyFrameLedColor(const String& color, const String& brightness);
+void updateLowBatteryBadge(int batteryPercent);
 void led_Purple();
 void led_Green();
 void led_Red();
@@ -195,10 +202,25 @@ void displayFrameFullScreen(uint8_t frameIndex) {
 
     display.clear();
     display.drawBitmap(0, 0, displayFrames[frameIndex].bitmap, DISPLAY_WIDTH, DISPLAY_HEIGHT, false, false);
+    if (lowBattery) {
+        drawBatteryIcon(5, 5);
+    }
     display.refresh();
 
     Serial.printf("[Main] Drawing frame %d/%d (duration=%us)\n",
                   frameIndex + 1, displayFrameCount, displayFrames[frameIndex].durationSec);
+}
+
+void applyFrameLedColor(const String& color, const String& brightness) {
+    stopRainbow();
+    setLedBrightness(brightness);
+    if (brightness == "off") {
+        led_Off();
+    } else if (color == "rainbow") {
+        startRainbow();
+    } else {
+        setLedColorByName(color);
+    }
 }
 
 // Apply LED color, beep, flash for a given frame (one-shot per download cycle)
@@ -210,19 +232,7 @@ void applyFrameLedBeep(uint8_t frameIndex) {
     String brightness = String(f.ledBrightness);
 
     // Always set LED color + brightness for this frame
-    stopRainbow();
-    setLedBrightness(brightness);
-    if (brightness == "off") {
-        led_Off();
-    } else if (color == "rainbow") {
-        startRainbow();
-    } else if (color == "green") led_Green();
-    else if (color == "red") led_Red();
-    else if (color == "blue") led_Blue();
-    else if (color == "yellow") led_Yellow();
-    else if (color == "purple") led_Purple();
-    else if (color == "cyan" || color == "magenta" || color == "white") led_Green(); // Fallback
-    else led_Off();
+    applyFrameLedColor(color, brightness);
 
     // One-shot beep/flash (fire only first time after download)
     if (!oneShotFired[frameIndex]) {
@@ -232,22 +242,25 @@ void applyFrameLedBeep(uint8_t frameIndex) {
             playBuzzerPositive();
         }
         if (f.flashCount > 0) {
+            stopRainbow();  // the rainbow task would fight the pulse for the LED
             for (int i = 0; i < f.flashCount; i++) {
                 pulseColorByName(color, 800);
                 if (i < f.flashCount - 1) delay(100);
             }
-            // Restore LED
-            setLedBrightness(brightness);
-            if (brightness == "off") {
-                led_Off();
-            } else if (color == "rainbow") startRainbow();
-            else if (color == "green") led_Green();
-            else if (color == "red") led_Red();
-            else if (color == "blue") led_Blue();
-            else if (color == "yellow") led_Yellow();
-            else if (color == "purple") led_Purple();
-            else led_Off();
+            applyFrameLedColor(color, brightness);
         }
+    }
+}
+
+// Track low battery with hysteresis; redraw the current frame when the badge toggles
+void updateLowBatteryBadge(int batteryPercent) {
+    bool low = lowBattery
+        ? batteryPercent < LOW_BATTERY_CLEAR_PERCENT
+        : batteryPercent < LOW_BATTERY_PERCENT;
+    if (low == lowBattery) return;
+    lowBattery = low;
+    if (hasDisplayContent && displayFrameCount > 0 && !isReconnecting) {
+        displayFrameFullScreen(currentFrameIndex);
     }
 }
 
@@ -495,6 +508,7 @@ void handleApiStateMachine()
             int uptimeSeconds = (now - startTime) / 1000;
             int rssi = WiFi.RSSI();
             int battery = getBatteryPercent();
+            updateLowBatteryBadge(battery);
 
             bool forceRefresh = !hasDisplayContent || isReconnecting;
             HeartbeatResult result = apiClient.sendHeartbeat(battery, rssi, uptimeSeconds, forceRefresh);
@@ -655,11 +669,6 @@ void handleApiStateMachine()
                     applyFrameLedBeep(currentFrameIndex);
                 }
             }
-        }
-
-        // Low battery warning
-        if (hasDisplayContent && getBatteryPercent() < 5) {
-            drawBatteryIcon(5, 5);
         }
 
         // --- OTA CHECK ---

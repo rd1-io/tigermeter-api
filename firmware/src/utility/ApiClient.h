@@ -6,6 +6,8 @@
 #include <ArduinoJson.h>
 #include <WiFi.h>
 #include <Preferences.h>
+#include <sys/time.h>
+#include <time.h>
 #include "mbedtls/md.h"
 
 // API Configuration - change API_BASE_URL to your computer's IP
@@ -128,9 +130,30 @@ private:
         return String(macStr);
     }
 
+    // Unix time in ms for the claim HMAC. Until NTP syncs, falls back to uptime, which the
+    // server accepts only while ALLOW_LEGACY_CLAIM_TIMESTAMPS is on.
+    uint64_t claimTimestampMs() {
+        if (time(nullptr) < 1000000000) {
+            configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+            unsigned long start = millis();
+            while (time(nullptr) < 1000000000 && millis() - start < 5000) {
+                delay(100);
+            }
+        }
+        struct timeval tv;
+        gettimeofday(&tv, nullptr);
+        if (tv.tv_sec < 1000000000) {
+            Serial.println("[ApiClient] NTP not synced, signing claim with uptime");
+            return millis();
+        }
+        return (uint64_t)tv.tv_sec * 1000ULL + (uint64_t)(tv.tv_usec / 1000);
+    }
+
     // Generate HMAC-SHA256
-    String generateHmac(const String& mac, const String& firmwareVersion, unsigned long timestamp) {
-        String payload = mac + ":" + firmwareVersion + ":" + String(timestamp);
+    String generateHmac(const String& mac, const String& firmwareVersion, uint64_t timestamp) {
+        char tsStr[21];
+        snprintf(tsStr, sizeof(tsStr), "%llu", (unsigned long long)timestamp);
+        String payload = mac + ":" + firmwareVersion + ":" + String(tsStr);
 
         uint8_t hmacResult[32];
         mbedtls_md_context_t ctx;
@@ -243,7 +266,7 @@ public:
         http.addHeader("Content-Type", "application/json");
 
         String mac = getMacAddress();
-        unsigned long timestamp = millis();
+        uint64_t timestamp = claimTimestampMs();
         String hmac = generateHmac(mac, _firmwareVersion, timestamp);
 
         JsonDocument doc;
