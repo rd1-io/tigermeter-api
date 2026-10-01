@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from "react";
-import { apiClient } from "../api/client";
+import { apiClient, STAGING_TENANT_ID } from "../api/client";
 import { DeviceDto, PendingDeviceDto } from "../types/display";
 
 interface AdminPanelProps {
@@ -115,7 +115,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             <span className={`w-2 h-2 rounded-full ${isOnline(d.lastSeen) ? 'bg-green-500' : 'bg-neutral-300'}`} />
             <span className="font-mono text-xs">{d.mac}</span>
             <span className="text-neutral-500 truncate max-w-[120px]">{d.name || '-'}</span>
-            {isOps && d.tenantId && (
+            {isOps && d.tenantId === STAGING_TENANT_ID && (
+              <span className="text-xs bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded" title="Временно привязано для OTA-обновления">
+                {d.tenantId} · обновление
+              </span>
+            )}
+            {isOps && d.tenantId && d.tenantId !== STAGING_TENANT_ID && (
               <span className="text-xs bg-neutral-100 px-1.5 py-0.5 rounded">{d.tenantId}</span>
             )}
             <span className="text-xs text-neutral-400">{d.status}</span>

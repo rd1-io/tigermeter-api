@@ -6,6 +6,15 @@ export interface ApiClientOptions {
 
 const V5_PREFIX = '/api/v5';
 
+// Reserved tenant the server parks outdated unclaimed devices on while they OTA-update
+export const STAGING_TENANT_ID = 'staging';
+
+export interface AdminSettings {
+  autoProvisionNewDevices: boolean;
+  autoUpgradeOutdatedDevices: boolean;
+  latestFirmwareVersion: number;
+}
+
 import { loggedFetch } from './logStore';
 
 export class ApiClient {
@@ -144,7 +153,7 @@ export class ApiClient {
     });
   }
 
-  async patchAdminSettings(settings: { autoProvisionNewDevices?: boolean }): Promise<Response> {
+  async patchAdminSettings(settings: Partial<Pick<AdminSettings, 'autoProvisionNewDevices' | 'autoUpgradeOutdatedDevices'>>): Promise<Response> {
     return loggedFetch('PATCH', `${this.baseUrl}${V5_PREFIX}/admin/settings`, {
       headers: {
         ...this.authHeaders(),

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { apiClient } from "./api/client";
+import { apiClient, AdminSettings, STAGING_TENANT_ID } from "./api/client";
 import { AdminPanel } from "./components/AdminPanel";
 import { LogPanel } from "./components/LogPanel";
 import { FrameEditor } from "./components/FrameEditor";
@@ -219,42 +219,58 @@ const PendingPanel: React.FC = () => {
 
 // === Settings Panel ===
 const SettingsPanel: React.FC = () => {
-  const [autoProvision, setAutoProvision] = useState(false);
+  const [settings, setSettings] = useState<AdminSettings | null>(null);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     (async () => {
       const resp = await apiClient.getAdminSettings();
       if (resp.ok) {
-        const data = await resp.json();
-        setAutoProvision(data.autoProvisionNewDevices);
+        setSettings(await resp.json());
       }
     })();
   }, []);
 
-  const toggle = async () => {
+  const toggle = async (key: 'autoProvisionNewDevices' | 'autoUpgradeOutdatedDevices') => {
+    if (!settings) return;
     setLoading(true);
-    const resp = await apiClient.patchAdminSettings({ autoProvisionNewDevices: !autoProvision });
+    const resp = await apiClient.patchAdminSettings({ [key]: !settings[key] });
     if (resp.ok) {
-      const data = await resp.json();
-      setAutoProvision(data.autoProvisionNewDevices);
+      setSettings(await resp.json());
     }
     setLoading(false);
   };
 
   return (
-    <div className="bg-white rounded-md border shadow-sm p-4">
-      <h2 className="font-semibold mb-4">Настройки</h2>
+    <div className="bg-white rounded-md border shadow-sm p-4 space-y-4">
+      <h2 className="font-semibold">Настройки</h2>
       <label className="flex items-center gap-3 text-sm cursor-pointer">
         <input
           type="checkbox"
-          checked={autoProvision}
-          onChange={toggle}
-          disabled={loading}
+          checked={settings?.autoProvisionNewDevices ?? false}
+          onChange={() => toggle('autoProvisionNewDevices')}
+          disabled={loading || !settings}
           className="w-4 h-4"
         />
         Авто-провижининг новых устройств (без ручного одобрения)
       </label>
+      <div>
+        <label className="flex items-center gap-3 text-sm cursor-pointer">
+          <input
+            type="checkbox"
+            checked={settings?.autoUpgradeOutdatedDevices ?? false}
+            onChange={() => toggle('autoUpgradeOutdatedDevices')}
+            disabled={loading || !settings}
+            className="w-4 h-4"
+          />
+          Автообновление непривязанных устройств со старой прошивкой
+        </label>
+        <p className="text-xs text-neutral-500 mt-1 ml-7">
+          Устройство с прошивкой ниже v{settings?.latestFirmwareVersion ?? '?'} при запросе кода временно
+          привязывается к тенанту «{STAGING_TENANT_ID}», обновляется по OTA и затем снова показывает код
+          привязки. Устройства тенантов не затрагиваются. Выключите после обновления партии.
+        </p>
+      </div>
     </div>
   );
 };
