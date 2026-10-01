@@ -12,10 +12,11 @@
 ## Основные команды
 
 ```bash
-make setup            # Установить зависимости и настроить БД
-make dev              # Запустить API локально
-make emulator         # Запустить web-emulator (web admin)
-make prod             # Собрать и прошить firmware
+make setup            # Установить зависимости, создать .env / secrets.ini из примеров, мигрировать локальную БД
+make dev              # Запустить API локально (http://127.0.0.1:3001)
+make emulator         # Запустить web admin (http://localhost:5175)
+make flash            # Собрать и прошить firmware (по WiFi, иначе по USB)
+make log              # Serial monitor
 make deploy m="msg"   # Коммит + push (деплой на прод делает GitHub Actions)
 make firmware-release # Собрать прошивку, запушить (версия на проде обновится через GitHub Actions)
 ```
@@ -144,7 +145,9 @@ SERVICE_TOKENS='[
 
 **Составной ключ владения:** у `Device` есть `tenantId` (из service token) + `externalUserId` (opaque строка от клиента). Запросы tenant фильтруют `WHERE tenantId = ?`. `externalUserId` — справочное поле, видно в ops admin для отладки.
 
-**Rate limit:** `POST /device-claims/:code/attach` — строгий лимит (5 попыток/мин/IP) против перебора 6-значного кода. Коды живут **5 минут** (`claimCodeTtlSeconds: 300`).
+**Rate limit:** `POST /device-claims/:code/attach` — 120 попыток/мин **на service token** (`ATTACH_RATE_LIMIT_PER_MINUTE`), а не на IP: attach всегда приходит с бэкенда интегратора. Ограничивать перебор кодов конкретным пользователем должен бэкенд интегратора. Коды живут **5 минут** (`claimCodeTtlSeconds: 300`), при выдаче нового кода предыдущий непривязанный код устройства аннулируется.
+
+**HMAC выдачи кода:** `hmac = HMAC-SHA256(HMAC_KEY, "<MAC>:<firmwareVersion>:<timestamp>")`, где `timestamp` — unix-время в миллисекундах. Сервер принимает его в окне ±5 минут, повторное использование того же `hmac` отклоняется. Прошивка до v36 включительно подписывает время с момента включения (`millis()`); такие запросы принимаются, пока `ALLOW_LEGACY_CLAIM_TIMESTAMPS=true`.
 
 ## Прошивка устройства
 
@@ -152,11 +155,15 @@ SERVICE_TOKENS='[
 Откройте https://rd1-io.github.io/tigermeter-api/ и следуйте инструкциям.
 
 ### Через PlatformIO
+Перед первой сборкой: `cp firmware/secrets.ini.example firmware/secrets.ini` и вписать `hmac_key` (тот же, что `HMAC_KEY` на сервере). Файл не коммитится.
+
 ```bash
-make prod           # Собрать и прошить
-make prod-build     # Только собрать
+make flash          # Собрать и прошить
+make fw-build       # Только собрать
 make firmware-release  # Собрать прошивку и запушить (версия на проде обновится через GitHub Actions)
 ```
+
+`fw-build` (и `flash`) увеличивает `firmware/version_prod.txt` и копирует бинарники в `docs/firmware/prod/`, откуда их раздаёт GitHub Pages — не коммитьте их в обход `make firmware-release`.
 
 ## OTA обновления
 
@@ -165,6 +172,23 @@ make firmware-release  # Собрать прошивку и запушить (в
 - Последующие проверки каждый час
 
 Управление через Web Admin (колонка Auto-Update).
+
+OTA работает только у привязанного устройства (`active`, версия приходит в heartbeat). Непривязанные устройства обновляются через режим ниже.
+
+## Автообновление непривязанных устройств
+
+Режим для партии непривязанных устройств со старой прошивкой (например, v36 на складе). Сервер временно привязывает такое устройство к служебному тенанту `staging`. Устройство получает версию в heartbeat, обновляется по OTA, после чего сервер отвязывает его (heartbeat → 401). Новая прошивка снова показывает код привязки для клиента. Устройства тенантов не затрагиваются. Подробности — [docs/claim-flow.md](docs/claim-flow.md#автообновление-непривязанных-устройств-staging).
+
+Порядок действий:
+
+1. **Сервер на проде должен быть с этим режимом.** В нём есть маршруты `/api/...` для прошивки ≤ v36 и лимиты, рассчитанные на много устройств за одним IP. Без него v36 получает 404 и не обновится. Деплой — push в `main` (GitHub Actions).
+2. **Проверить `HMAC_KEY` на проде.** v36 подписывает claim ключом, зашитым при сборке v36. Новая прошивка — ключом `hmac_key` из `firmware/secrets.ini`. Оба должны совпадать с `HMAC_KEY` на сервере, иначе claim → 401.
+3. **Выпустить новую прошивку:** `make firmware-release`. Команда увеличивает `firmware/version_prod.txt`, кладёт бинарники в `docs/firmware/prod/` (GitHub Pages) и пушит в `main`. Deploy workflow выставит `LATEST_FIRMWARE_VERSION`. Внимание: команда делает `git add -A`, то есть закоммитит всё незакоммиченное.
+4. **Дождаться публикации на GitHub Pages:** `curl -s https://rd1-io.github.io/tigermeter-api/firmware/prod/version.json` должен вернуть новую версию. Если включить режим раньше, устройство может скачать старый бинарник и повторить OTA.
+5. **Включить** в Web Admin → «Настройки» → «Автообновление непривязанных устройств со старой прошивкой».
+6. **Попросить склад включить устройства.** У устройства должен быть сохранён Wi‑Fi склада. Если на экране «WiFi» и имя сети `tigermeter-XXXX`: подключиться к этой сети с телефона (без пароля), открыть `192.168.4.1` и ввести Wi‑Fi склада.
+7. **Следить в Web Admin → «Устройства».** Метка `staging · обновление` означает, что устройство ждёт OTA (первая попытка через ~60 с после загрузки, затем раз в час). Когда метка пропала и версия стала новой, а статус — `awaiting_claim`, устройство обновлено и показывает код привязки.
+8. **Выключить режим**, когда партия обновлена. Устройства, уже стоящие на `staging`, доведут обновление до конца.
 
 ## Деплой на прод (GitHub Actions)
 
@@ -239,11 +263,17 @@ export SERVICE_TOKEN=sk-tigermeter-XXX   # scope=manage (см. SERVICE_TOKENS в
 export OPS_TOKEN=sk-ops-XXX              # scope=ops
 ```
 
-- **1) Device Claim: запрос кода** (HMAC обычно генерирует прошивка):
+- **1) Device Claim: запрос кода** (HMAC обычно генерирует прошивка; `HMAC_KEY` — из `.env`; устройство должно существовать или быть включён auto-provision):
 ```bash
+export HMAC_KEY=change-me-dev-hmac
+BODY=$(node -e '
+const { createHmac } = require("crypto");
+const mac = "AA:BB:CC:DD:EE:FF", fw = "v37", ts = Date.now();
+const hmac = createHmac("sha256", process.env.HMAC_KEY).update(`${mac}:${fw}:${ts}`).digest("hex");
+console.log(JSON.stringify({ mac, firmwareVersion: fw, timestamp: ts, hmac }));')
 CODE=$(curl -s "$BASE/api/v5/device-claims" \
   -H 'content-type: application/json' \
-  -d '{"mac":"AA:BB:CC:DD:EE:FF","firmwareVersion":"v36"}' | jq -r .code)
+  -d "$BODY" | jq -r .code)
 echo "CODE=$CODE"
 ```
 
@@ -317,4 +347,6 @@ curl -s "$BASE/api/v5/devices/$DID/secret/refresh" -H "authorization: Bearer $DE
 
 Примечания:
 - Hash кадров считается на бэкенде (`displayPayloadHash`: канонический JSON → SHA-256, префикс `sha256:`). Web admin считает тот же hash для отображения.
-- Для примеров используется SQLite (`node-api/dev.db`). В проде замените секреты в `SERVICE_TOKENS` и `HMAC_KEY`.
+- Для примеров используется SQLite (`node-api/prisma/dev.db`, не коммитится). В проде замените секреты в `SERVICE_TOKENS` и `HMAC_KEY`.
+- `POST /api/v5/devices/provision` (предрегистрация устройства по MAC) требует service token со scope `ops`.
+- API работает за Caddy: IP клиента для rate limit берётся из `X-Forwarded-For` доверенного прокси (`TRUST_PROXY`). Превышение лимита — всегда `429`.

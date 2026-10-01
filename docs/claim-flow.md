@@ -5,8 +5,11 @@
 ## Последовательность
 
 1. Устройство включается, нет учётных данных → captive portal для настройки Wi‑Fi
-2. Устройство вызывает `POST /api/v5/device-claims` с HMAC (rate limit: 20/мин/IP)
-3. Сервер возвращает `{ code, expiresAt }` (6-значный код, TTL 5 минут)
+2. Устройство вызывает `POST /api/v5/device-claims` с HMAC (rate limit: 30/мин на MAC и 1500/мин на IP, см. [errors.md](errors.md#rate-limiting))
+   - `hmac = HMAC-SHA256(HMAC_KEY, "<MAC>:<firmwareVersion>:<timestamp>")`, `timestamp` — unix ms (время по NTP)
+   - Сервер принимает `timestamp` в окне ±5 минут; повтор того же `hmac` → 401 `hmac already used`
+   - Прошивка ≤ v36 шлёт время с момента включения (`millis()`); принимается, пока `ALLOW_LEGACY_CLAIM_TIMESTAMPS=true`
+3. Сервер возвращает `{ code, expiresAt }` (6-значный код, TTL 5 минут). Предыдущий непривязанный код этого устройства аннулируется (его poll → 404)
 4. Устройство показывает код на e-ink
 5. Пользователь вводит код в приложении интегратора
 6. Бэкенд интегратора вызывает:
@@ -20,7 +23,7 @@
    - `externalUserId` = из тела запроса
    - `status` = "active"
    - Welcome-инструкция не создаётся (экран пуст до первого PUT /display)
-8. Устройство опрашивает `GET /api/v5/device-claims/{code}/poll` (60/мин/IP):
+8. Устройство опрашивает `GET /api/v5/device-claims/{code}/poll` каждые 3 с (60/мин на код):
    - 202 pending (ещё ждёт)
    - 200 secret (первый claimed → одноразовая генерация секрета)
    - 404 после того, как секрет уже выдан
@@ -39,7 +42,7 @@ Content-Type: application/json
 {"externalUserId": "user-12345"}
 ```
 
-Rate limit: **5 попыток в минуту на IP** (защита от перебора 6-значного кода).
+Rate limit: **120 попыток в минуту на service token** (`ATTACH_RATE_LIMIT_PER_MINUTE`). Лимит считается по токену, а не по IP, потому что все attach приходят с одного бэкенда интегратора. Защиту от перебора кода конкретным пользователем (например, 5 попыток в минуту на `externalUserId`) реализует бэкенд интегратора.
 
 Ответ (200):
 ```json
@@ -54,6 +57,25 @@ Rate limit: **5 попыток в минуту на IP** (защита от пе
 | pending (Claim.status) | Issue | pending | Обратный отсчёт TTL |
 | claimed | Attach (service token) | claimed | tenantId + externalUserId установлены, секрета ещё нет |
 | active (Device.status) | Первый успешный poll (секрет выдан) | active | Секрет захеширован и сохранён |
+| awaiting_claim, без тенанта | Issue со старой прошивкой при включённом `autoUpgradeOutdatedDevices` | active, `tenantId=staging` | Claim сразу `claimed` |
+| active, `tenantId=staging` | Heartbeat с `firmwareVersion >= LATEST_FIRMWARE_VERSION` | awaiting_claim, без тенанта | Секрет удалён, ответ 401 |
+
+## Автообновление непривязанных устройств (staging)
+
+Устройства со старой прошивкой не обновляются, пока не привязаны: OTA в прошивке ≤ v36 запускается только в состоянии `active`, по данным heartbeat. Чтобы партия непривязанных устройств обновилась сама, в админке есть переключатель `autoUpgradeOutdatedDevices` (таблица `Setting`, по умолчанию выключен; `GET/PATCH /api/v5/admin/settings`).
+
+Прошивка ≤ v36 собрана с `API_BASE_URL=https://api-tiger.rd1.io/api`, поэтому сервер обслуживает её claim, poll и heartbeat также под префиксом `/api/`.
+
+Когда переключатель включён и `POST /device-claims` приходит с `firmwareVersion` (`"v36"` → 36) ниже `LATEST_FIRMWARE_VERSION`, а устройство не принадлежит тенанту (нет `tenantId` или `tenantId = "staging"`):
+
+1. Устройство создаётся, если его нет (даже при выключенном auto-provision); запись в `PendingDevice` помечается `approved`.
+2. Claim сразу помечается `claimed`, устройство привязывается к зарезервированному тенанту `staging` (`status=active`, `autoUpdate=true`, `externalUserId=null`, кадры очищены).
+3. Первый poll выдаёт секрет, устройство начинает heartbeat и получает `latestFirmwareVersion`, `firmwareDownloadUrl`, `autoUpdate=true`.
+4. Через 60 с после загрузки прошивка скачивает `{firmwareDownloadUrl}/firmware-ota.bin` и перезагружается.
+5. Новая прошивка шлёт heartbeat со старым секретом и `firmwareVersion >= LATEST_FIRMWARE_VERSION`. Сервер удаляет секрет, ставит `tenantId=null`, `status=awaiting_claim`, очищает кадры и отвечает `401`.
+6. Прошивка на `401` удаляет только свои учётные данные (Wi‑Fi остаётся) и запрашивает новый код. Версия уже актуальна, поэтому устройство не привязывается к `staging` повторно, а ждёт обычного attach от клиента.
+
+Выключение переключателя останавливает только новые привязки: устройства, уже стоящие на `staging`, доходят до шага 6. Устройства тенантов (любой `tenantId`, кроме `staging`) не затрагиваются. Переходы пишутся в лог API (`auto-upgrade: ...`).
 
 ## Одноразовая генерация секрета
 

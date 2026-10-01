@@ -6,7 +6,7 @@
 ```json
 { "message": "Краткое описание для человека" }
 ```
-Все эндпоинты под префиксом `/api/v5/`.
+Все эндпоинты под префиксом `/api/v5/`. Для прошивки ≤ v36 те же `POST /device-claims`, `GET /device-claims/{code}/poll` и `POST /devices/{id}/heartbeat` доступны и под старым префиксом `/api/` (только эти три).
 
 ## Ошибки аутентификации (v5 — только service tokens)
 | Эндпоинт | HTTP | Условие | Тело |
@@ -22,14 +22,21 @@
 | POST /api/v5/device-claims | 400 | Нет mac | `{ "message": "mac required" }` |
 | POST /api/v5/device-claims | 400 | Неверный MAC | `{ "message": "invalid mac format" }` |
 | POST /api/v5/device-claims | 401 | Неверный HMAC | `{ "message": "invalid hmac" }` |
+| POST /api/v5/device-claims | 401 | timestamp не число | `{ "message": "invalid timestamp" }` |
+| POST /api/v5/device-claims | 401 | timestamp вне окна ±5 мин | `{ "message": "timestamp out of allowed window" }` |
+| POST /api/v5/device-claims | 401 | Время с момента включения при `ALLOW_LEGACY_CLAIM_TIMESTAMPS=false` | `{ "message": "timestamp must be unix time in milliseconds" }` |
+| POST /api/v5/device-claims | 401 | Повтор того же запроса | `{ "message": "hmac already used" }` |
+| POST /api/v5/device-claims | 503 | Не удалось подобрать свободный код | `{ "message": "Could not allocate claim code, retry later" }` |
 | POST /api/v5/device-claims | 404 | Устройство не найдено | `{ "message": "device not found" }` |
 | POST /api/v5/device-claims/{code}/attach | 400 | Неверный код | `{ "message": "Invalid code" }` |
 | POST /api/v5/device-claims/{code}/attach | 400 | Истёкший код | `{ "message": "Expired code" }` |
 | POST /api/v5/device-claims/{code}/attach | 409 | Уже привязан | `{ "message": "Already claimed" }` |
-| POST /api/v5/device-claims/{code}/attach | 429 | Rate limit (5/мин) | `{ "message": "Too Many Requests" }` |
+| POST /api/v5/device-claims/{code}/attach | 429 | Rate limit (120/мин на token) | `{ "message": "Too Many Requests" }` |
 | GET /api/v5/device-claims/{code}/poll | 202 | Pending | `{ "status": "pending" }` |
 | GET /api/v5/device-claims/{code}/poll | 404 | Уже выдан / не найден | `{ "message": "Not found" }` |
 | GET /api/v5/device-claims/{code}/poll | 410 | Истёк | `{ "message": "Expired" }` |
+| GET /api/v5/device-claims/{code}/poll | 429 | С IP пришло >30 неизвестных кодов за минуту | `{ "message": "Too many unknown claim codes, retry later" }` |
+| POST /api/v5/device-claims | 429 | >30 запросов за минуту с одного MAC | `{ "message": "Rate limit exceeded, retry later" }` |
 
 ## Ошибки кадров display (v5)
 | Эндпоинт | HTTP | Условие | Тело |
@@ -46,6 +53,7 @@
 | -------- | ---- | ------- | ---- |
 | Любой /devices/* (device auth) | 401 | Нет/неверный/истёкший секрет | `{ "message": "Invalid or expired secret" }` |
 | POST /api/v5/devices/{id}/heartbeat | 404 | Устройство не найдено | `{ "message": "Device not found" }` |
+| POST /api/v5/devices/{id}/heartbeat | 401 | Устройство на тенанте `staging` обновилось до `LATEST_FIRMWARE_VERSION`: секрет удалён, нужен новый claim | `{ "message": "Firmware updated, claim the device again" }` |
 | GET /api/v5/devices/{id}/display/full | 304 | Hash не изменился | *Без тела* |
 | GET /api/v5/devices/{id}/display/full | 404 | Нет кадров | `{ "message": "Not found" }` |
 
@@ -56,20 +64,25 @@
 | POST /api/v5/admin/pending-devices/{id}/approve | 409 | Уже обработано | `{ "message": "Already processed" }` |
 
 ## Rate limiting
-| Эндпоинт | Лимит | Окно |
-| -------- | ----- | ---- |
-| POST /api/v5/device-claims | 20 | 1 минута |
-| POST /api/v5/device-claims/{code}/attach | 5 | 1 минута |
-| GET /api/v5/device-claims/{code}/poll | 60 | 1 минута |
-| Остальные (глобально) | 100 | 1 минута |
+| Эндпоинт | Лимит | Ключ | Окно | Env |
+| -------- | ----- | ---- | ---- | --- |
+| POST /api/v5/device-claims | 1500 | IP | 1 минута | `CLAIM_RATE_LIMIT_PER_IP_PER_MINUTE` |
+| POST /api/v5/device-claims | 30 | MAC | 1 минута | `CLAIM_RATE_LIMIT_PER_MAC_PER_MINUTE` |
+| POST /api/v5/device-claims/{code}/attach | 120 | service token | 1 минута | `ATTACH_RATE_LIMIT_PER_MINUTE` |
+| GET /api/v5/device-claims/{code}/poll | 60 | код | 1 минута | `POLL_RATE_LIMIT_PER_CODE_PER_MINUTE` |
+| GET /api/v5/device-claims/{code}/poll | 30 неизвестных кодов | IP | 1 минута | `POLL_UNKNOWN_CODES_PER_IP_PER_MINUTE` |
+| POST /api/v5/devices/{id}/heartbeat | 60 | id устройства | 1 минута | `HEARTBEAT_RATE_LIMIT_PER_DEVICE_PER_MINUTE` |
+| Остальные (глобально) | 100 | IP | 1 минута | — |
 
-Ответ при превышении:
+Партия устройств может стоять за одним NAT-IP (склад, офис), поэтому лимиты устройства считаются по коду/id/MAC, а не по IP. Лимит claim по IP рассчитан на ~100 непривязанных устройств, повторяющих запрос каждые ~5 с. Перебор кодов ограничен счётчиком неизвестных кодов на IP: после превышения poll с этого IP получает 429 и для существующих кодов. IP клиента берётся из `X-Forwarded-For` доверенного прокси (см. `TRUST_PROXY`).
+
+Ответ при превышении (всегда `429`, никогда `403` — устройство трактует `403` как отзыв):
 ```http
 429 Too Many Requests
 Retry-After: 60
 ```
 ```json
-{ "error": "Too Many Requests", "message": "Rate limit exceeded, retry in 60 seconds", "statusCode": 429 }
+{ "message": "Rate limit exceeded, retry in 1 minute" }
 ```
 
 ## Рекомендуемая обработка на клиенте

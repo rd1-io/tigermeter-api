@@ -7,7 +7,12 @@ info:
     забирают их на heartbeat и локально крутят по `durationSec`.
 
     Все маршруты с префиксом `/api/v5/`. Старые неверсионированные маршруты
-    (v2, текстовые инструкции, user JWT) удалены.
+    (v2, текстовые инструкции, user JWT) удалены. Исключение: прошивка ≤ v36
+    собрана с `/api/`, поэтому `POST /device-claims`, `GET /device-claims/{code}/poll`
+    и `POST /devices/{id}/heartbeat` доступны и под `/api/` (только эти три).
+
+    Лимиты эндпоинтов устройства считаются по MAC / коду / id устройства, а не по IP
+    (партия устройств может стоять за одним NAT). Превышение — всегда 429, не 403.
 
     Аутентификация:
     - Service tokens (`Authorization: Bearer sk-...`) — через env
@@ -39,7 +44,17 @@ paths:
       summary: Запросить код привязки (устройство)
       description: |
         Устройство запрашивает 6-значный код привязки (TTL 5 минут).
-        Защищено HMAC (mac + firmwareVersion + timestamp).
+        Защищено HMAC (mac + firmwareVersion + timestamp). `timestamp` — unix ms,
+        принимается в окне ±5 минут; повтор того же `hmac` отклоняется.
+        Прошивка ≤ v36 шлёт время с момента включения — принимается, пока
+        `ALLOW_LEGACY_CLAIM_TIMESTAMPS=true`. Предыдущий непривязанный код
+        устройства аннулируется.
+
+        При включённом `autoUpgradeOutdatedDevices`, если `firmwareVersion` ниже
+        `LATEST_FIRMWARE_VERSION`, а устройство не принадлежит тенанту, код сразу
+        привязывается к тенанту `staging` (устройство создаётся, даже если
+        auto-provision выключен). Так устройство получает секрет на первом poll и
+        обновляется по OTA. См. docs/claim-flow.md.
       operationId: issueClaimCode
       security: []
       requestBody:
@@ -56,9 +71,10 @@ paths:
               schema:
                 $ref: '#/components/schemas/ClaimCodeIssueResponse'
         '400': { description: 'mac обязателен / неверный формат MAC / hmac и timestamp обязательны' }
-        '401': { description: Неверный HMAC }
+        '401': { description: 'Неверный HMAC / timestamp вне окна / повтор запроса' }
         '404': { description: Устройство не найдено (auto-provision выключен) }
-        '429': { description: Слишком много запросов (20/мин/IP) }
+        '429': { description: 'Слишком много запросов (30/мин на MAC, 1500/мин на IP)' }
+        '503': { description: Не удалось подобрать свободный код, повторить позже }
   /device-claims/{code}/attach:
     post:
       tags: [Portal]
@@ -68,7 +84,8 @@ paths:
         Устанавливает `Device.tenantId` (из токена), `externalUserId` (из тела),
         `status=active`. Секрет НЕ генерируется здесь — он выдаётся лениво
         при первом poll устройства. Welcome-инструкция не создаётся.
-        Rate limit: 5 попыток/мин/IP (анти-брутфорс 6-значного кода).
+        Rate limit: 120 попыток/мин на service token (`ATTACH_RATE_LIMIT_PER_MINUTE`).
+        Перебор кода отдельным пользователем ограничивает бэкенд интегратора.
       operationId: attachClaimCode
       parameters:
         - name: code
@@ -93,7 +110,7 @@ paths:
         '401': { description: Service token отсутствует или неверный }
         '403': { description: 'Требуется scope manage' }
         '409': { description: Уже привязан }
-        '429': { description: Слишком много запросов (5/мин/IP) }
+        '429': { description: Слишком много запросов (120/мин на token) }
   /device-claims/{code}/poll:
     get:
       tags: [Device]
@@ -126,16 +143,15 @@ paths:
                   status: { type: string, enum: [pending] }
         '404': { description: Не найдено / секрет уже выдан }
         '410': { description: Истёк срок действия }
-        '429': { description: Слишком много запросов (60/мин/IP) }
+        '429': { description: 'Слишком много запросов (60/мин на код) или >30 неизвестных кодов/мин с IP' }
   /devices/provision:
     post:
-      tags: [Device]
-      summary: Предварительная регистрация устройства (dev-only)
+      tags: [Admin]
+      summary: Предварительная регистрация устройства (scope=ops)
       description: |
-        Dev-эндпоинт: создаёт устройство в статусе `awaiting_claim` по MAC.
-        Без аутентификации — только для отладки/эмулятора, в проде не используется.
+        Создаёт устройство в статусе `awaiting_claim` по MAC, минуя очередь pending.
+        Требует service token со scope `ops`.
       operationId: provisionDevice
-      security: []
       requestBody:
         required: true
         content:
@@ -159,6 +175,8 @@ paths:
                   mac: { type: string }
                   status: { type: string }
         '400': { description: mac обязателен / неверный формат MAC }
+        '401': { description: Service token отсутствует или неверный }
+        '403': { description: 'Требуется scope ops' }
         '409': { description: Устройство уже существует }
   # ================= PORTAL (scope=manage) =================
   /devices:
@@ -277,6 +295,10 @@ paths:
         Возвращает кадры только если `displayHash` изменился или отсутствует.
         Hash совпал → базовая структура без frames. `displayFramesJson IS NULL` →
         `frames:[]` (устройство показывает "waiting for content").
+
+        Устройство на тенанте `staging`, приславшее `firmwareVersion >= LATEST_FIRMWARE_VERSION`,
+        освобождается: секрет удаляется, `tenantId=null`, `status=awaiting_claim`, ответ 401.
+        Прошивка на 401 удаляет только свои учётные данные и запрашивает новый код.
       operationId: heartbeat
       security:
         - deviceSecretAuth: []
@@ -300,9 +322,10 @@ paths:
                 oneOf:
                   - $ref: '#/components/schemas/HeartbeatBase'
                   - $ref: '#/components/schemas/HeartbeatWithFrames'
-        '401': { description: Секрет неверный или истёк }
+        '401': { description: 'Секрет неверный или истёк / устройство обновилось и освобождено из staging' }
         '403': { description: Устройство отозвано }
         '404': { description: Устройство не найдено }
+        '429': { description: Слишком много запросов (60/мин на устройство) }
   /devices/{id}/display/hash:
     get:
       tags: [Device]
@@ -538,7 +561,7 @@ paths:
                 $ref: '#/components/schemas/AdminSettings'
     patch:
       tags: [Admin]
-      summary: Обновить глобальные настройки (auto-provision)
+      summary: Обновить глобальные настройки (auto-provision, автообновление)
       operationId: adminPatchSettings
       requestBody:
         required: true
@@ -803,7 +826,7 @@ components:
         mac: { type: string, description: 'MAC адрес, формат AA:BB:CC:DD:EE:FF' }
         firmwareVersion: { type: string }
         ip: { type: string }
-        timestamp: { type: integer, description: Unix ms, участвует в HMAC }
+        timestamp: { type: integer, format: int64, description: 'Unix ms (±5 мин от времени сервера), участвует в HMAC' }
         hmac: { type: string, description: HMAC-SHA256(mac:firmwareVersion:timestamp) }
     ClaimCodeIssueResponse:
       type: object
@@ -840,8 +863,15 @@ components:
       type: object
       properties:
         autoProvisionNewDevices: { type: boolean }
+        autoUpgradeOutdatedDevices:
+          type: boolean
+          description: Привязывать непривязанные устройства со старой прошивкой к тенанту `staging` для OTA
+        latestFirmwareVersion:
+          type: integer
+          description: Текущее значение `LATEST_FIRMWARE_VERSION` (только чтение)
     AdminSettingsPatch:
       type: object
       additionalProperties: false
       properties:
         autoProvisionNewDevices: { type: boolean }
+        autoUpgradeOutdatedDevices: { type: boolean }
