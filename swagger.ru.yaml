@@ -3,8 +3,9 @@ info:
   title: TigerMeter Cloud API v5
   description: |
     API v5 — микросервис доставки bitmap на e-paper. Шлюз кадров:
-    бэкенд интегратора отправляет готовые 1-bit кадры (384×168), устройства
-    забирают их на heartbeat и локально крутят по `durationSec`.
+    бэкенд интегратора отправляет готовые 1-bit кадры (384×168, до 8 в наборе),
+    устройства забирают их на heartbeat. Ротацию по `durationSec` ведёт сервер:
+    устройство всегда получает один текущий кадр (см. PUT /devices/{id}/display).
 
     Все маршруты с префиксом `/api/v5/`. Старые неверсионированные маршруты
     (v2, текстовые инструкции, user JWT) удалены. Исключение: прошивка ≤ v36
@@ -271,7 +272,22 @@ paths:
       description: |
         Заменяет текущий набор кадров. Валидация strict (неизвестные ключи → 400).
         Считает `displayHash = sha256(canonical(frames + refreshInterval))`,
-        персистит `displayFramesJson`, инкрементит `displayVersion`.
+        персистит `displayFramesJson`, инкрементит `displayVersion`, начинает круг ротации заново.
+
+        Ротация кадров — на сервере: устройство (ESP32 без PSRAM) держит один кадр. Сервер считает текущий кадр
+        по часам от момента PUT: `(now − displayUpdatedAt) mod Σ durationSec`, и на heartbeat отдаёт ровно один кадр
+        (`frames: [текущий]`, `durationSec: 86400` — устройство держит его до следующего heartbeat) с `displayHash`
+        этого кадра. `refreshInterval` в ответе подобран так, чтобы устройство пришло через ~1 с после смены кадра
+        (не больше `refreshInterval` из PUT; при длинном кадре — равными шагами). Heartbeat, пришедший за ≤ 3 с до смены,
+        уже получает следующий кадр. Точность ± несколько секунд; кадры короче 10 с растягиваются до 10 с
+        (`ROTATION_MIN_FRAME_SEC`); без связи кадр на устройстве не меняется. `beep` и `flashCount` срабатывают
+        только при первом показе каждого кадра после PUT; на следующих кругах и после перезагрузки устройства
+        кадр приходит без них. Прошивкам ниже v38 (`MIN_FRAMES_FIRMWARE_VERSION`) кадры не отдаются — на платах без
+        PSRAM они на кадрах падают; такие устройства обновляются по OTA.
+
+        Доставка: `GET /devices/{id}` → `rotation` (текущий кадр по расписанию), `deliveredFrameIndex` (последний
+        отданный кадр), `deviceFrameIndex` (кадр, хеш которого устройство прислало в последнем heartbeat = показывает).
+        Для набора из одного кадра хеш доставки = `displayHash`, как раньше.
       operationId: setDisplayFrames
       parameters:
         - name: id
@@ -807,17 +823,17 @@ components:
           type: integer
           minimum: 1
           maximum: 86400
-          description: Время показа кадра (сек), ротация локальная
+          description: 'Время показа кадра, с. Ротацию ведёт сервер; фактически не меньше 10 с, точность ± несколько секунд'
         beep:
           type: boolean
           default: false
-          description: One-shot звуковой сигнал при первой загрузке
+          description: One-shot звуковой сигнал при первом показе кадра после PUT (на следующих кругах ротации — нет)
         flashCount:
           type: integer
           minimum: 0
           maximum: 10
           default: 0
-          description: One-shot количество вспышек LED при первой загрузке
+          description: One-shot вспышки LED при первом показе кадра после PUT (на следующих кругах ротации — нет)
     DisplayFramesPayload:
       type: object
       required: [frames, refreshInterval]
@@ -833,7 +849,7 @@ components:
           type: integer
           minimum: 10
           maximum: 3600
-          description: Интервал heartbeat в секундах
+          description: Максимальный интервал heartbeat, с. При нескольких кадрах сервер назначает интервал до ближайшей смены кадра
     DisplayPutResponse:
       type: object
       properties:
@@ -886,6 +902,20 @@ components:
             reportedDisplayHash: { type: string, nullable: true, description: 'Хеш из последнего heartbeat; = displayHash → кадры применены' }
             displayRebootCount: { type: integer, description: 'Перезагрузки сразу после получения текущих кадров без подтверждения; сбрасывается при подтверждении и PUT /display' }
             diagnostics: { type: object, nullable: true, additionalProperties: true, description: 'Диагностика из последнего heartbeat (v38+), см. HeartbeatRequest.diag' }
+            framesSupported: { type: boolean, description: 'false — прошивка ниже minFramesFirmwareVersion, кадры не отдаются до OTA' }
+            minFramesFirmwareVersion: { type: integer }
+            rotation:
+              type: object
+              nullable: true
+              description: Расписание серверной ротации сейчас (null — кадров нет)
+              properties:
+                currentIndex: { type: integer, description: 'Индекс текущего кадра (с 0)' }
+                cycleSec: { type: integer, nullable: true, description: 'Длина круга; null для одного кадра' }
+                nextSwitchInSec: { type: integer, nullable: true }
+                effectiveDurations: { type: array, items: { type: integer }, description: 'durationSec с учётом минимума' }
+                minFrameSec: { type: integer }
+            deliveredFrameIndex: { type: integer, nullable: true, description: 'Какой кадр набора отдан последним' }
+            deviceFrameIndex: { type: integer, nullable: true, description: 'Какой кадр набора устройство подтвердило в последнем heartbeat' }
             displayBlocked: { type: boolean, description: 'true — после 2 таких перезагрузок heartbeat не отдаёт текущие кадры (защита от цикла перезагрузок)' }
             frameCount: { type: integer }
             refreshInterval: { type: integer, nullable: true, description: Из текущих кадров на сервере }
@@ -984,9 +1014,9 @@ components:
               type: array
               items:
                 $ref: '#/components/schemas/DisplayFrame'
-              description: 'Пустой массив = «ожидание контента»'
-            refreshInterval: { type: integer }
-            displayHash: { type: string, nullable: true }
+              description: 'Ровно один текущий кадр (ротация на сервере, durationSec = 86400); пустой массив = «ожидание контента»'
+            refreshInterval: { type: integer, description: 'Через сколько секунд прийти снова (до смены кадра, не больше refreshInterval из PUT)' }
+            displayHash: { type: string, nullable: true, description: 'Хеш отданного кадра (для набора из одного кадра = displayHash набора); устройство присылает его в следующем heartbeat' }
     # ---------- Claims ----------
     ClaimCodeIssueRequest:
       type: object
