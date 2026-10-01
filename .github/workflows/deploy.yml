@@ -78,38 +78,18 @@ jobs:
               rm -f /tmp/tm-node-api.tar.gz /tmp/tm-web.tar.gz
             '
 
-      - name: Rebuild and restart stack
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.PVE_HOST }}
-          port: ${{ secrets.PVE_PORT }}
-          username: ${{ secrets.PVE_USER }}
-          key: ${{ secrets.PVE_SSH_KEY }}
-          script: |
-            pct exec 104 -- sh -c '
-              set -e
-              cd /opt/gateway
-              docker compose build tigermeter-api
-              docker compose up -d --force-recreate tigermeter-api caddy
-            '
-
-      - name: Health check
-        run: |
-          sleep 5
-          curl -fsS https://api-tiger.rd1.io/healthz && echo ""
-          curl -fsS -o /dev/null -w "admin UI: %{http_code}\n" https://app-tiger.rd1.io/
-
       - name: Read firmware version
-        id: fwver
         run: |
           if [ -f firmware/version_prod.txt ]; then
             echo "FW_VERSION=$(tr -d '[:space:]' < firmware/version_prod.txt)" >> "$GITHUB_ENV"
           fi
-      - name: Set firmware version on server
-        if: env.FW_VERSION != ''
+
+      # env_file is read only when the container is created, so LATEST_FIRMWARE_VERSION must be
+      # in .env before the recreate (a plain `docker compose restart` keeps the old value)
+      - name: Rebuild and restart stack
+        uses: appleboy/ssh-action@v1.2.0
         env:
           FW_VERSION: ${{ env.FW_VERSION }}
-        uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.PVE_HOST }}
           port: ${{ secrets.PVE_PORT }}
@@ -117,8 +97,26 @@ jobs:
           key: ${{ secrets.PVE_SSH_KEY }}
           envs: FW_VERSION
           script: |
-            pct exec 104 -- sh -c "
-              cd /opt/gateway/tigermeter && \
-              sed -i 's/^LATEST_FIRMWARE_VERSION=.*/LATEST_FIRMWARE_VERSION='$FW_VERSION'/' .env && \
-              cd /opt/gateway && docker compose restart tigermeter-api"
-            echo "LATEST_FIRMWARE_VERSION set to $FW_VERSION"
+            pct exec 104 -- sh -c '
+              set -e
+              cd /opt/gateway
+              case "$1" in
+                ""|*[!0-9]*) echo "No valid FW_VERSION, keeping LATEST_FIRMWARE_VERSION" ;;
+                *)
+                  if grep -q "^LATEST_FIRMWARE_VERSION=" tigermeter/.env; then
+                    sed -i "s/^LATEST_FIRMWARE_VERSION=.*/LATEST_FIRMWARE_VERSION=$1/" tigermeter/.env
+                  else
+                    echo "LATEST_FIRMWARE_VERSION=$1" >> tigermeter/.env
+                  fi
+                  echo "LATEST_FIRMWARE_VERSION set to $1" ;;
+              esac
+              docker compose build tigermeter-api
+              docker compose up -d --force-recreate tigermeter-api caddy
+              echo "Container LATEST_FIRMWARE_VERSION: $(docker compose exec -T tigermeter-api printenv LATEST_FIRMWARE_VERSION)"
+            ' sh "$FW_VERSION"
+
+      - name: Health check
+        run: |
+          sleep 5
+          curl -fsS https://api-tiger.rd1.io/healthz && echo ""
+          curl -fsS -o /dev/null -w "admin UI: %{http_code}\n" https://app-tiger.rd1.io/
