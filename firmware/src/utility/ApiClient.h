@@ -192,6 +192,8 @@ public:
         // Allocate frame bitmap buffers in PSRAM (saves ~128KB DRAM)
         for (int i = 0; i < MAX_DISPLAY_FRAMES; i++) {
             _frameBitmaps[i] = (uint8_t*)ps_malloc(DISPLAY_FRAME_SIZE);
+            // Without PSRAM keep one frame in DRAM so a board without it still shows the first frame
+            if (!_frameBitmaps[i] && i == 0) _frameBitmaps[i] = (uint8_t*)malloc(DISPLAY_FRAME_SIZE);
             if (!_frameBitmaps[i]) {
                 Serial.printf("[ApiClient] WARNING: PSRAM alloc failed for frame %d\n", i);
             }

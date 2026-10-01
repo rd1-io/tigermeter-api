@@ -199,6 +199,7 @@ void displayReconnecting() {
 void displayFrameFullScreen(uint8_t frameIndex) {
     if (frameIndex >= displayFrameCount) return;
     if (displayFrames[frameIndex].durationSec == 0) return; // Invalid/skipped frame
+    if (!displayFrames[frameIndex].bitmap) return;
 
     display.clear();
     display.drawBitmap(0, 0, displayFrames[frameIndex].bitmap, DISPLAY_WIDTH, DISPLAY_HEIGHT, false, false);
@@ -288,6 +289,8 @@ void setup()
     Serial.println("[Main] Allocating PSRAM frame buffers...");
     for (int i = 0; i < MAX_DISPLAY_FRAMES; i++) {
         displayFrames[i].bitmap = (uint8_t*)ps_malloc(DISPLAY_FRAME_SIZE);
+        // Without PSRAM keep one frame in DRAM (frames without a buffer are skipped)
+        if (!displayFrames[i].bitmap && i == 0) displayFrames[i].bitmap = (uint8_t*)malloc(DISPLAY_FRAME_SIZE);
         if (!displayFrames[i].bitmap) {
             Serial.printf("[Main] ERROR: PSRAM alloc failed for frame %d\n", i);
         }
@@ -470,7 +473,7 @@ void handleApiStateMachine()
                 led_Green();
                 playBuzzerPositive();
 
-                displaySystemScreen("OK", "Connected!", NULL);
+                displaySystemScreen("OK", NULL, NULL);
                 display.refresh();
                 delay(2000);
 
@@ -580,6 +583,10 @@ void handleApiStateMachine()
 
                     // Copy frames (each is 8064 bytes)
                     for (int i = 0; i < result.frameCount; i++) {
+                        if (!displayFrames[i].bitmap || !result.frames[i].bitmap || result.frames[i].durationSec == 0) {
+                            displayFrames[i].durationSec = 0;  // no buffer (no PSRAM) or invalid frame: skipped in rotation
+                            continue;
+                        }
                         memcpy(displayFrames[i].bitmap, result.frames[i].bitmap, DISPLAY_FRAME_SIZE);
                         strncpy(displayFrames[i].ledColor, result.frames[i].ledColor, 15);
                         displayFrames[i].ledColor[15] = '\0';
