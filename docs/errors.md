@@ -30,8 +30,13 @@
 | POST /api/v5/device-claims | 404 | Устройство не найдено | `{ "message": "device not found" }` |
 | POST /api/v5/device-claims/{code}/attach | 400 | Неверный код | `{ "message": "Invalid code" }` |
 | POST /api/v5/device-claims/{code}/attach | 400 | Истёкший код | `{ "message": "Expired code" }` |
+| POST /api/v5/device-claims/{code}/attach | 400 | Токен тенанта `staging` (зарезервирован) | `{ "message": "Tenant is reserved" }` |
 | POST /api/v5/device-claims/{code}/attach | 409 | Уже привязан | `{ "message": "Already claimed" }` |
 | POST /api/v5/device-claims/{code}/attach | 429 | Rate limit (120/мин на token) | `{ "message": "Too Many Requests" }` |
+| POST /api/v5/admin/device-claims/{code}/attach | 400/409/429 | Те же, что у attach выше (общий код) | `Invalid code` / `Expired code` / `Already claimed` |
+| POST /api/v5/admin/device-claims/{code}/attach | 400 | `tenantId` = `staging` | `{ "message": "Tenant is reserved" }` |
+| POST /api/v5/admin/device-claims/{code}/attach | 400 | `tenantId` нет среди тенантов `SERVICE_TOKENS` | `{ "message": "Unknown tenant" }` |
+| POST /api/v5/admin/device-claims/{code}/attach | 400 | Нет `tenantId` | `{ "message": "tenantId: Required" }` |
 | GET /api/v5/device-claims/{code}/poll | 202 | Pending | `{ "status": "pending" }` |
 | GET /api/v5/device-claims/{code}/poll | 404 | Уже выдан / не найден | `{ "message": "Not found" }` |
 | GET /api/v5/device-claims/{code}/poll | 410 | Истёк | `{ "message": "Expired" }` |
@@ -47,6 +52,10 @@
 | PUT /api/v5/devices/{id}/display | 400 | refreshInterval вне диапазона | `{ "message": "refreshInterval: out of range 10..3600" }` |
 | PUT /api/v5/devices/{id}/display | 400 | Неизвестный ключ | `{ "message": "Unrecognized key(s) in object: '...'" }` |
 | PUT /api/v5/devices/{id}/display | 404 | Устройство не найдено / чужой tenant | `{ "message": "Not found" }` |
+| PUT /api/v5/admin/devices/{id}/display | 400 | Те же ошибки валидации, что у PUT /devices/{id}/display | — |
+| PUT /api/v5/admin/devices/{id}/display | 409 | Устройство не `active` или без тенанта | `{ "message": "Device is not attached to a tenant" }` |
+| PUT /api/v5/admin/devices/{id}/display | 409 | Устройство на тенанте `staging` (OTA) | `{ "message": "Device is on the staging tenant for OTA" }` |
+| GET /api/v5/devices/{id}/display | 404 | Чужой tenant или кадров нет | `{ "message": "Not found" }` / `{ "message": "No frames" }` |
 
 ## Ошибки auth устройства
 | Эндпоинт | HTTP | Условие | Тело |
@@ -69,6 +78,7 @@
 | POST /api/v5/device-claims | 1500 | IP | 1 минута | `CLAIM_RATE_LIMIT_PER_IP_PER_MINUTE` |
 | POST /api/v5/device-claims | 30 | MAC | 1 минута | `CLAIM_RATE_LIMIT_PER_MAC_PER_MINUTE` |
 | POST /api/v5/device-claims/{code}/attach | 120 | service token | 1 минута | `ATTACH_RATE_LIMIT_PER_MINUTE` |
+| POST /api/v5/admin/device-claims/{code}/attach | 120 | service token | 1 минута | `ATTACH_RATE_LIMIT_PER_MINUTE` |
 | GET /api/v5/device-claims/{code}/poll | 60 | код | 1 минута | `POLL_RATE_LIMIT_PER_CODE_PER_MINUTE` |
 | GET /api/v5/device-claims/{code}/poll | 30 неизвестных кодов | IP | 1 минута | `POLL_UNKNOWN_CODES_PER_IP_PER_MINUTE` |
 | POST /api/v5/devices/{id}/heartbeat | 60 | id устройства | 1 минута | `HEARTBEAT_RATE_LIMIT_PER_DEVICE_PER_MINUTE` |

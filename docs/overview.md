@@ -19,6 +19,7 @@
 4. Heartbeat устройства: `POST /api/v5/devices/{id}/heartbeat` с Bearer-секретом
 5. Интегратор отправляет bitmap-кадры: `PUT /api/v5/devices/{id}/display`
 6. Устройство получает новые кадры при следующем heartbeat (несовпадение hash)
+7. Проверить доставку: `GET /api/v5/devices/{id}` — `deliveredDisplayHash` (кадры отданы в heartbeat) и `reportedDisplayHash` (устройство прислало этот хеш на следующем heartbeat, т.е. показывает их)
 
 Подробнее о таймингах, state machine и одноразовой выдаче секрета — в `claim-flow.md`.
 
@@ -52,4 +53,6 @@ HMAC при выдаче claim-кода включён по умолчанию; 
 - `src/routes/device-claims.ts` — claim-эндпоинты (ленивая выдача секрета, attach тенанта)
 - `src/routes/devices.ts` — эндпоинты с auth устройства (heartbeat, display hash/full, refresh)
 - `src/routes/portal.ts` — control plane тенанта (scope=manage): CRUD устройств, PUT display
-- `src/routes/admin.ts` — ops-плоскость (scope=ops): флот, pending, настройки, factory-reset
+- `src/routes/admin.ts` — ops-плоскость (scope=ops): флот, pending, настройки, factory-reset, привязка по коду и кадры от имени тенанта
+- `src/utils/claims.ts` — общий attach кода к тенанту (tenant attach и admin attach)
+- `src/utils/display.ts` — схема кадров, сохранение кадров, DTO состояния устройства

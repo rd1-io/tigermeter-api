@@ -86,6 +86,8 @@ paths:
         при первом poll устройства. Welcome-инструкция не создаётся.
         Rate limit: 120 попыток/мин на service token (`ATTACH_RATE_LIMIT_PER_MINUTE`).
         Перебор кода отдельным пользователем ограничивает бэкенд интегратора.
+        Тенант `staging` зарезервирован для автообновления: токен с ним получает 400.
+        Ops-админ привязывает от имени любого тенанта через POST /admin/device-claims/{code}/attach.
       operationId: attachClaimCode
       parameters:
         - name: code
@@ -106,7 +108,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AttachResponse'
-        '400': { description: 'Неверный код / истёкший код' }
+        '400': { description: 'Неверный код (Invalid code) / истёкший код (Expired code) / тенант зарезервирован (Tenant is reserved)' }
         '401': { description: Service token отсутствует или неверный }
         '403': { description: 'Требуется scope manage' }
         '409': { description: Уже привязан }
@@ -198,7 +200,12 @@ paths:
   /devices/{id}:
     get:
       tags: [Portal]
-      summary: Детали устройства (tenant-scoped)
+      summary: Детали устройства и состояние доставки кадров (tenant-scoped)
+      description: |
+        Телеметрия последнего heartbeat и доставка кадров: `displayHash` — текущие кадры на сервере,
+        `deliveredDisplayHash` — кадры, отданные устройству в ответе heartbeat, `reportedDisplayHash` —
+        хеш, который устройство прислало в последнем heartbeat (совпадает с `displayHash` со следующего
+        heartbeat после доставки, т.е. кадры применены).
       operationId: getDevice
       parameters:
         - name: id
@@ -211,7 +218,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Device'
+                $ref: '#/components/schemas/DeviceState'
         '404': { description: Не найдено или чужой тенант }
     patch:
       tags: [Portal]
@@ -238,6 +245,23 @@ paths:
         '400': { description: Нет полей для обновления / ошибка валидации }
         '404': { description: Не найдено или чужой тенант }
   /devices/{id}/display:
+    get:
+      tags: [Portal]
+      summary: Текущие кадры устройства (tenant-scoped)
+      operationId: getDisplayFrames
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Кадры
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DisplayFramesPayload'
+        '404': { description: Не найдено, чужой тенант или кадров нет }
     put:
       tags: [Portal]
       summary: Установить bitmap-кадры
@@ -443,7 +467,89 @@ paths:
                   $ref: '#/components/schemas/DeviceAdmin'
         '401': { description: Service token отсутствует или неверный }
         '403': { description: Требуется scope ops }
+  /admin/tenants:
+    get:
+      tags: [Admin]
+      summary: Тенанты, от имени которых может действовать админ
+      description: |
+        Уникальные `tenantId` из `SERVICE_TOKENS` со скоупами их токенов, без зарезервированного `staging`.
+        Сами токены не возвращаются. Используется формой привязки по коду в админке.
+      operationId: adminListTenants
+      responses:
+        '200':
+          description: Тенанты
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Tenant'
+        '401': { description: Service token отсутствует или неверный }
+        '403': { description: Требуется scope ops }
+  /admin/device-claims/{code}/attach:
+    post:
+      tags: [Admin]
+      summary: Привязать код к выбранному тенанту (scope=ops)
+      description: |
+        То же, что POST /device-claims/{code}/attach, но тенант задаёт админ в теле: `tenantId`
+        должен быть среди тенантов `SERVICE_TOKENS` (GET /admin/tenants), `staging` запрещён.
+        `externalUserId` необязателен. Та же логика и те же ошибки (общий код), тот же лимит —
+        120 попыток/мин на service token.
+      operationId: adminAttachClaimCode
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema: { type: string }
+          description: 6-значный код привязки
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminAttachRequest'
+      responses:
+        '200':
+          description: Код привязан
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttachResponse'
+        '400': { description: 'Invalid code / Expired code / Tenant is reserved / Unknown tenant / ошибка валидации' }
+        '401': { description: Service token отсутствует или неверный }
+        '403': { description: Требуется scope ops }
+        '409': { description: Уже привязан (Already claimed) }
+        '429': { description: Слишком много запросов (120/мин на token) }
   /admin/devices/{id}/display:
+    put:
+      tags: [Admin]
+      summary: Установить кадры от имени тенанта устройства (scope=ops)
+      description: |
+        Как PUT /devices/{id}/display, но для устройства любого тенанта (страница «Тест устройства»
+        в админке). Устройство должно быть `active` и привязано к тенанту, не `staging`.
+      operationId: adminSetDisplayFrames
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DisplayFramesPayload'
+      responses:
+        '200':
+          description: Принято
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DisplayPutResponse'
+        '400': { description: 'Ошибка валидации (frames/bitmap/durationSec/refreshInterval/unknown key)' }
+        '403': { description: Требуется scope ops }
+        '404': { description: Не найдено }
+        '409': { description: 'Device is not attached to a tenant / Device is on the staging tenant for OTA' }
     get:
       tags: [Admin]
       summary: Кадры устройства (ops debug)
@@ -482,6 +588,24 @@ paths:
                   status: { type: string, example: revoked }
         '404': { description: Не найдено }
   /admin/devices/{id}:
+    get:
+      tags: [Admin]
+      summary: Детали устройства и состояние доставки кадров (любой тенант)
+      operationId: adminGetDevice
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Подробности устройства
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceState'
+        '403': { description: Требуется scope ops }
+        '404': { description: Не найдено }
     delete:
       tags: [Admin]
       summary: Удалить устройство
@@ -526,7 +650,7 @@ paths:
   /admin/devices/{id}/settings:
     patch:
       tags: [Admin]
-      summary: Обновить настройки устройства (autoUpdate/demoMode)
+      summary: Обновить настройки устройства (name/autoUpdate/demoMode)
       operationId: adminPatchDeviceSettings
       parameters:
         - name: id
@@ -741,7 +865,25 @@ components:
         - type: object
           description: Ops-поля (только scope=ops). Кадры устройства — отдельно через GET /admin/devices/{id}/display.
           properties:
+            ip: { type: string, nullable: true }
+            reportedDisplayHash: { type: string, nullable: true, description: Хеш из последнего heartbeat устройства }
             deviceSecretHash: { type: string, nullable: true, description: Хеш текущего секрета }
+    DeviceState:
+      allOf:
+        - $ref: '#/components/schemas/Device'
+        - type: object
+          description: Телеметрия и доставка кадров (GET /devices/{id}, GET /admin/devices/{id})
+          properties:
+            ip: { type: string, nullable: true }
+            uptimeSeconds: { type: integer, nullable: true }
+            displayUpdatedAt: { type: string, format: date-time, nullable: true, description: Время последнего PUT /display }
+            deliveredDisplayHash: { type: string, nullable: true, description: Хеш кадров, отданных в ответе heartbeat }
+            displayDeliveredAt: { type: string, format: date-time, nullable: true }
+            reportedDisplayHash: { type: string, nullable: true, description: 'Хеш из последнего heartbeat; = displayHash → кадры применены' }
+            frameCount: { type: integer }
+            refreshInterval: { type: integer, nullable: true, description: Из текущих кадров на сервере }
+            pendingFactoryReset: { type: boolean }
+            latestFirmwareVersion: { type: integer, description: Текущее LATEST_FIRMWARE_VERSION }
     DevicePatch:
       type: object
       additionalProperties: false
@@ -760,12 +902,14 @@ components:
       type: object
       additionalProperties: false
       properties:
+        name: { type: string, maxLength: 128 }
         autoUpdate: { type: boolean }
         demoMode: { type: boolean }
     DeviceSettingsResponse:
       type: object
       properties:
         id: { type: string }
+        name: { type: string, nullable: true }
         autoUpdate: { type: boolean }
         demoMode: { type: boolean }
     PendingDevice:
@@ -839,6 +983,13 @@ components:
       additionalProperties: false
       properties:
         externalUserId: { type: string, maxLength: 128, description: Произвольный id пользователя клиента }
+    AdminAttachRequest:
+      type: object
+      required: [tenantId]
+      additionalProperties: false
+      properties:
+        tenantId: { type: string, maxLength: 64, description: 'Тенант из GET /admin/tenants (не staging)', example: tigermeter }
+        externalUserId: { type: string, maxLength: 128, description: Необязательно }
     AttachResponse:
       type: object
       properties:
@@ -854,6 +1005,11 @@ components:
         displayHash: { type: string, nullable: true }
         expiresAt: { type: string, format: date-time }
     # ---------- Admin ----------
+    Tenant:
+      type: object
+      properties:
+        tenantId: { type: string }
+        scopes: { type: array, items: { type: string, enum: [ops, manage] } }
     MeResponse:
       type: object
       properties:

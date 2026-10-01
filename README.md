@@ -222,19 +222,33 @@ OTA работает только у привязанного устройств
 - `/login` — вставить service token (localStorage). Сервер: `GET /api/v5/admin/me` → `{tenantId, scope}`.
 - User JWT нигде не используется.
 
-### Маршруты / экраны
-- `/devices` — все устройства (ops). Колонки: name, mac, tenantId, externalUserId, status, lastSeen, battery, firmwareVersion, displayHash, displayVersion. Клик по строке → карточка устройства.
-- Карточка устройства — вкладки: **Overview** (телеметрия, имя, autoUpdate/demoMode, revoke/factory-reset/delete), **Frames** (редактор), **Activity** (лог heartbeat).
-- `/pending` — approve/reject. В модалке approve — `tenantId` (по умолчанию `"tigermeter"`).
-- `/settings` — переключатель auto-provision.
+### Вкладки
+- **Устройства** — форма «Привязка по коду» и список устройств (ops — все тенанты через `GET /admin/devices`, manage — свой тенант). Карточка: телеметрия, имя, autoUpdate/demoMode, revoke/factory-reset/delete, редактор кадров, кнопка «Тест устройства».
+- **Тест устройства** — полная проверка привязанного устройства через реальный API (см. ниже).
+- **На одобрении** (ops) — approve/reject, `tenantId` (по умолчанию `"tigermeter"`).
+- **Настройки** (ops) — auto-provision и автообновление непривязанных устройств.
+
+### Привязка по коду
+Код с экрана устройства (6 цифр, живёт 5 минут). С ops-токеном тенант выбирается из `GET /api/v5/admin/tenants` (тенанты `SERVICE_TOKENS` без `staging`), запрос — `POST /api/v5/admin/device-claims/:code/attach` с `{tenantId, externalUserId?}`. С manage-токеном — обычный `POST /api/v5/device-claims/:code/attach` к своему тенанту, `externalUserId` обязателен. Ошибки показываются по-русски (неверный / истёкший / уже использованный код, staging, 429).
+
+### Тест устройства
+- **Состояние** (опрос раз в 3 с): последний heartbeat, прошивка против `LATEST_FIRMWARE_VERSION`, батарея, RSSI, IP, аптайм; доставка кадров — хеш на сервере, доставлено (кадры отданы в ответе heartbeat), показывает устройство (хеш из следующего heartbeat) и ожидаемое время следующего heartbeat.
+- **Изображение кадра**: текст (раскладки «Заголовок + значение», «Плашка слева» как системные экраны, «Одна строка», «Многострочный»; шрифт, размер, автоподгонка — текст растрируется в браузере, прошивка v5 показывает только битмапы), картинка PNG/JPG/BMP/GIF/WebP (вписать/заполнить/растянуть, порог, яркость, контраст, Floyd–Steinberg / Atkinson / Bayer, негатив) или 13 встроенных тестовых картинок (рамка и края, сетка с линейками, шахматки 8 и 1 px, полосы 1 px, градиент, крупный текст, лесенка кеглей, логотип, тикер с графиком, половины ч/б, чёрный и белый экран).
+- Превью 1:1 в формате устройства (384×168, 1 бит, MSB-first, 1 = белый), значок низкого заряда как в прошивке, индикатор LED.
+- **LED, звук, длительность**: все `ledColor`, `ledBrightness`, `flashCount`, `beep`, `durationSec`, `refreshInterval`. Звук и вспышки срабатывают один раз на кадр после доставки, вспышки — на полной яркости.
+- **Очередь кадров** (до 8) с превью ротации и готовыми сценариями: «Все цвета LED», «Яркость LED», «Звук и вспышки», «Галерея по кругу» (кадры подписаны, чтобы сверять LED с экраном); загрузка текущих кадров с сервера.
+- **Настройки устройства**: автообновление, демо-режим (с предупреждением: устройство перезагрузится в демо и перестанет связываться с сервером, выключается только с точки доступа устройства), сброс к заводским (ops). Принудительного запуска OTA в API нет: прошивка проверяет обновление через 60 с после загрузки и затем раз в час.
+
+### Scope
+С ops-токеном админка действует от имени тенанта устройства через `/api/v5/admin/*` (`GET/PUT /admin/devices/:id/display`, `GET /admin/devices/:id`, `PATCH /admin/devices/:id/settings`, `POST /admin/devices/:id/revoke`). С manage-токеном — через эндпоинты своего тенанта (`/api/v5/devices/*`), чужие устройства недоступны.
 
 ### Редактор кадров
 - Canvas 384×168, 1-bit, масштаб 2× nearest-neighbor.
 - Инструменты: карандаш, ластик, заливка, очистка, инверсия. Импорт PNG → resize на клиенте + Floyd-Steinberg dithering.
 - Список кадров (до 8): на каждый — `durationSec`, `ledColor`, `ledBrightness`, `beep`, `flashCount`; reorder, duplicate, delete.
 - Preview: ротация в реальном tempo.
-- Save: canvas → packed base64 → payload → PUT `/api/v5/devices/:id/display`.
-- Load: GET `/api/v5/admin/devices/:id/display` (только ops).
+- Save: canvas → packed base64 → payload → PUT `/api/v5/admin/devices/:id/display` (ops) или `/api/v5/devices/:id/display` (manage).
+- Load: GET того же пути `.../display`.
 
 ## Документация
 
@@ -338,6 +352,22 @@ curl -s "$BASE/api/v5/admin/pending-devices/$PENDING_ID/approve" \
   -H 'content-type: application/json' \
   -X POST \
   -d '{"tenantId":"tigermeter"}' | jq .
+
+# Привязка кода к выбранному тенанту (тенанты — из SERVICE_TOKENS, без staging)
+curl -s "$BASE/api/v5/admin/tenants" -H "authorization: Bearer $OPS_TOKEN" | jq .
+curl -s "$BASE/api/v5/admin/device-claims/$CODE/attach" \
+  -H "authorization: Bearer $OPS_TOKEN" \
+  -H 'content-type: application/json' \
+  -X POST \
+  -d '{"tenantId":"tigermeter","externalUserId":"qa-1"}' | jq .
+
+# Состояние и доставка кадров, отправка кадров от имени тенанта устройства
+curl -s "$BASE/api/v5/admin/devices/$DID" -H "authorization: Bearer $OPS_TOKEN" | jq .
+curl -s "$BASE/api/v5/admin/devices/$DID/display" \
+  -H "authorization: Bearer $OPS_TOKEN" \
+  -H 'content-type: application/json' \
+  -X PUT \
+  -d "{\"frames\":[{\"bitmap\":\"$BITMAP\",\"ledColor\":\"cyan\",\"ledBrightness\":\"high\",\"durationSec\":30}],\"refreshInterval\":30}" | jq .
 ```
 
 - **8) Refresh секрета устройства**:

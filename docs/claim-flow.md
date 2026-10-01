@@ -49,6 +49,25 @@ Rate limit: **120 попыток в минуту на service token** (`ATTACH_R
 { "deviceId": "uuid", "message": "Attached", "tenantId": "tigermeter" }
 ```
 
+Тенант `staging` зарезервирован для автообновления: attach с токеном этого тенанта получает 400 `Tenant is reserved`.
+
+## Привязка из админки (ops)
+
+Админ обычно входит с ops-токеном, а attach выше привязывает к тенанту самого токена. Поэтому для админки есть отдельный ops-эндпоинт, где тенант выбирается явно:
+
+```
+GET  /api/v5/admin/tenants                      → [{ "tenantId": "tigermeter", "scopes": ["manage"] }, ...]
+POST /api/v5/admin/device-claims/{code}/attach
+Authorization: Bearer sk-ops-...
+{"tenantId": "tigermeter", "externalUserId": "qa-1"}   // externalUserId необязателен
+```
+
+- `tenantId` — только из тенантов `SERVICE_TOKENS` (список отдаёт `GET /admin/tenants`, токены не раскрываются), `staging` запрещён;
+- логика общая с tenant attach (`utils/claims.ts`): те же проверки кода и ошибки (`Invalid code`, `Expired code`, `Already claimed`), тот же лимит 120/мин на токен, код помечается использованным атомарно;
+- с manage-токеном форма в админке вызывает обычный `POST /device-claims/{code}/attach` и привязывает к своему тенанту.
+
+После привязки ops-админ может слать кадры устройству любого тенанта через `PUT /api/v5/admin/devices/{id}/display` (устройство должно быть `active`, не `staging`) и смотреть доставку через `GET /api/v5/admin/devices/{id}`.
+
 ## Переходы состояний
 
 | Состояние | Триггер | Следующее | Примечания |
