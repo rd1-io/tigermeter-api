@@ -22,6 +22,15 @@ export const config = {
   pollUnknownCodesPerIpPerMinute: parseInt(process.env.POLL_UNKNOWN_CODES_PER_IP_PER_MINUTE ?? '30', 10),
   heartbeatRateLimitPerDevicePerMinute: parseInt(process.env.HEARTBEAT_RATE_LIMIT_PER_DEVICE_PER_MINUTE ?? '60', 10),
 
+  // Server-side frame rotation (see utils/rotation.ts): frames shorter than the minimum are
+  // stretched to it; heartbeats are timed to land `margin` seconds after a switch, and a heartbeat
+  // up to `earlySwitch` seconds before a switch already gets the next frame
+  rotationMinFrameSec: parseInt(process.env.ROTATION_MIN_FRAME_SEC ?? '10', 10),
+  rotationMarginSec: parseInt(process.env.ROTATION_MARGIN_SEC ?? '1', 10),
+  rotationEarlySwitchSec: parseInt(process.env.ROTATION_EARLY_SWITCH_SEC ?? '3', 10),
+  // Older firmware crashes on any frame on boards without PSRAM; such devices get no frames until OTA
+  minFramesFirmwareVersion: parseInt(process.env.MIN_FRAMES_FIRMWARE_VERSION ?? '38', 10),
+
   // Reserved tenant for outdated unclaimed devices that are attached only to receive OTA
   stagingTenantId: 'staging',
 

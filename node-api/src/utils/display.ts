@@ -2,6 +2,8 @@ import { PrismaClient, Device } from '@prisma/client';
 import { z } from 'zod';
 import { config } from '../config.js';
 import { displayPayloadHash } from './crypto.js';
+import { parseFirmwareVersion } from './firmware.js';
+import { effectiveDurations, findFrameByHash, parsePayload, rotationAt } from './rotation.js';
 
 // 384x168 1-bit, MSB-first, rows top to bottom; 1 = white, 0 = black
 export const DISPLAY_BITMAP_BYTES = 8064;
@@ -51,6 +53,7 @@ export const setDeviceDisplay = async (prisma: PrismaClient, device: Device, pay
       displayVersion,
       displayUpdatedAt: new Date(),
       displayRebootCount: 0,
+      displayOneShotMask: 0,
     },
   });
   return { displayHash, displayVersion };
@@ -79,18 +82,17 @@ const parseDiagnostics = (json: string | null): Record<string, string | number |
   try { return JSON.parse(json); } catch { return null; }
 };
 
-// Single-device view: telemetry plus display delivery state, so a caller can see whether the
-// device has fetched (delivered) and applied (reported back on the next heartbeat) the current frames
+// Single-device view: telemetry plus display delivery state. The device holds one frame of the set
+// at a time (server-side rotation): `rotation` is the schedule now, `deliveredFrameIndex` the frame
+// last sent, `deviceFrameIndex` the frame the device reported in its last heartbeat (= applied).
 export const deviceStateDto = (d: Device) => {
-  let frameCount = 0;
-  let refreshInterval: number | null = null;
-  if (d.displayFramesJson) {
-    try {
-      const payload = JSON.parse(d.displayFramesJson);
-      frameCount = Array.isArray(payload.frames) ? payload.frames.length : 0;
-      refreshInterval = typeof payload.refreshInterval === 'number' ? payload.refreshInterval : null;
-    } catch {}
-  }
+  const payload = parsePayload(d.displayFramesJson);
+  const setHash = payload ? d.displayHash : null;
+  const now = Date.now();
+  const point = payload ? rotationAt(payload, d.displayUpdatedAt?.getTime() ?? 0, now) : null;
+  const delivered = findFrameByHash(setHash, payload, d.deliveredDisplayHash);
+  const reported = findFrameByHash(setHash, payload, d.reportedDisplayHash);
+  const fw = parseFirmwareVersion(d.firmwareVersion);
   return {
     ...deviceDto(d),
     ip: d.ip,
@@ -102,8 +104,21 @@ export const deviceStateDto = (d: Device) => {
     displayRebootCount: d.displayRebootCount,
     displayBlocked: !!d.displayHash && d.displayRebootCount >= DISPLAY_REBOOT_LIMIT,
     diagnostics: parseDiagnostics(d.diagnosticsJson),
-    frameCount,
-    refreshInterval,
+    framesSupported: fw === null || fw >= config.minFramesFirmwareVersion,
+    minFramesFirmwareVersion: config.minFramesFirmwareVersion,
+    rotation: payload && point
+      ? {
+          currentIndex: point.index,
+          cycleSec: point.cycleSec,
+          nextSwitchInSec: point.secondsToNext == null ? null : Math.round(point.secondsToNext),
+          effectiveDurations: effectiveDurations(payload.frames),
+          minFrameSec: config.rotationMinFrameSec,
+        }
+      : null,
+    deliveredFrameIndex: delivered?.index ?? null,
+    deviceFrameIndex: reported?.index ?? null,
+    frameCount: payload?.frames.length ?? 0,
+    refreshInterval: payload?.refreshInterval ?? null,
     pendingFactoryReset: d.pendingFactoryReset,
     latestFirmwareVersion: config.latestFirmwareVersion,
   };

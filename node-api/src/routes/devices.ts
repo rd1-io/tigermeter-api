@@ -6,6 +6,7 @@ import { config } from '../config.js';
 import { generateDeviceSecret, hashPassword } from '../utils/crypto.js';
 import { parseFirmwareVersion } from '../utils/firmware.js';
 import { DISPLAY_REBOOT_LIMIT } from '../utils/display.js';
+import { findFrameByHash, frameToServe, parsePayload } from '../utils/rotation.js';
 
 const HeartbeatSchema = z.object({
   battery: z.number().int().optional(),
@@ -119,28 +120,37 @@ export default async function deviceRoutes(app: FastifyInstance, opts: DeviceRou
       return reply.code(401).send({ message: 'Firmware updated, claim the device again' });
     }
 
-    // Hash match — no new content (empty frames means no content yet, NOT a match)
-    const hashMatches = !!device.displayHash && !!body.displayHash && body.displayHash === device.displayHash;
+    // The device always holds one frame: rotation over the stored set runs here (utils/rotation.ts).
+    // A heartbeat whose hash is any delivery of the frame that is current now changes nothing.
     const now = new Date();
+    const payload = parsePayload(device.displayFramesJson);
+    const setHash = payload ? device.displayHash : null;
+    const cycleStartMs = device.displayUpdatedAt?.getTime() ?? 0;
+    const serve = setHash && payload ? frameToServe(setHash, payload, cycleStartMs, now.getTime(), device.displayOneShotMask) : null;
+    const reportedFrame = findFrameByHash(setHash, payload, body.displayHash);
+    const hashMatches = !!serve && !!reportedFrame && reportedFrame.index === serve.index;
 
-    // The device rebooted after the current frames were served and before confirming them
-    // (uptime is shorter than the time since delivery): count it, and stop serving at the limit
+    const fwVersion = parseFirmwareVersion(body.firmwareVersion ?? device.firmwareVersion);
+    const framesSupported = fwVersion === null || fwVersion >= config.minFramesFirmwareVersion;
+
+    // The device rebooted after a frame was delivered and before confirming it (uptime is shorter
+    // than the time since delivery): count it, and stop serving at the limit
+    const deliveredFrame = findFrameByHash(setHash, payload, device.deliveredDisplayHash);
     const rebootedAfterDelivery =
-      !hashMatches &&
+      !reportedFrame &&
       device.displayRebootCount < DISPLAY_REBOOT_LIMIT &&
-      !!device.displayHash &&
-      device.deliveredDisplayHash === device.displayHash &&
-      device.reportedDisplayHash !== device.displayHash &&
+      !!deliveredFrame &&
+      device.reportedDisplayHash !== device.deliveredDisplayHash &&
       !!device.displayDeliveredAt &&
       typeof body.uptimeSeconds === 'number' &&
       body.uptimeSeconds * 1000 < now.getTime() - device.displayDeliveredAt.getTime();
-    const displayRebootCount = hashMatches ? 0 : device.displayRebootCount + (rebootedAfterDelivery ? 1 : 0);
+    const displayRebootCount = reportedFrame ? 0 : device.displayRebootCount + (rebootedAfterDelivery ? 1 : 0);
     const displayBlocked = displayRebootCount >= DISPLAY_REBOOT_LIMIT;
-    const servesFrames = !hashMatches && !displayBlocked && !!device.displayFramesJson && !!device.displayHash;
+    const servesFrames = !!serve && !hashMatches && !displayBlocked && framesSupported;
     const diagnostics = sanitizeDiagnostics(body.diag);
     if (rebootedAfterDelivery) {
       request.log.warn(
-        { deviceId: device.id, mac: device.mac, displayHash: device.displayHash, displayRebootCount, blocked: displayBlocked, diag: diagnostics },
+        { deviceId: device.id, mac: device.mac, displayHash: device.displayHash, frameIndex: deliveredFrame?.index, displayRebootCount, blocked: displayBlocked, diag: diagnostics },
         'device rebooted after receiving frames without confirming them',
       );
     }
@@ -159,7 +169,9 @@ export default async function deviceRoutes(app: FastifyInstance, opts: DeviceRou
         reportedDisplayHash: body.displayHash || null,
         displayRebootCount,
         ...(diagnostics ? { diagnosticsJson: JSON.stringify(diagnostics) } : {}),
-        ...(servesFrames ? { deliveredDisplayHash: device.displayHash, displayDeliveredAt: now } : {}),
+        ...(servesFrames
+          ? { deliveredDisplayHash: serve!.hash, displayDeliveredAt: now, displayOneShotMask: serve!.oneShotMask }
+          : {}),
       },
     });
 
@@ -174,18 +186,16 @@ export default async function deviceRoutes(app: FastifyInstance, opts: DeviceRou
 
     if (hashMatches) return baseResponse;
 
-    // Hash mismatch or missing — serve frames
     if (servesFrames) {
-      const payload = JSON.parse(device.displayFramesJson!);
       return {
         ...baseResponse,
-        frames: payload.frames,
-        refreshInterval: payload.refreshInterval,
-        displayHash: device.displayHash,
+        frames: [serve!.frame],
+        refreshInterval: serve!.refreshInterval,
+        displayHash: serve!.hash,
       };
     }
 
-    // No frames yet — empty state
+    // No frames yet (or not deliverable) — empty state
     return {
       ...baseResponse,
       frames: [],

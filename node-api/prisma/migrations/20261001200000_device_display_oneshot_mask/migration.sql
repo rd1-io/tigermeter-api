@@ -1,0 +1,1 @@
+ALTER TABLE "Device" ADD COLUMN "displayOneShotMask" INTEGER NOT NULL DEFAULT 0;

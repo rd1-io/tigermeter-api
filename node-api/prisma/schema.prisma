@@ -42,6 +42,7 @@ model Device {
   deliveredDisplayHash    String?   // hash of the frames last served in a heartbeat response
   displayDeliveredAt      DateTime?
   reportedDisplayHash     String?   // hash the device sent in its last heartbeat
+  displayOneShotMask      Int      @default(0) // bit i: frame i was already delivered with its beep/flash for this set
   displayRebootCount      Int      @default(0) // reboots right after receiving the current frames, without confirming them
   diagnosticsJson         String?   // boot/heap diagnostics from the last heartbeat (firmware v38+)
 

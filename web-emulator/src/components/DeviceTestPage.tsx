@@ -119,7 +119,7 @@ const SCENARIOS: { id: string; title: string; hint: string; build: () => QueuedF
   {
     id: 'colors',
     title: 'Все цвета LED',
-    hint: '8 кадров по 8 с: каждый цвет на высокой яркости, название цвета на экране',
+    hint: '8 кадров по 10 с: каждый цвет на высокой яркости, название цвета на экране',
     build: () =>
       LED_COLORS.filter((c) => c !== 'off').map((c, i, all) => ({
         key: nextKey(),
@@ -128,13 +128,13 @@ const SCENARIOS: { id: string; title: string; hint: string; build: () => QueuedF
         ...DEFAULT_LED,
         ledColor: c,
         ledBrightness: 'high',
-        durationSec: 8,
+        durationSec: 10,
       })),
   },
   {
     id: 'brightness',
     title: 'Яркость LED',
-    hint: 'Белый на low / mid / high и выключенный LED, по 8 с',
+    hint: 'Белый на low / mid / high и выключенный LED, по 10 с',
     build: () =>
       LED_BRIGHTNESSES.map((b, i) => ({
         key: nextKey(),
@@ -143,13 +143,13 @@ const SCENARIOS: { id: string; title: string; hint: string; build: () => QueuedF
         ...DEFAULT_LED,
         ledColor: 'white' as LedColor,
         ledBrightness: b,
-        durationSec: 8,
+        durationSec: 10,
       })),
   },
   {
     id: 'sound',
     title: 'Звук и вспышки',
-    hint: 'Сигнал; 3 вспышки красным; сигнал + 2 вспышки голубым. Срабатывают один раз после доставки',
+    hint: 'Сигнал; 3 вспышки красным; сигнал + 2 вспышки голубым. Срабатывают при первом показе каждого кадра после отправки, на следующих кругах — без них',
     build: () => [
       { key: nextKey(), label: 'Звук', mono: captionFrame('BEEP', 'Звуковой сигнал', 'beep · зелёный'), ...DEFAULT_LED, beep: true, durationSec: 10 },
       { key: nextKey(), label: '3 вспышки', mono: captionFrame('FLASH', '3 вспышки', 'flashCount 3 · красный'), ...DEFAULT_LED, ledColor: 'red', flashCount: 3, durationSec: 10 },
@@ -426,13 +426,17 @@ export const DeviceTestPage: React.FC<DeviceTestPageProps> = ({ scope, deviceId,
   const delivery = (() => {
     if (!state?.displayHash) return { cls: 'bg-neutral-100 text-neutral-600', text: 'Кадров нет — устройство показывает «Waiting for content»' };
     if (state.displayBlocked) return { cls: 'bg-red-100 text-red-800', text: `Доставка остановлена: устройство ${state.displayRebootCount} раза перезагрузилось сразу после получения этих кадров. Отправьте новые кадры, чтобы попробовать снова` };
-    if (state.reportedDisplayHash === state.displayHash) return { cls: 'bg-green-100 text-green-800', text: 'Применено: устройство подтвердило текущий хеш' };
-    if (state.deliveredDisplayHash === state.displayHash) return { cls: 'bg-blue-100 text-blue-800', text: `Доставлено ${ago(state.displayDeliveredAt, now)}, подтверждение придёт со следующим heartbeat` };
+    if (!state.framesSupported) return { cls: 'bg-amber-100 text-amber-800', text: `Прошивка ${state.firmwareVersion ?? '?'} падает на кадрах без PSRAM — сервер не отдаёт ей кадры до обновления на v${state.minFramesFirmwareVersion}+ (OTA через ~1 мин после загрузки, затем раз в час)` };
+    const n = state.frameCount;
+    const of = (i: number) => (n > 1 ? `кадр ${i + 1}/${n}` : 'кадр');
+    if (state.deviceFrameIndex != null && state.deviceFrameIndex === state.deliveredFrameIndex)
+      return { cls: 'bg-green-100 text-green-800', text: `Применено: устройство показывает ${of(state.deviceFrameIndex)} и подтвердило его хеш` };
+    if (state.deliveredFrameIndex != null) return { cls: 'bg-blue-100 text-blue-800', text: `Доставлен ${of(state.deliveredFrameIndex)} ${ago(state.displayDeliveredAt, now)}, подтверждение придёт со следующим heartbeat` };
     return { cls: 'bg-amber-100 text-amber-800', text: 'Ожидает heartbeat: устройство ещё не забрало новые кадры' };
   })();
 
   const eta = (() => {
-    if (!state?.lastSeen || !sendResult?.ok || state.deliveredDisplayHash === state.displayHash) return null;
+    if (!state?.lastSeen || !sendResult?.ok || state.deliveredFrameIndex != null) return null;
     const due = new Date(state.lastSeen).getTime() + (sendResult.prevInterval ?? 60) * 1000;
     const s = Math.round((due - now) / 1000);
     return s > 0 ? `следующий heartbeat примерно через ${s} с` : `heartbeat ожидался ${-s} с назад`;
@@ -527,6 +531,14 @@ export const DeviceTestPage: React.FC<DeviceTestPageProps> = ({ scope, deviceId,
                     <span className="text-neutral-500">Показывает устройство:</span> <span className="font-mono text-xs">{shortHash(state.reportedDisplayHash)}</span>
                   </div>
                 </div>
+                {state.rotation && state.frameCount > 1 && (
+                  <div className="text-sm" title="Ротацию ведёт сервер: устройство держит один кадр и получает следующий с heartbeat в момент смены (± несколько секунд); без связи кадр не меняется">
+                    <span className="text-neutral-500">Ротация на сервере:</span> сейчас кадр {state.rotation.currentIndex + 1}/{state.frameCount}
+                    {state.rotation.nextSwitchInSec != null && <>, смена через {state.rotation.nextSwitchInSec} с</>}
+                    <span className="text-neutral-400"> · круг {state.rotation.cycleSec} с ({state.rotation.effectiveDurations.join(' + ')})</span>
+                    <span className="text-neutral-500"> · на устройстве:</span> {state.deviceFrameIndex != null ? `кадр ${state.deviceFrameIndex + 1}` : '—'}
+                  </div>
+                )}
                 <div className={`text-sm px-3 py-2 rounded ${delivery.cls}`}>
                   {delivery.text}
                   {eta && <span className="opacity-80"> · {eta}</span>}
@@ -555,7 +567,7 @@ export const DeviceTestPage: React.FC<DeviceTestPageProps> = ({ scope, deviceId,
                           ? `есть, ${formatKb(state.diagnostics.psramSize)} (свободно ${formatKb(state.diagnostics.freePsram)})`
                           : <span className="text-amber-700">нет</span>}
                       </div>
-                      <div title="Буферы кадров: с PSRAM — 8, без неё — до 2 в обычной памяти">
+                      <div title="Буферы кадров на устройстве; сервер всегда шлёт один кадр, так что хватает одного">
                         <span className="text-neutral-500">Буферов кадров:</span> {String(state.diagnostics.frameBuffers ?? '?')}
                       </div>
                       <div title="Свободно / минимум с загрузки / крупнейший блок">
@@ -811,7 +823,7 @@ export const DeviceTestPage: React.FC<DeviceTestPageProps> = ({ scope, deviceId,
                     <button onClick={() => setFlashKey((k) => k + 1)} className={`${btn} ml-auto`} disabled={!led.flashCount}>Показать вспышки</button>
                   </div>
                   <p className="text-[11px] text-neutral-500 leading-snug">
-                    Звук и вспышки срабатывают один раз на кадр после каждой доставки. Вспышки идут на полной яркости;
+                    Звук и вспышки срабатывают при первом показе каждого кадра после отправки набора; на следующих кругах ротации и после перезагрузки устройства — без них. Вспышки идут на полной яркости;
                     у «Радуги» вспышка зелёная. Яркость «Выкл» гасит LED при любом цвете.
                   </p>
                 </div>
@@ -826,7 +838,7 @@ export const DeviceTestPage: React.FC<DeviceTestPageProps> = ({ scope, deviceId,
                       className="border rounded px-2 py-1 text-sm text-neutral-900 w-20" />
                   </label>
                   <p className="text-[11px] text-neutral-500 leading-snug">
-                    Устройство опрашивает сервер с интервалом из последних доставленных кадров (сейчас {state?.refreshInterval ?? 60} с), новый интервал начнёт действовать после доставки.
+                    Максимальный интервал heartbeat (сейчас {state?.refreshInterval ?? 60} с). При нескольких кадрах сервер сам назначает интервал так, чтобы устройство пришло сразу после смены кадра; кадры короче {state?.rotation?.minFrameSec ?? 10} с растягиваются до {state?.rotation?.minFrameSec ?? 10} с. Новый интервал начнёт действовать после доставки.
                   </p>
                   <button onClick={sendCurrent} disabled={sending || isStaging} className="bg-blue-600 text-white rounded py-2 text-sm font-medium disabled:opacity-50">
                     {sending ? 'Отправка...' : 'Отправить этот кадр'}
@@ -868,7 +880,7 @@ export const DeviceTestPage: React.FC<DeviceTestPageProps> = ({ scope, deviceId,
                 ))}
                 <span className="text-[11px] text-neutral-400">заменяют очередь; потом «Отправить очередь»</span>
               </div>
-              {queue.length === 0 && <div className="text-sm text-neutral-500">Очередь пуста. Добавьте текущий кадр или выберите сценарий. Устройство показывает кадры по кругу.</div>}
+              {queue.length === 0 && <div className="text-sm text-neutral-500">Очередь пуста. Добавьте текущий кадр или выберите сценарий. Кадры по кругу переключает сервер (минимум {state?.rotation?.minFrameSec ?? 10} с на кадр, точность ± несколько секунд; без связи кадр не меняется).</div>}
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
                 {queue.map((f, i) => (
                   <div key={f.key} className={`border rounded p-2 flex flex-col gap-1.5 ${previewFrame?.key === f.key ? 'ring-2 ring-orange-400' : ''}`}>

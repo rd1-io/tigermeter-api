@@ -73,6 +73,18 @@ export interface DeviceStateDto extends DeviceDto {
   // Firmware v38+: resetReason, prevStage, psram, psramSize, freePsram, freeHeap, minFreeHeap,
   // maxAllocHeap, stackFree, frameBuffers, lastResponseBytes, lastError
   diagnostics: Record<string, string | number | boolean> | null;
+  framesSupported: boolean;
+  minFramesFirmwareVersion: number;
+  // Server-side rotation: the device holds one frame; null when there are no frames
+  rotation: {
+    currentIndex: number;
+    cycleSec: number | null;
+    nextSwitchInSec: number | null;
+    effectiveDurations: number[];
+    minFrameSec: number;
+  } | null;
+  deliveredFrameIndex: number | null;
+  deviceFrameIndex: number | null;
   frameCount: number;
   refreshInterval: number | null;
   pendingFactoryReset: boolean;
