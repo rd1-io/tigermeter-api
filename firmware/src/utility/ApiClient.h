@@ -9,6 +9,8 @@
 #include <sys/time.h>
 #include <time.h>
 #include "mbedtls/md.h"
+#include <esp_heap_caps.h>
+#include "Diagnostics.h"
 
 // API Configuration - change API_BASE_URL to your computer's IP
 #ifndef API_BASE_URL
@@ -42,6 +44,9 @@ enum DeviceState {
 // Display frame buffer size (384x168 1-bit packed = 8064 bytes)
 #define DISPLAY_FRAME_SIZE 8064
 #define MAX_DISPLAY_FRAMES 8
+// Without PSRAM: at most this many frames in internal RAM, keeping enough free for TLS + JSON
+#define MAX_HEAP_FRAMES 2
+#define HEAP_FRAME_RESERVE 90000
 
 // Single display frame (decoded bitmap pointer — allocated in PSRAM to save DRAM)
 struct DisplayFrame {
@@ -189,15 +194,25 @@ public:
         _deviceSecret = _prefs.getString(NVS_DEVICE_SECRET, "");
         _displayHash = _prefs.getString(NVS_DISPLAY_HASH, "");
 
-        // Allocate frame bitmap buffers in PSRAM (saves ~128KB DRAM)
+        // Frame bitmap buffers (shared with main.ino, which renders straight from them):
+        // PSRAM when present, otherwise a few in internal RAM if the heap allows
+        bool psram = psramFound();
+        diagFrameBuffers = 0;
+        diagFrameBuffersPsram = psram;
         for (int i = 0; i < MAX_DISPLAY_FRAMES; i++) {
-            _frameBitmaps[i] = (uint8_t*)ps_malloc(DISPLAY_FRAME_SIZE);
-            // Without PSRAM keep one frame in DRAM so a board without it still shows the first frame
-            if (!_frameBitmaps[i] && i == 0) _frameBitmaps[i] = (uint8_t*)malloc(DISPLAY_FRAME_SIZE);
-            if (!_frameBitmaps[i]) {
-                Serial.printf("[ApiClient] WARNING: PSRAM alloc failed for frame %d\n", i);
+            if (_frameBitmaps[i]) { diagFrameBuffers++; continue; }
+            if (psram) {
+                _frameBitmaps[i] = (uint8_t*)ps_malloc(DISPLAY_FRAME_SIZE);
+            } else if (i < MAX_HEAP_FRAMES && ESP.getFreeHeap() > DISPLAY_FRAME_SIZE + HEAP_FRAME_RESERVE) {
+                _frameBitmaps[i] = (uint8_t*)malloc(DISPLAY_FRAME_SIZE);
+            }
+            if (_frameBitmaps[i]) {
+                memset(_frameBitmaps[i], 0xFF, DISPLAY_FRAME_SIZE);
+                diagFrameBuffers++;
             }
         }
+        Serial.printf("[ApiClient] Frame buffers: %u (%s), heap=%u\n", diagFrameBuffers,
+                      psram ? "PSRAM" : "internal RAM", ESP.getFreeHeap());
 
         Serial.println("[ApiClient] Initialized");
         Serial.println("[ApiClient] Base URL: " + _baseUrl);
@@ -231,6 +246,11 @@ public:
     // Get stored device ID
     String getDeviceId() {
         return _deviceId;
+    }
+
+    // Frame bitmap buffer i (nullptr if not allocated)
+    uint8_t* frameBuffer(int i) {
+        return (i >= 0 && i < MAX_DISPLAY_FRAMES) ? _frameBitmaps[i] : nullptr;
     }
 
     // Get current display hash
@@ -461,20 +481,59 @@ public:
         if (uptimeSeconds >= 0) doc["uptimeSeconds"] = uptimeSeconds;
         doc["displayHash"] = forceRefresh ? "" : _displayHash;
 
+        JsonObject diag = doc["diag"].to<JsonObject>();
+        diag["resetReason"] = diagResetReason();
+        diag["prevStage"] = diagStageName(diagPrevStage);
+        diag["psram"] = psramFound();
+        diag["psramSize"] = ESP.getPsramSize();
+        diag["freePsram"] = ESP.getFreePsram();
+        diag["freeHeap"] = ESP.getFreeHeap();
+        diag["minFreeHeap"] = ESP.getMinFreeHeap();
+        diag["maxAllocHeap"] = ESP.getMaxAllocHeap();
+        diag["stackFree"] = (uint32_t)uxTaskGetStackHighWaterMark(NULL);
+        diag["frameBuffers"] = diagFrameBuffers;
+        if (diagLastResponseBytes > 0) diag["lastResponseBytes"] = diagLastResponseBytes;
+        if (diagLastError.length() > 0) diag["lastError"] = diagLastError;
+
         String body;
         serializeJson(doc, body);
 
+        diagStage(STAGE_HB_REQUEST);
         int httpCode = http.POST(body);
         result.httpCode = httpCode;
+        body = String();
 
+        // A frames response is ~11KB per frame; reading it needs the String plus the JSON copy
+        int size = http.getSize();
+        size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+        if (httpCode == 200 && size > 0 && (size_t)size * 2 + 16384 > largest) {
+            diagError("too_large:" + String(size) + ":" + String((uint32_t)largest));
+            http.end();
+            result.success = true;  // keep the current frames; the server re-sends on the next heartbeat
+            result.displayHash = _displayHash;
+            return result;
+        }
+
+        diagStage(STAGE_HB_READ);
         String response = http.getString();
-        Serial.println("[ApiClient] Response " + String(httpCode) + ": " + response);
+        if (response.length() > 0) diagLastResponseBytes = response.length();
+        if (response.length() <= 512) {
+            Serial.println("[ApiClient] Response " + String(httpCode) + ": " + response);
+        } else {
+            Serial.printf("[ApiClient] Response %d: %u bytes, heap=%u\n", httpCode, response.length(), ESP.getFreeHeap());
+        }
 
         if (httpCode == 200) {
             result.success = true;
 
+            diagStage(STAGE_HB_PARSE);
             JsonDocument respDoc;
-            if (deserializeJson(respDoc, response) == DeserializationError::Ok) {
+            DeserializationError jsonErr = deserializeJson(respDoc, response);
+            response = String();  // the document holds its own copy
+            if (jsonErr) {
+                diagError(String("json:") + jsonErr.c_str() + ":" + String(diagLastResponseBytes));
+                result.displayHash = _displayHash;
+            } else {
                 // Factory reset command
                 if (respDoc.containsKey("factoryReset") && respDoc["factoryReset"].as<bool>()) {
                     result.factoryReset = true;
@@ -514,7 +573,10 @@ public:
                         if (frameCount > MAX_DISPLAY_FRAMES) frameCount = MAX_DISPLAY_FRAMES;
                         result.frameCount = frameCount;
 
+                        diagStage(STAGE_FRAME_DECODE);
+                        int validFrames = 0;
                         for (int i = 0; i < frameCount; i++) {
+                            yield();
                             JsonObject frame = framesArray[i];
                             DisplayFrame& df = result.frames[i];
                             // Point df.bitmap at our PSRAM buffer
@@ -523,7 +585,7 @@ public:
                             // Decode bitmap (must be exactly DISPLAY_FRAME_SIZE bytes)
                             const char* b64 = frame["bitmap"].as<const char*>();
                             if (!df.bitmap) {
-                                Serial.printf("[ApiClient] Frame %d: no PSRAM buffer, skipping\n", i);
+                                diagError("no_buffer:" + String(i));
                                 df.durationSec = 0;
                                 df.beep = false;
                                 df.flashCount = 0;
@@ -533,7 +595,7 @@ public:
                             }
                             int decodedLen = base64Decode(b64, df.bitmap, DISPLAY_FRAME_SIZE);
                             if (decodedLen != DISPLAY_FRAME_SIZE) {
-                                Serial.printf("[ApiClient] Frame %d: invalid bitmap size %d (expected %d), skipping\n", i, decodedLen, DISPLAY_FRAME_SIZE);
+                                diagError("bitmap_size:" + String(i) + ":" + String(decodedLen));
                                 memset(df.bitmap, 0, DISPLAY_FRAME_SIZE);
                                 df.durationSec = 0;
                                 df.beep = false;
@@ -554,6 +616,19 @@ public:
                             df.beep = frame["beep"] | false;
                             df.flashCount = frame["flashCount"] | 0;
                             if (df.flashCount > 10) df.flashCount = 10;
+                            if (df.durationSec > 0) validFrames++;
+                        }
+
+                        // Nothing usable: keep showing the current frames and the old hash,
+                        // so the server sees them as not applied
+                        if (validFrames == 0) {
+                            diagError("no_valid_frames:" + String(frameCount));
+                            result.hasNewDisplay = false;
+                            result.frameCount = 0;
+                            result.displayHash = _displayHash;
+                            result.refreshInterval = 60;
+                            http.end();
+                            return result;
                         }
 
                         // Update stored hash

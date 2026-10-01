@@ -49,7 +49,7 @@ String currentClaimCode = "";
 String lastDisplayedError = "";
 
 // Frame display state (v5: bitmap rotation)
-// Bitmaps stored as PSRAM pointers — allocated once in setup()
+// Bitmaps point at ApiClient's frame buffers (assigned after apiClient.begin())
 DisplayFrame displayFrames[MAX_DISPLAY_FRAMES];
 uint8_t displayFrameCount = 0;
 uint8_t currentFrameIndex = 0;
@@ -201,12 +201,14 @@ void displayFrameFullScreen(uint8_t frameIndex) {
     if (displayFrames[frameIndex].durationSec == 0) return; // Invalid/skipped frame
     if (!displayFrames[frameIndex].bitmap) return;
 
+    diagStage(STAGE_RENDER);
     display.clear();
     display.drawBitmap(0, 0, displayFrames[frameIndex].bitmap, DISPLAY_WIDTH, DISPLAY_HEIGHT, false, false);
     if (lowBattery) {
         drawBatteryIcon(5, 5);
     }
     display.refresh();
+    diagStage(STAGE_IDLE);
 
     Serial.printf("[Main] Drawing frame %d/%d (duration=%us)\n",
                   frameIndex + 1, displayFrameCount, displayFrames[frameIndex].durationSec);
@@ -231,6 +233,7 @@ void applyFrameLedBeep(uint8_t frameIndex) {
     DisplayFrame& f = displayFrames[frameIndex];
     String color = String(f.ledColor);
     String brightness = String(f.ledBrightness);
+    diagStage(STAGE_LED);
 
     // Always set LED color + brightness for this frame
     applyFrameLedColor(color, brightness);
@@ -251,6 +254,7 @@ void applyFrameLedBeep(uint8_t frameIndex) {
             applyFrameLedColor(color, brightness);
         }
     }
+    diagStage(STAGE_IDLE);
 }
 
 // Track low battery with hysteresis; redraw the current frame when the badge toggles
@@ -269,6 +273,7 @@ void setup()
 {
     Serial.begin(115200);
     delay(100);
+    diagBegin();
 
     Serial.println("[Main] Starting TigerMeter v5 (API MODE)...");
 
@@ -285,15 +290,8 @@ void setup()
     initializeDisplay();
     Serial.println("[Main] Display initialized");
 
-    // Allocate PSRAM buffers for display frames
-    Serial.println("[Main] Allocating PSRAM frame buffers...");
     for (int i = 0; i < MAX_DISPLAY_FRAMES; i++) {
-        displayFrames[i].bitmap = (uint8_t*)ps_malloc(DISPLAY_FRAME_SIZE);
-        // Without PSRAM keep one frame in DRAM (frames without a buffer are skipped)
-        if (!displayFrames[i].bitmap && i == 0) displayFrames[i].bitmap = (uint8_t*)malloc(DISPLAY_FRAME_SIZE);
-        if (!displayFrames[i].bitmap) {
-            Serial.printf("[Main] ERROR: PSRAM alloc failed for frame %d\n", i);
-        }
+        displayFrames[i].bitmap = nullptr;
         displayFrames[i].durationSec = 0;
         displayFrames[i].ledColor[0] = '\0';
         displayFrames[i].ledBrightness[0] = '\0';
@@ -351,8 +349,9 @@ void setup()
         delay(100);
     }
 
-    // Initialize API client
+    // Initialize API client (allocates the frame buffers)
     apiClient.begin();
+    for (int i = 0; i < MAX_DISPLAY_FRAMES; i++) displayFrames[i].bitmap = apiClient.frameBuffer(i);
 
     // Initialize NTP time if WiFi is connected
     if (WiFi.status() == WL_CONNECTED) {
@@ -515,6 +514,7 @@ void handleApiStateMachine()
 
             bool forceRefresh = !hasDisplayContent || isReconnecting;
             HeartbeatResult result = apiClient.sendHeartbeat(battery, rssi, uptimeSeconds, forceRefresh);
+            diagStage(STAGE_IDLE);
 
             // Factory reset
             if (result.factoryReset)
@@ -565,7 +565,9 @@ void handleApiStateMachine()
                 }
 
                 OtaUpdate::setAutoUpdate(result.autoUpdate);
-                OtaUpdate::setLatestVersion(result.latestFirmwareVersion);
+                if (result.latestFirmwareVersion > 0) {
+                    OtaUpdate::setLatestVersion(result.latestFirmwareVersion);
+                }
                 if (result.firmwareDownloadUrl.length() > 0) {
                     OtaUpdate::setFirmwareUrl(result.firmwareDownloadUrl);
                 }
@@ -581,13 +583,13 @@ void handleApiStateMachine()
                     displayHash = result.displayHash;
                     hasDisplayContent = true;
 
-                    // Copy frames (each is 8064 bytes)
+                    // Bitmaps are already decoded into the shared buffers; copy the per-frame settings
+                    diagStage(STAGE_FRAME_APPLY);
                     for (int i = 0; i < result.frameCount; i++) {
-                        if (!displayFrames[i].bitmap || !result.frames[i].bitmap || result.frames[i].durationSec == 0) {
-                            displayFrames[i].durationSec = 0;  // no buffer (no PSRAM) or invalid frame: skipped in rotation
+                        if (!displayFrames[i].bitmap || result.frames[i].durationSec == 0) {
+                            displayFrames[i].durationSec = 0;  // no buffer or invalid frame: skipped in rotation
                             continue;
                         }
-                        memcpy(displayFrames[i].bitmap, result.frames[i].bitmap, DISPLAY_FRAME_SIZE);
                         strncpy(displayFrames[i].ledColor, result.frames[i].ledColor, 15);
                         displayFrames[i].ledColor[15] = '\0';
                         strncpy(displayFrames[i].ledBrightness, result.frames[i].ledBrightness, 7);
@@ -701,7 +703,9 @@ void handleApiStateMachine()
                 displaySystemScreen("OTA", NULL, NULL);
                 display.refresh();
 
+                diagStage(STAGE_OTA);
                 OtaResult otaResult = OtaUpdate::checkAndUpdate();
+                diagStage(STAGE_IDLE);
 
                 if (otaResult.success) {
                     displaySystemScreen("OTA", "Update OK!", "Rebooting...");
