@@ -23,26 +23,25 @@ export const tickerFrame = (value: number, history: number[], from: number, to: 
     ctx.font = `800 64px ${SANS}`;
     ctx.fillText(`${value.toFixed(2)} $`, WIDTH - 12, 98);
 
-    // Sparkline over the last points
+    // Sparkline over the last points, edge to edge (a single point is a flat line)
     const pts = history.slice(-40);
+    if (pts.length === 1) pts.push(pts[0]);
     const lo = Math.min(from, to);
     const span = Math.max(1, Math.abs(to - from));
-    const x0 = 12;
-    const w = WIDTH - 24;
     const yOf = (v: number) => 148 - ((v - lo) / span) * 36;
     ctx.lineWidth = 2;
     ctx.beginPath();
     pts.forEach((v, i) => {
-      const x = x0 + (pts.length > 1 ? (i / 39) * w : 0);
+      const x = (i / (pts.length - 1)) * WIDTH;
       if (i === 0) ctx.moveTo(x, yOf(v));
       else ctx.lineTo(x, yOf(v));
     });
     ctx.stroke();
 
-    // Progress from `from` to `to`
+    // Progress from `from` to `to`, full width
     const p = Math.min(1, Math.abs(value - from) / span);
-    ctx.strokeRect(12.5, HEIGHT - 12.5, w, 7);
-    ctx.fillRect(12, HEIGHT - 13, Math.round(w * p), 8);
+    ctx.strokeRect(0.5, HEIGHT - 12.5, WIDTH - 1, 7);
+    ctx.fillRect(0, HEIGHT - 13, Math.round(WIDTH * p), 8);
   });
 
 type RunState = { running: boolean; step: number; total: number; message: string };

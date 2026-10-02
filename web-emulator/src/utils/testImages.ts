@@ -137,22 +137,24 @@ const tickerChart = (ctx: CanvasRenderingContext2D) => {
   let v = 0.5;
   for (let i = 0; i <= 60; i++) {
     v = Math.min(0.95, Math.max(0.05, v + (rand() - 0.45) * 0.12));
-    pts.push([10 + (i / 60) * 364, 158 - v * 70]);
+    pts.push([(i / 60) * WIDTH, 158 - v * 70]);
   }
+  // Chart spans the full width: first hatch line on x=0, last on x=383
   ctx.beginPath();
-  ctx.moveTo(10, 160);
+  ctx.moveTo(0, 160);
   pts.forEach(([x, y]) => ctx.lineTo(x, y));
-  ctx.lineTo(374, 160);
+  ctx.lineTo(WIDTH, 160);
   ctx.closePath();
   ctx.save();
   ctx.clip();
-  for (let x = 0; x < WIDTH; x += 4) ctx.fillRect(x, 80, 1, 90);
+  const bars = Math.round((WIDTH - 1) / 4);
+  for (let k = 0; k <= bars; k++) ctx.fillRect(Math.round((k * (WIDTH - 1)) / bars), 80, 1, 90);
   ctx.restore();
   ctx.lineWidth = 2.5;
   ctx.beginPath();
   pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
   ctx.stroke();
-  ctx.fillRect(10, 160, 364, 1);
+  ctx.fillRect(0, 160, WIDTH, 1);
 };
 
 export const TEST_IMAGES: TestImage[] = [
