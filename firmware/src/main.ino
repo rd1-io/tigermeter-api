@@ -195,23 +195,74 @@ void displayReconnecting() {
 }
 
 // ============== FRAME DISPLAY ==============
+// A frame replacing a frame uses a partial refresh (no flashing). A full refresh clears ghosting:
+// after any other screen (system screens bump the display's refresh sequence), every
+// PARTIAL_MAX_BEFORE_FULL partials or FULL_REFRESH_EVERY_MS ("auto"), and for refreshMode "full".
+// "partial" skips the count/time limits up to PARTIAL_HARD_MAX.
+const uint16_t PARTIAL_MAX_BEFORE_FULL = 30;
+const unsigned long FULL_REFRESH_EVERY_MS = 10UL * 60UL * 1000UL;
+const uint16_t PARTIAL_HARD_MAX = 200;
+uint32_t frameScreenSeq = 0;  // display.refreshSeq() right after the last frame refresh (0 = none)
+uint32_t frameScreenCrc = 0;
+
+// FNV-1a over the bitmap plus the battery badge state
+uint32_t frameCrc(const uint8_t* bitmap) {
+    uint32_t h = 2166136261u;
+    for (int i = 0; i < DISPLAY_FRAME_SIZE; i++) {
+        h ^= bitmap[i];
+        h *= 16777619u;
+    }
+    return lowBattery ? h ^ 0x9E3779B9u : h;
+}
+
 // Draw a single frame full-screen (384x168)
 void displayFrameFullScreen(uint8_t frameIndex) {
     if (frameIndex >= displayFrameCount) return;
     if (displayFrames[frameIndex].durationSec == 0) return; // Invalid/skipped frame
     if (!displayFrames[frameIndex].bitmap) return;
 
+    const uint8_t* bitmap = displayFrames[frameIndex].bitmap;
+    uint32_t crc = frameCrc(bitmap);
+    bool frameOnScreen = frameScreenSeq != 0 && frameScreenSeq == display.refreshSeq();
+    if (frameOnScreen && crc == frameScreenCrc) {
+        // Same picture (e.g. rotation frames that differ only in LED): nothing to redraw
+        diagLastRefresh = "skip";
+        diagSkippedRefreshes++;
+        return;
+    }
+
+    const char* mode = displayFrames[frameIndex].refreshMode;
+    bool forceFull = strcmp(mode, "full") == 0;
+    bool preferPartial = strcmp(mode, "partial") == 0;
+    bool partial = frameOnScreen && !forceFull && (preferPartial
+        ? display.partialSinceFull() < PARTIAL_HARD_MAX
+        : display.partialSinceFull() < PARTIAL_MAX_BEFORE_FULL &&
+          millis() - display.lastFullRefreshMs() < FULL_REFRESH_EVERY_MS);
+
     diagStage(STAGE_RENDER);
     display.clear();
-    display.drawBitmap(0, 0, displayFrames[frameIndex].bitmap, DISPLAY_WIDTH, DISPLAY_HEIGHT, false, false);
+    display.drawBitmap(0, 0, bitmap, DISPLAY_WIDTH, DISPLAY_HEIGHT, false, false);
     if (lowBattery) {
         drawBatteryIcon(5, 5);
     }
-    display.refresh();
+    unsigned long t0 = millis();
+    if (partial) {
+        display.refreshPartial();
+        display.powerOff();
+        diagPartialRefreshes++;
+    } else {
+        display.refresh();
+        diagFullRefreshes++;
+    }
+    diagLastRefreshMs = millis() - t0;
+    diagLastRefresh = partial ? "partial" : "full";
+    diagPartialSinceFull = display.partialSinceFull();
+    frameScreenSeq = display.refreshSeq();
+    frameScreenCrc = crc;
     diagStage(STAGE_IDLE);
 
-    Serial.printf("[Main] Drawing frame %d/%d (duration=%us)\n",
-                  frameIndex + 1, displayFrameCount, displayFrames[frameIndex].durationSec);
+    Serial.printf("[Main] Drawing frame %d/%d (%s, %lums, partials since full %u)\n",
+                  frameIndex + 1, displayFrameCount, diagLastRefresh, diagLastRefreshMs, diagPartialSinceFull);
 }
 
 void applyFrameLedColor(const String& color, const String& brightness) {
@@ -295,6 +346,7 @@ void setup()
         displayFrames[i].durationSec = 0;
         displayFrames[i].ledColor[0] = '\0';
         displayFrames[i].ledBrightness[0] = '\0';
+        displayFrames[i].refreshMode[0] = '\0';
         displayFrames[i].beep = false;
         displayFrames[i].flashCount = 0;
     }
@@ -594,6 +646,8 @@ void handleApiStateMachine()
                         displayFrames[i].ledColor[15] = '\0';
                         strncpy(displayFrames[i].ledBrightness, result.frames[i].ledBrightness, 7);
                         displayFrames[i].ledBrightness[7] = '\0';
+                        strncpy(displayFrames[i].refreshMode, result.frames[i].refreshMode, 7);
+                        displayFrames[i].refreshMode[7] = '\0';
                         displayFrames[i].durationSec = result.frames[i].durationSec;
                         displayFrames[i].beep = result.frames[i].beep;
                         displayFrames[i].flashCount = result.frames[i].flashCount;

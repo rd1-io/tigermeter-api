@@ -66,6 +66,9 @@ void Display::refresh()
     // Must call setFullWindow before display for proper full refresh
     _display.setFullWindow();
     _display.display(false);  // false = full refresh mode
+    _refreshSeq++;
+    _partialSinceFull = 0;
+    _lastFullMs = millis();
 }
 
 void Display::refreshPartial()
@@ -73,6 +76,13 @@ void Display::refreshPartial()
     // Partial refresh - faster but may have some ghosting
     _display.setFullWindow();
     _display.display(true);  // true = partial update mode
+    _refreshSeq++;
+    if (_partialSinceFull < 0xFFFF) _partialSinceFull++;
+}
+
+void Display::powerOff()
+{
+    _display.powerOff();
 }
 
 void Display::clearAndRefresh()

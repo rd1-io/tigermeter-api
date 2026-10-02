@@ -30,6 +30,14 @@ static uint8_t diagFrameBuffers = 0;
 static bool diagFrameBuffersPsram = false;
 static uint32_t diagLastResponseBytes = 0;
 
+// Screen refresh stats for frames (v39 partial refresh)
+static const char* diagLastRefresh = "";   // "full" / "partial" / "skip" (unchanged bitmap)
+static uint32_t diagLastRefreshMs = 0;
+static uint16_t diagPartialSinceFull = 0;
+static uint32_t diagFullRefreshes = 0;
+static uint32_t diagPartialRefreshes = 0;
+static uint32_t diagSkippedRefreshes = 0;
+
 inline const char* diagStageName(uint32_t s) {
     switch (s) {
         case STAGE_BOOT: return "boot";

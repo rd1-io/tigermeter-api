@@ -53,6 +53,7 @@ struct DisplayFrame {
     uint8_t* bitmap;             // pointer to DISPLAY_FRAME_SIZE bytes (ps_malloc)
     char ledColor[16];
     char ledBrightness[8];
+    char refreshMode[8];         // "auto" (default) / "full" / "partial"
     uint32_t durationSec;
     bool beep;
     uint8_t flashCount;
@@ -494,6 +495,14 @@ public:
         diag["frameBuffers"] = diagFrameBuffers;
         if (diagLastResponseBytes > 0) diag["lastResponseBytes"] = diagLastResponseBytes;
         if (diagLastError.length() > 0) diag["lastError"] = diagLastError;
+        if (diagLastRefresh[0]) {
+            diag["lastRefresh"] = diagLastRefresh;
+            diag["lastRefreshMs"] = diagLastRefreshMs;
+            diag["partialSinceFull"] = diagPartialSinceFull;
+            diag["fullRefreshes"] = diagFullRefreshes;
+            diag["partialRefreshes"] = diagPartialRefreshes;
+            diag["skippedRefreshes"] = diagSkippedRefreshes;
+        }
 
         String body;
         serializeJson(doc, body);
@@ -591,6 +600,7 @@ public:
                                 df.flashCount = 0;
                                 df.ledColor[0] = '\0';
                                 df.ledBrightness[0] = '\0';
+                                df.refreshMode[0] = '\0';
                                 continue;
                             }
                             int decodedLen = base64Decode(b64, df.bitmap, DISPLAY_FRAME_SIZE);
@@ -602,6 +612,7 @@ public:
                                 df.flashCount = 0;
                                 df.ledColor[0] = '\0';
                                 df.ledBrightness[0] = '\0';
+                                df.refreshMode[0] = '\0';
                                 continue;
                             }
 
@@ -612,6 +623,9 @@ public:
                             df.ledColor[15] = '\0';
                             strncpy(df.ledBrightness, lb, 7);
                             df.ledBrightness[7] = '\0';
+                            const char* rm = frame["refreshMode"] | "auto";
+                            strncpy(df.refreshMode, rm, 7);
+                            df.refreshMode[7] = '\0';
                             df.durationSec = frame["durationSec"] | 30u;
                             df.beep = frame["beep"] | false;
                             df.flashCount = frame["flashCount"] | 0;

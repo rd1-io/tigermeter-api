@@ -76,6 +76,15 @@ public:
     
     // Partial refresh (fast, may have ghosting)
     void refreshPartial();
+
+    // Turn the panel's charge pump off (the image stays; the next partial refresh powers it on)
+    void powerOff();
+
+    // Refresh bookkeeping: every refresh bumps the sequence, so a caller can tell whether
+    // anything else was drawn since its own refresh
+    uint32_t refreshSeq() const { return _refreshSeq; }
+    uint16_t partialSinceFull() const { return _partialSinceFull; }
+    unsigned long lastFullRefreshMs() const { return _lastFullMs; }
     
     // Force complete screen clear with double refresh
     void clearAndRefresh();
@@ -122,6 +131,9 @@ private:
     FontSize _currentFontSize;
     int _currentFontPixelSize;  // Current font size in pixels
     bool _textColorBlack;
+    uint32_t _refreshSeq = 0;
+    uint16_t _partialSinceFull = 0;
+    unsigned long _lastFullMs = 0;
     
     void selectU8g2Font(FontSize size);
     void selectU8g2FontByPixelSize(int pixelSize);
