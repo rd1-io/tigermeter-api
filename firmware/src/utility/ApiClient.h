@@ -503,6 +503,12 @@ public:
             diag["partialRefreshes"] = diagPartialRefreshes;
             diag["skippedRefreshes"] = diagSkippedRefreshes;
         }
+        if (diagLedFades > 0) {
+            diag["ledFades"] = diagLedFades;
+            diag["lastFadeMs"] = diagLastFadeMs;
+            diag["lastFadeSteps"] = diagLastFadeSteps;
+            diag["fadeInterrupts"] = diagLedFadeInterrupts;
+        }
 
         String body;
         serializeJson(doc, body);

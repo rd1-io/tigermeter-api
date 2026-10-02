@@ -265,15 +265,14 @@ void displayFrameFullScreen(uint8_t frameIndex) {
                   frameIndex + 1, displayFrameCount, diagLastRefresh, diagLastRefreshMs, diagPartialSinceFull);
 }
 
+// Frame LED colors crossfade over ~1 s (fadeLedTo); rainbow starts instantly and takes over the LED
 void applyFrameLedColor(const String& color, const String& brightness) {
     stopRainbow();
     setLedBrightness(brightness);
-    if (brightness == "off") {
-        led_Off();
-    } else if (color == "rainbow") {
+    if (color == "rainbow" && brightness != "off") {
         startRainbow();
     } else {
-        setLedColorByName(color);
+        fadeLedToColorName(color);
     }
 }
 

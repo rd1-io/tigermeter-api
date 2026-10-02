@@ -38,6 +38,12 @@ static uint32_t diagFullRefreshes = 0;
 static uint32_t diagPartialRefreshes = 0;
 static uint32_t diagSkippedRefreshes = 0;
 
+// LED crossfades (v40): started, finished duration/steps, cut short by a direct write
+static uint32_t diagLedFades = 0;
+static uint32_t diagLastFadeMs = 0;
+static uint16_t diagLastFadeSteps = 0;
+static uint32_t diagLedFadeInterrupts = 0;
+
 inline const char* diagStageName(uint32_t s) {
     switch (s) {
         case STAGE_BOOT: return "boot";

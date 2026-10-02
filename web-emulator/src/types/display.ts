@@ -77,6 +77,7 @@ export interface DeviceStateDto extends DeviceDto {
   // Firmware v38+: resetReason, prevStage, psram, psramSize, freePsram, freeHeap, minFreeHeap,
   // maxAllocHeap, stackFree, frameBuffers, lastResponseBytes, lastError;
   // v39+: lastRefresh (full/partial/skip), lastRefreshMs, partialSinceFull, fullRefreshes, partialRefreshes, skippedRefreshes
+  // v40+: ledFades, lastFadeMs, lastFadeSteps, fadeInterrupts
   diagnostics: Record<string, string | number | boolean> | null;
   framesSupported: boolean;
   minFramesFirmwareVersion: number;

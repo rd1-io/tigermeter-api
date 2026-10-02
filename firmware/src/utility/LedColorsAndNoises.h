@@ -2,6 +2,7 @@
 #include <Arduino.h>
 #include <driver/ledc.h>
 #include "../DEV_Config.h"
+#include "Diagnostics.h"
 
 // LEDC configuration for buzzer (ESP-IDF level for compatibility)
 static const ledc_mode_t BUZZER_SPEED_MODE = LEDC_LOW_SPEED_MODE;
@@ -104,8 +105,16 @@ void initializePins()
 // Track if LED channels are stopped
 static bool ledChannelsStopped = false;
 
-// Set LED PWM values directly (0 = full brightness, 255 = off for common anode)
-void setLedPWM(uint8_t r, uint8_t g, uint8_t b)
+// Every PWM write happens inside this critical section, and so does the fade task's check that its
+// fade is still current. A direct write (flash, rainbow, system color) cancels a running fade, and
+// a stale fade step can never land after it. Tasks that drive the LED (rainbow, amber pulse) are
+// killed with vTaskDelete, which can't happen inside a critical section, so nothing is left locked.
+static portMUX_TYPE ledMux = portMUX_INITIALIZER_UNLOCKED;
+static bool ledFadeActive = false;
+static uint32_t ledFadeGen = 0;
+
+// Raw write; caller holds ledMux
+static void writeLedPWMLocked(uint8_t r, uint8_t g, uint8_t b)
 {
     // Restart LEDC channels if they were stopped by led_Off()
     if (ledChannelsStopped) {
@@ -127,6 +136,36 @@ void setLedPWM(uint8_t r, uint8_t g, uint8_t b)
     ledc_update_duty(LED_SPEED_MODE, GREEN_CHANNEL);
     ledc_set_duty(LED_SPEED_MODE, BLUE_CHANNEL, b);
     ledc_update_duty(LED_SPEED_MODE, BLUE_CHANNEL);
+}
+
+// Stop LEDC channels to fully turn off LED (PWM at 255 still leaks some light); caller holds ledMux
+static void stopLedChannelsLocked()
+{
+    ledc_stop(LED_SPEED_MODE, RED_CHANNEL, 1);   // 1 = idle HIGH (off for common anode)
+    ledc_stop(LED_SPEED_MODE, GREEN_CHANNEL, 1);
+    ledc_stop(LED_SPEED_MODE, BLUE_CHANNEL, 1);
+    ledChannelsStopped = true;
+    currentR = 255;
+    currentG = 255;
+    currentB = 255;
+}
+
+// Caller holds ledMux
+static void cancelLedFadeLocked()
+{
+    if (ledFadeActive) {
+        ledFadeActive = false;
+        diagLedFadeInterrupts++;
+    }
+}
+
+// Set LED PWM values directly (0 = full brightness, 255 = off for common anode); cancels a fade
+void setLedPWM(uint8_t r, uint8_t g, uint8_t b)
+{
+    portENTER_CRITICAL(&ledMux);
+    cancelLedFadeLocked();
+    writeLedPWMLocked(r, g, b);
+    portEXIT_CRITICAL(&ledMux);
 }
 
 // Pulse a single color: off -> on -> off over durationMs using smooth sine wave
@@ -284,28 +323,149 @@ void led_White()
 
 void led_Off()
 {
-    // Stop LEDC channels to fully turn off LED (PWM at 255 still leaks some light)
-    ledc_stop(LED_SPEED_MODE, RED_CHANNEL, 1);   // 1 = idle HIGH (off for common anode)
-    ledc_stop(LED_SPEED_MODE, GREEN_CHANNEL, 1);
-    ledc_stop(LED_SPEED_MODE, BLUE_CHANNEL, 1);
-    ledChannelsStopped = true;
-    currentR = 255;
-    currentG = 255;
-    currentB = 255;
+    portENTER_CRITICAL(&ledMux);
+    cancelLedFadeLocked();
+    stopLedChannelsLocked();
+    portEXIT_CRITICAL(&ledMux);
+}
+
+// Full-brightness common-anode values of a named solid color; false for off/unknown names
+bool ledColorValues(const String& color, uint8_t& r, uint8_t& g, uint8_t& b)
+{
+    if (color == "green") { r = 255; g = 0; b = 255; }
+    else if (color == "red") { r = 0; g = 255; b = 255; }
+    else if (color == "blue") { r = 255; g = 255; b = 0; }
+    else if (color == "yellow") { r = 0; g = 180; b = 255; }
+    else if (color == "cyan") { r = 255; g = 0; b = 0; }
+    else if (color == "magenta" || color == "purple") { r = 0; g = 255; b = 0; }
+    else if (color == "white") { r = 0; g = 0; b = 0; }
+    else return false;
+    return true;
 }
 
 // Solid LED color by API name (static colors only; "rainbow" is animated by the caller)
 // Unknown names turn the LED off
 void setLedColorByName(const String& color)
 {
-    if (color == "green") led_Green();
-    else if (color == "red") led_Red();
-    else if (color == "blue") led_Blue();
-    else if (color == "yellow") led_Yellow();
-    else if (color == "cyan") led_Cyan();
-    else if (color == "magenta" || color == "purple") led_Magenta();
-    else if (color == "white") led_White();
+    uint8_t r, g, b;
+    if (ledColorValues(color, r, g, b)) setLedPWMWithBrightness(r, g, b);
     else led_Off();
+}
+
+// ============== SMOOTH FADE ==============
+// Crossfade from whatever the LED shows now to a target over LED_FADE_MS, stepped by a small task
+// every LED_FADE_STEP_MS. Channels are interpolated in perceived brightness (gamma 2.2) with
+// smoothstep easing, so dim levels and the ends don't jump. A new fade retargets from the
+// current output; any direct write cancels it.
+static const uint32_t LED_FADE_MS = 1000;
+static const uint32_t LED_FADE_STEP_MS = 10;
+static TaskHandle_t ledFadeTaskHandle = NULL;
+static float ledFadeFrom[3];
+static float ledFadeTo[3];
+static bool ledFadeEndOff = false;
+static uint32_t ledFadeStartMs = 0;
+static uint32_t ledFadeDurMs = 0;
+static uint16_t ledFadeSteps = 0;
+
+static float ledPerceived(uint8_t pwm)
+{
+    return powf((255 - pwm) / 255.0f, 1.0f / 2.2f);
+}
+
+static uint8_t ledPwmFromPerceived(float l)
+{
+    int on = (int)lroundf(powf(l, 2.2f) * 255.0f);
+    return 255 - constrain(on, 0, 255);
+}
+
+static void ledFadeTask(void *pvParameters)
+{
+    (void)pvParameters;
+    for (;;) {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        for (;;) {
+            portENTER_CRITICAL(&ledMux);
+            bool active = ledFadeActive;
+            uint32_t gen = ledFadeGen;
+            float from[3] = { ledFadeFrom[0], ledFadeFrom[1], ledFadeFrom[2] };
+            float to[3] = { ledFadeTo[0], ledFadeTo[1], ledFadeTo[2] };
+            uint32_t startMs = ledFadeStartMs;
+            uint32_t durMs = ledFadeDurMs;
+            portEXIT_CRITICAL(&ledMux);
+            if (!active) break;
+
+            uint32_t elapsed = millis() - startMs;
+            float t = durMs > 0 ? min(1.0f, elapsed / (float)durMs) : 1.0f;
+            float e = t * t * (3.0f - 2.0f * t);
+            uint8_t v[3];
+            for (int c = 0; c < 3; c++) v[c] = ledPwmFromPerceived(from[c] + (to[c] - from[c]) * e);
+
+            bool done = false;
+            portENTER_CRITICAL(&ledMux);
+            if (ledFadeActive && ledFadeGen == gen) {
+                writeLedPWMLocked(v[0], v[1], v[2]);
+                ledFadeSteps++;
+                if (t >= 1.0f) {
+                    if (ledFadeEndOff) stopLedChannelsLocked();
+                    ledFadeActive = false;
+                    diagLastFadeMs = elapsed;
+                    diagLastFadeSteps = ledFadeSteps;
+                    done = true;
+                }
+            }
+            portEXIT_CRITICAL(&ledMux);
+            if (done) break;
+            vTaskDelay(pdMS_TO_TICKS(LED_FADE_STEP_MS));
+        }
+    }
+}
+
+// Fade to common-anode values r/g/b (already brightness-scaled); endOff stops the channels at the end
+void fadeLedTo(uint8_t r, uint8_t g, uint8_t b, bool endOff, uint32_t durationMs = LED_FADE_MS)
+{
+    if (ledFadeTaskHandle == NULL) {
+        xTaskCreatePinnedToCore(ledFadeTask, "ledFade", 2560, NULL, 2, &ledFadeTaskHandle, 1);
+    }
+    if (ledFadeTaskHandle == NULL) {
+        // No task (out of memory): switch instantly
+        if (endOff) led_Off();
+        else setLedPWM(r, g, b);
+        return;
+    }
+    portENTER_CRITICAL(&ledMux);
+    bool same = currentR == r && currentG == g && currentB == b && (!endOff || ledChannelsStopped);
+    if (same) {
+        cancelLedFadeLocked();
+    } else if (endOff && ledChannelsStopped) {
+        cancelLedFadeLocked();  // already dark
+    } else {
+        ledFadeFrom[0] = ledPerceived(currentR);
+        ledFadeFrom[1] = ledPerceived(currentG);
+        ledFadeFrom[2] = ledPerceived(currentB);
+        ledFadeTo[0] = ledPerceived(r);
+        ledFadeTo[1] = ledPerceived(g);
+        ledFadeTo[2] = ledPerceived(b);
+        ledFadeEndOff = endOff;
+        ledFadeStartMs = millis();
+        ledFadeDurMs = durationMs;
+        ledFadeSteps = 0;
+        ledFadeGen++;
+        ledFadeActive = true;
+        diagLedFades++;
+    }
+    portEXIT_CRITICAL(&ledMux);
+    if (!same) xTaskNotifyGive(ledFadeTaskHandle);
+}
+
+// Fade to a named solid color at the current brightness; off/unknown names fade to dark
+void fadeLedToColorName(const String& color)
+{
+    uint8_t r, g, b;
+    if (currentBrightness > 0.0f && ledColorValues(color, r, g, b)) {
+        fadeLedTo(applyBrightness(r), applyBrightness(g), applyBrightness(b), false);
+    } else {
+        fadeLedTo(255, 255, 255, true);
+    }
 }
 
 // Pulse LED by color name with smooth breathing effect

@@ -868,6 +868,7 @@ components:
           type: string
           enum: [green, red, blue, yellow, cyan, magenta, white, rainbow, off]
           default: green
+          description: 'Прошивка v40+ плавно (~1 с) переходит к новому цвету/яркости; rainbow и вспышки включаются сразу'
         ledBrightness:
           type: string
           enum: [low, mid, high, off]
@@ -1074,6 +1075,10 @@ components:
             fullRefreshes: { type: integer, description: 'v39+: счётчики с загрузки' }
             partialRefreshes: { type: integer }
             skippedRefreshes: { type: integer }
+            ledFades: { type: integer, description: 'v40+: плавных переходов LED с загрузки' }
+            lastFadeMs: { type: integer, description: 'v40+: длительность последнего завершённого перехода, мс (~1000)' }
+            lastFadeSteps: { type: integer, description: 'v40+: шагов в нём (~100)' }
+            fadeInterrupts: { type: integer, description: 'v40+: переходов, прерванных вспышкой/радугой/системным цветом' }
           additionalProperties: true
     HeartbeatBase:
       type: object

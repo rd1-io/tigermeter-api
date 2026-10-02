@@ -169,7 +169,10 @@ const SCENARIOS: { id: string; title: string; hint: string; build: () => QueuedF
   },
 ];
 
-// `bar`: the device's light strip — `size` is its width and it stretches to the parent's height
+// `bar`: the device's light strip — `size` is its width and it stretches to the parent's height.
+// Solid colors and brightness crossfade over 1 s like firmware v40; rainbow switches instantly.
+const LED_FADE = 'background-color 1s ease-in-out, opacity 1s ease-in-out, box-shadow 1s ease-in-out';
+
 const LedDot: React.FC<{ color: LedColor; brightness: LedBrightness; flashKey?: number; flashes?: number; size?: number; bar?: boolean }> = ({
   color,
   brightness,
@@ -179,6 +182,11 @@ const LedDot: React.FC<{ color: LedColor; brightness: LedBrightness; flashKey?: 
   bar = false,
 }) => {
   const off = color === 'off' || brightness === 'off';
+  const rainbow = color === 'rainbow' && !off;
+  // Fading to off keeps the last solid color so it dims out instead of turning grey
+  const lastSolid = useRef<LedColor>('green');
+  if (!off && color !== 'rainbow') lastSolid.current = color;
+  const solid = off || color === 'rainbow' ? lastSolid.current : color;
   const shape = bar ? 'rounded-sm' : 'rounded-full';
   return (
     <span
@@ -186,20 +194,20 @@ const LedDot: React.FC<{ color: LedColor; brightness: LedBrightness; flashKey?: 
       className={`relative inline-block shrink-0 ${shape} border border-neutral-300 bg-neutral-200 ${bar ? 'self-stretch' : ''}`}
       style={bar ? { width: size } : { width: size, height: size }}
     >
-      {!off && (
-        <span
-          key={flashKey}
-          className={`absolute inset-0 ${shape} ${color === 'rainbow' ? (bar ? 'led-rainbow-bar' : 'led-rainbow') : ''}`}
-          style={{
-            background: bar && color === 'rainbow'
-              ? 'linear-gradient(#ef4444, #f59e0b, #22c55e, #06b6d4, #3b82f6, #d946ef)'
-              : LED_CSS[color],
-            opacity: BRIGHTNESS_OPACITY[brightness],
-            boxShadow: color === 'rainbow' ? undefined : `0 0 ${bar ? size : size / 2}px ${LED_CSS[color]}`,
-            animation: flashKey && flashes > 0 ? `ledPulse 0.9s ease-in-out ${flashes}` : undefined,
-          }}
-        />
-      )}
+      <span
+        key={flashKey}
+        className={`absolute inset-0 ${shape} ${rainbow ? (bar ? 'led-rainbow-bar' : 'led-rainbow') : ''}`}
+        style={{
+          backgroundColor: rainbow ? undefined : LED_CSS[solid],
+          backgroundImage: rainbow
+            ? bar ? 'linear-gradient(#ef4444, #f59e0b, #22c55e, #06b6d4, #3b82f6, #d946ef)' : LED_CSS.rainbow
+            : undefined,
+          opacity: off ? 0 : BRIGHTNESS_OPACITY[brightness],
+          boxShadow: rainbow ? undefined : `0 0 ${bar ? size : size / 2}px ${LED_CSS[solid]}`,
+          transition: rainbow ? undefined : LED_FADE,
+          animation: flashKey && flashes > 0 && !off ? `ledPulse 0.9s ease-in-out ${flashes}` : undefined,
+        }}
+      />
     </span>
   );
 };
@@ -597,6 +605,12 @@ export const DeviceTestPage: React.FC<DeviceTestPageProps> = ({ scope, deviceId,
                           <span className="text-neutral-500">Обновление экрана:</span> {String(state.diagnostics.lastRefresh)}
                           {state.diagnostics.lastRefresh !== 'skip' && <> · {String(state.diagnostics.lastRefreshMs)} мс</>}
                           <span className="text-neutral-400"> · частичных подряд {String(state.diagnostics.partialSinceFull)}</span>
+                        </div>
+                      )}
+                      {state.diagnostics.ledFades != null && (
+                        <div title="Плавные переходы LED (v40+): сколько было с загрузки, длительность и шаги последнего, сколько прервано вспышкой/радугой/системным цветом">
+                          <span className="text-neutral-500">Переходы LED:</span> {String(state.diagnostics.ledFades)}
+                          <span className="text-neutral-400"> · последний {String(state.diagnostics.lastFadeMs)} мс / {String(state.diagnostics.lastFadeSteps)} шагов · прервано {String(state.diagnostics.fadeInterrupts)}</span>
                         </div>
                       )}
                       {state.diagnostics.lastError && (
