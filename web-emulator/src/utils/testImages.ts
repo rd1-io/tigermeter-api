@@ -139,7 +139,8 @@ const tickerChart = (ctx: CanvasRenderingContext2D) => {
     v = Math.min(0.95, Math.max(0.05, v + (rand() - 0.45) * 0.12));
     pts.push([(i / 60) * WIDTH, 158 - v * 70]);
   }
-  // Chart spans the full width: first hatch line on x=0, last on x=383
+  // Chart spans the full width (outline and baseline touch x=0 and x=383); hatch lines keep an
+  // exact 4 px pitch, centred so the edge gaps (1 and 2 px) stay narrower than the 3 px between lines
   ctx.beginPath();
   ctx.moveTo(0, 160);
   pts.forEach(([x, y]) => ctx.lineTo(x, y));
@@ -147,8 +148,7 @@ const tickerChart = (ctx: CanvasRenderingContext2D) => {
   ctx.closePath();
   ctx.save();
   ctx.clip();
-  const bars = Math.round((WIDTH - 1) / 4);
-  for (let k = 0; k <= bars; k++) ctx.fillRect(Math.round((k * (WIDTH - 1)) / bars), 80, 1, 90);
+  for (let x = 1; x < WIDTH; x += 4) ctx.fillRect(x, 80, 1, 90);
   ctx.restore();
   ctx.lineWidth = 2.5;
   ctx.beginPath();
