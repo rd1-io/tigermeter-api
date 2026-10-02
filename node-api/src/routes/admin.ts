@@ -69,8 +69,14 @@ export default async function adminRoutes(app: FastifyInstance) {
     }));
   });
 
+  // The device test page polls state and pushes a frame every couple of seconds during live
+  // sessions, which together with its other polling exceeds the global 100/min per IP
+  const testPageRateLimit = {
+    config: { rateLimit: { max: 300, timeWindow: '1 minute', keyGenerator: (req: any) => 'admin-test:' + req.ip } },
+  };
+
   // --- GET single device with display delivery state (ops only, any tenant) ---
-  app.get('/devices/:id', async (request, reply) => {
+  app.get('/devices/:id', testPageRateLimit, async (request, reply) => {
     await app.requireScope(request, 'ops');
     const { id } = request.params as any;
     const d = await app.prisma.device.findUnique({ where: { id } });
@@ -79,7 +85,7 @@ export default async function adminRoutes(app: FastifyInstance) {
   });
 
   // --- PUT display frames on behalf of the device's tenant (ops only) ---
-  app.put('/devices/:id/display', async (request, reply) => {
+  app.put('/devices/:id/display', testPageRateLimit, async (request, reply) => {
     await app.requireScope(request, 'ops');
     const { id } = request.params as any;
     const d = await app.prisma.device.findUnique({ where: { id } });

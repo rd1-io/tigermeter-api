@@ -6,7 +6,7 @@ import { MonoCanvas } from "./MonoCanvas";
 
 const SANS = 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif';
 const PARTIAL_FIRMWARE_VERSION = 39;
-const POLL_MS = 700;
+const POLL_MS = 1200;
 
 // Price ticker: the header stays put, the number, arrow, sparkline and progress bar change
 export const tickerFrame = (value: number, history: number[], from: number, to: number): Mono =>
