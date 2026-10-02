@@ -32,7 +32,11 @@ export interface DisplayFrame {
   durationSec: number;
   beep?: boolean;
   flashCount?: number;
+  // Firmware v39+: auto = partial when replacing a frame with periodic full refreshes; ignored by older firmware
+  refreshMode?: RefreshMode;
 }
+
+export type RefreshMode = 'auto' | 'full' | 'partial';
 
 export interface DisplayFramesPayload {
   frames: DisplayFrame[];
@@ -71,7 +75,8 @@ export interface DeviceStateDto extends DeviceDto {
   displayRebootCount: number;
   displayBlocked: boolean;
   // Firmware v38+: resetReason, prevStage, psram, psramSize, freePsram, freeHeap, minFreeHeap,
-  // maxAllocHeap, stackFree, frameBuffers, lastResponseBytes, lastError
+  // maxAllocHeap, stackFree, frameBuffers, lastResponseBytes, lastError;
+  // v39+: lastRefresh (full/partial/skip), lastRefreshMs, partialSinceFull, fullRefreshes, partialRefreshes, skippedRefreshes
   diagnostics: Record<string, string | number | boolean> | null;
   framesSupported: boolean;
   minFramesFirmwareVersion: number;
@@ -85,6 +90,10 @@ export interface DeviceStateDto extends DeviceDto {
   } | null;
   deliveredFrameIndex: number | null;
   deviceFrameIndex: number | null;
+  // Admin live test session: short heartbeat interval until `until`
+  live: { active: boolean; until: string | null; intervalSec: number | null };
+  // Interval sent with the last delivery — the one the device runs on
+  deliveredRefreshInterval: number | null;
   frameCount: number;
   refreshInterval: number | null;
   pendingFactoryReset: boolean;

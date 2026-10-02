@@ -15,6 +15,9 @@ export const DISPLAY_REBOOT_LIMIT = 2;
 // Per-frame LED/beep enums
 export const LedColor = z.enum(['green', 'red', 'blue', 'yellow', 'cyan', 'magenta', 'white', 'rainbow', 'off']);
 export const LedBrightness = z.enum(['low', 'mid', 'high', 'off']);
+// Screen refresh for the frame (firmware v39+, ignored by older): auto = partial when replacing a
+// frame with periodic full refreshes, full = always full (flashes), partial = partial whenever possible
+export const RefreshMode = z.enum(['auto', 'full', 'partial']);
 
 // Single display frame
 export const DisplayFrame = z.strictObject({
@@ -32,6 +35,7 @@ export const DisplayFrame = z.strictObject({
   durationSec: z.number().int().min(1).max(86400),
   beep: z.boolean().optional(),
   flashCount: z.number().int().min(0).max(10).optional(),
+  refreshMode: RefreshMode.optional(),
 });
 
 // Full display payload
@@ -105,6 +109,12 @@ export const deviceStateDto = (d: Device) => {
     displayBlocked: !!d.displayHash && d.displayRebootCount >= DISPLAY_REBOOT_LIMIT,
     diagnostics: parseDiagnostics(d.diagnosticsJson),
     framesSupported: fw === null || fw >= config.minFramesFirmwareVersion,
+    live: {
+      active: !!d.liveUntil && d.liveUntil.getTime() > now && !!d.liveIntervalSec,
+      until: d.liveUntil,
+      intervalSec: d.liveIntervalSec,
+    },
+    deliveredRefreshInterval: d.deliveredRefreshInterval,
     minFramesFirmwareVersion: config.minFramesFirmwareVersion,
     rotation: payload && point
       ? {

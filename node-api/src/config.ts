@@ -28,6 +28,10 @@ export const config = {
   rotationMinFrameSec: parseInt(process.env.ROTATION_MIN_FRAME_SEC ?? '10', 10),
   rotationMarginSec: parseInt(process.env.ROTATION_MARGIN_SEC ?? '1', 10),
   rotationEarlySwitchSec: parseInt(process.env.ROTATION_EARLY_SWITCH_SEC ?? '3', 10),
+  // Admin live test sessions (POST /admin/devices/:id/live): short heartbeat interval, bounded in time
+  liveMinIntervalSec: parseInt(process.env.LIVE_MIN_INTERVAL_SEC ?? '2', 10),
+  liveMaxIntervalSec: 10,
+  liveMaxDurationSec: parseInt(process.env.LIVE_MAX_DURATION_SEC ?? '900', 10),
   // Older firmware crashes on any frame on boards without PSRAM; such devices get no frames until OTA
   minFramesFirmwareVersion: parseInt(process.env.MIN_FRAMES_FIRMWARE_VERSION ?? '38', 10),
 

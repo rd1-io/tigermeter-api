@@ -28,6 +28,7 @@ import {
 import { TEST_IMAGES } from "../utils/testImages";
 import { DEFAULT_TEXT, FontFamily, TEXT_LAYOUTS, TextAlign, TextSpec, renderText } from "../utils/textLayouts";
 import { MonoCanvas } from "./MonoCanvas";
+import { PartialRefreshTest } from "./PartialRefreshTest";
 
 interface DeviceTestPageProps {
   scope: string;
@@ -582,6 +583,13 @@ export const DeviceTestPage: React.FC<DeviceTestPageProps> = ({ scope, deviceId,
                       {state.diagnostics.lastResponseBytes != null && (
                         <div><span className="text-neutral-500">Ответ heartbeat:</span> {formatKb(state.diagnostics.lastResponseBytes)}</div>
                       )}
+                      {state.diagnostics.lastRefresh != null && (
+                        <div title="Как прошивка (v39+) обновила экран в последний раз: partial — без моргания, full — с очисткой, skip — картинка не изменилась">
+                          <span className="text-neutral-500">Обновление экрана:</span> {String(state.diagnostics.lastRefresh)}
+                          {state.diagnostics.lastRefresh !== 'skip' && <> · {String(state.diagnostics.lastRefreshMs)} мс</>}
+                          <span className="text-neutral-400"> · частичных подряд {String(state.diagnostics.partialSinceFull)}</span>
+                        </div>
+                      )}
                       {state.diagnostics.lastError && (
                         <div className="md:col-span-2">
                           <span className="text-neutral-500">Последняя ошибка:</span> <span className="font-mono text-xs text-red-700">{String(state.diagnostics.lastError)}</span>
@@ -917,6 +925,12 @@ export const DeviceTestPage: React.FC<DeviceTestPageProps> = ({ scope, deviceId,
               </div>
             </div>
           </Section>
+
+          {isOps && !isStaging && (
+            <Section title="Частичное обновление: цена 0→100">
+              <PartialRefreshTest deviceId={deviceId} state={state} onChange={() => loadState()} />
+            </Section>
+          )}
 
           {/* Device settings */}
           {state && (

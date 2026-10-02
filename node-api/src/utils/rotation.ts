@@ -12,6 +12,7 @@ export interface StoredFrame {
   durationSec: number;
   beep?: boolean;
   flashCount?: number;
+  refreshMode?: 'auto' | 'full' | 'partial';
 }
 
 export interface StoredPayload {

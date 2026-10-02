@@ -587,6 +587,59 @@ paths:
               schema:
                 $ref: '#/components/schemas/DisplayFramesPayload'
         '404': { description: Не найдено или нет кадров }
+  /admin/devices/{id}/live:
+    post:
+      tags: [Admin]
+      summary: Быстрый heartbeat на время теста (scope=ops)
+      description: |
+        Для тестов, где кадры меняются каждые несколько секунд (счётчик на странице «Тест устройства»).
+        Пока сессия активна, сервер отдаёт устройству `refreshInterval = intervalSec` вместо обычного.
+        Прошивка берёт интервал только из ответа с кадром, поэтому при старте и окончании сессии сервер
+        один раз повторно отдаёт текущий кадр (v39 его не перерисовывает). По истечении `durationSec`
+        или после DELETE устройство возвращается к обычному интервалу. Каждый heartbeat с новым кадром — ~11 КБ.
+      operationId: adminStartLive
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                intervalSec: { type: integer, minimum: 2, maximum: 10, default: 3 }
+                durationSec: { type: integer, minimum: 10, maximum: 900, default: 300 }
+      responses:
+        '200':
+          description: Сессия запущена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LiveSession'
+        '400': { description: Ошибка валидации }
+        '403': { description: Требуется scope ops }
+        '404': { description: Не найдено }
+        '409': { description: 'Device is not attached to a tenant / Device is on the staging tenant for OTA' }
+    delete:
+      tags: [Admin]
+      summary: Завершить быстрый heartbeat (scope=ops)
+      operationId: adminStopLive
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Сессия остановлена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LiveSession'
+        '404': { description: Не найдено }
   /admin/devices/{id}/revoke:
     post:
       tags: [Admin]
@@ -834,6 +887,22 @@ components:
           maximum: 10
           default: 0
           description: One-shot вспышки LED при первом показе кадра после PUT (на следующих кругах ротации — нет)
+        refreshMode:
+          type: string
+          enum: [auto, full, partial]
+          default: auto
+          description: |
+            Прошивка v39+ (старые поле игнорируют). Как обновлять экран, когда кадр сменяет кадр:
+            `auto` — частичное обновление (~0,4 с, без моргания), но полное (~2 с, с морганием, убирает
+            остаточное изображение) каждые 30 частичных или 10 минут; `partial` — частичное, полное раз в 200;
+            `full` — всегда полное. После системных экранов (Wi‑Fi, ошибка, код) обновление всегда полное;
+            неизменившаяся картинка не перерисовывается.
+    LiveSession:
+      type: object
+      properties:
+        active: { type: boolean }
+        until: { type: string, format: date-time, nullable: true }
+        intervalSec: { type: integer, nullable: true }
     DisplayFramesPayload:
       type: object
       required: [frames, refreshInterval]
@@ -919,6 +988,10 @@ components:
             displayBlocked: { type: boolean, description: 'true — после 2 таких перезагрузок heartbeat не отдаёт текущие кадры (защита от цикла перезагрузок)' }
             frameCount: { type: integer }
             refreshInterval: { type: integer, nullable: true, description: Из текущих кадров на сервере }
+            deliveredRefreshInterval: { type: integer, nullable: true, description: 'Интервал, отданный с последним кадром, — на нём устройство сейчас работает' }
+            live:
+              allOf: [{ $ref: '#/components/schemas/LiveSession' }]
+              description: 'Сессия быстрого heartbeat (POST /admin/devices/{id}/live)'
             pendingFactoryReset: { type: boolean }
             latestFirmwareVersion: { type: integer, description: Текущее LATEST_FIRMWARE_VERSION }
     DevicePatch:
@@ -995,6 +1068,12 @@ components:
             frameBuffers: { type: integer, description: 'Выделено буферов кадров (8 с PSRAM, до 2 без неё)' }
             lastResponseBytes: { type: integer }
             lastError: { type: string, description: 'Последняя проблема с кадрами: too_large / json:… / no_buffer:i / bitmap_size:i:len / no_valid_frames:n' }
+            lastRefresh: { type: string, description: 'v39+: как обновлён экран последним кадром — full / partial / skip (картинка не изменилась)' }
+            lastRefreshMs: { type: integer, description: 'v39+: длительность этого обновления, мс' }
+            partialSinceFull: { type: integer, description: 'v39+: частичных обновлений с последнего полного' }
+            fullRefreshes: { type: integer, description: 'v39+: счётчики с загрузки' }
+            partialRefreshes: { type: integer }
+            skippedRefreshes: { type: integer }
           additionalProperties: true
     HeartbeatBase:
       type: object

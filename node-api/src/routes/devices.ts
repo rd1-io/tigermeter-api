@@ -133,6 +133,16 @@ export default async function deviceRoutes(app: FastifyInstance, opts: DeviceRou
     const fwVersion = parseFirmwareVersion(body.firmwareVersion ?? device.firmwareVersion);
     const framesSupported = fwVersion === null || fwVersion >= config.minFramesFirmwareVersion;
 
+    // Live test session: the device comes back every liveIntervalSec. The firmware only takes an
+    // interval from a response with a frame, so when the wanted interval differs from the one the
+    // device runs on (session started, or ended and it is still on the short one), the current
+    // frame is sent again (v39 skips redrawing an unchanged bitmap).
+    const live = !!device.liveUntil && device.liveUntil > now && !!device.liveIntervalSec;
+    const responseInterval = serve ? (live ? device.liveIntervalSec! : serve.refreshInterval) : 60;
+    const intervalStale =
+      device.deliveredRefreshInterval != null &&
+      (live ? device.deliveredRefreshInterval !== device.liveIntervalSec : device.deliveredRefreshInterval < config.rotationMinFrameSec);
+
     // The device rebooted after a frame was delivered and before confirming it (uptime is shorter
     // than the time since delivery): count it, and stop serving at the limit
     const deliveredFrame = findFrameByHash(setHash, payload, device.deliveredDisplayHash);
@@ -146,7 +156,7 @@ export default async function deviceRoutes(app: FastifyInstance, opts: DeviceRou
       body.uptimeSeconds * 1000 < now.getTime() - device.displayDeliveredAt.getTime();
     const displayRebootCount = reportedFrame ? 0 : device.displayRebootCount + (rebootedAfterDelivery ? 1 : 0);
     const displayBlocked = displayRebootCount >= DISPLAY_REBOOT_LIMIT;
-    const servesFrames = !!serve && !hashMatches && !displayBlocked && framesSupported;
+    const servesFrames = !!serve && (!hashMatches || intervalStale) && !displayBlocked && framesSupported;
     const diagnostics = sanitizeDiagnostics(body.diag);
     if (rebootedAfterDelivery) {
       request.log.warn(
@@ -170,7 +180,7 @@ export default async function deviceRoutes(app: FastifyInstance, opts: DeviceRou
         displayRebootCount,
         ...(diagnostics ? { diagnosticsJson: JSON.stringify(diagnostics) } : {}),
         ...(servesFrames
-          ? { deliveredDisplayHash: serve!.hash, displayDeliveredAt: now, displayOneShotMask: serve!.oneShotMask }
+          ? { deliveredDisplayHash: serve!.hash, displayDeliveredAt: now, displayOneShotMask: serve!.oneShotMask, deliveredRefreshInterval: responseInterval }
           : {}),
       },
     });
@@ -184,16 +194,16 @@ export default async function deviceRoutes(app: FastifyInstance, opts: DeviceRou
       firmwareDownloadUrl: config.firmwareDownloadUrl,
     };
 
-    if (hashMatches) return baseResponse;
-
     if (servesFrames) {
       return {
         ...baseResponse,
         frames: [serve!.frame],
-        refreshInterval: serve!.refreshInterval,
+        refreshInterval: responseInterval,
         displayHash: serve!.hash,
       };
     }
+
+    if (hashMatches) return baseResponse;
 
     // No frames yet (or not deliverable) — empty state
     return {

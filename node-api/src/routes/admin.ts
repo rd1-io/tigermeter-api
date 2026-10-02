@@ -95,6 +95,40 @@ export default async function adminRoutes(app: FastifyInstance) {
     return setDeviceDisplay(app.prisma, d, payload);
   });
 
+  // --- LIVE test session: short heartbeat interval for a bounded time (ops only) ---
+  // Lets a test push frames every few seconds (e.g. a counter for partial refresh) without
+  // changing the device's normal cadence; it falls back by itself when the session ends.
+  const LiveSession = z.strictObject({
+    intervalSec: z.number().int().min(config.liveMinIntervalSec).max(config.liveMaxIntervalSec).default(3),
+    durationSec: z.number().int().min(10).max(config.liveMaxDurationSec).default(300),
+  });
+
+  app.post('/devices/:id/live', async (request, reply) => {
+    await app.requireScope(request, 'ops');
+    const { id } = request.params as any;
+    const d = await app.prisma.device.findUnique({ where: { id } });
+    if (!d) return reply.code(404).send({ message: 'Not found' });
+    if (d.status !== 'active' || !d.tenantId) {
+      return reply.code(409).send({ message: 'Device is not attached to a tenant' });
+    }
+    if (d.tenantId === config.stagingTenantId) {
+      return reply.code(409).send({ message: 'Device is on the staging tenant for OTA' });
+    }
+    const body = LiveSession.parse(request.body ?? {});
+    const liveUntil = new Date(Date.now() + body.durationSec * 1000);
+    await app.prisma.device.update({ where: { id }, data: { liveUntil, liveIntervalSec: body.intervalSec } });
+    return { active: true, until: liveUntil, intervalSec: body.intervalSec };
+  });
+
+  app.delete('/devices/:id/live', async (request, reply) => {
+    await app.requireScope(request, 'ops');
+    const { id } = request.params as any;
+    const d = await app.prisma.device.findUnique({ where: { id } });
+    if (!d) return reply.code(404).send({ message: 'Not found' });
+    await app.prisma.device.update({ where: { id }, data: { liveUntil: null } });
+    return { active: false, until: null, intervalSec: d.liveIntervalSec };
+  });
+
   // --- TENANTS known from service tokens (ops only) ---
   app.get('/tenants', async (request) => {
     await app.requireScope(request, 'ops');

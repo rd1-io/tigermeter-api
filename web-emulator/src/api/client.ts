@@ -135,6 +135,22 @@ export class ApiClient {
     });
   }
 
+  // Live test session (ops): the device heartbeats every intervalSec for durationSec
+  async startLive(id: string, intervalSec: number, durationSec: number): Promise<Response> {
+    return loggedFetch('POST', `${this.baseUrl}${V5_PREFIX}/admin/devices/${id}/live`, {
+      headers: { ...this.authHeaders(), 'Content-Type': 'application/json' },
+      bodyJson: { intervalSec, durationSec },
+      quiet: true,
+    });
+  }
+
+  async stopLive(id: string): Promise<Response> {
+    return loggedFetch('DELETE', `${this.baseUrl}${V5_PREFIX}/admin/devices/${id}/live`, {
+      headers: this.authHeaders(),
+      quiet: true,
+    });
+  }
+
   async factoryReset(id: string): Promise<Response> {
     return loggedFetch('POST', `${this.baseUrl}${V5_PREFIX}/admin/devices/${id}/factory-reset`, {
       headers: this.authHeaders(),
