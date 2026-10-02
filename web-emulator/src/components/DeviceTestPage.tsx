@@ -169,24 +169,33 @@ const SCENARIOS: { id: string; title: string; hint: string; build: () => QueuedF
   },
 ];
 
-const LedDot: React.FC<{ color: LedColor; brightness: LedBrightness; flashKey?: number; flashes?: number; size?: number }> = ({
+// `bar`: the device's light strip — `size` is its width and it stretches to the parent's height
+const LedDot: React.FC<{ color: LedColor; brightness: LedBrightness; flashKey?: number; flashes?: number; size?: number; bar?: boolean }> = ({
   color,
   brightness,
   flashKey,
   flashes = 0,
   size = 28,
+  bar = false,
 }) => {
   const off = color === 'off' || brightness === 'off';
+  const shape = bar ? 'rounded-sm' : 'rounded-full';
   return (
-    <span className="relative inline-block rounded-full border border-neutral-300 bg-neutral-200" style={{ width: size, height: size }}>
+    <span
+      title="LED"
+      className={`relative inline-block shrink-0 ${shape} border border-neutral-300 bg-neutral-200 ${bar ? 'self-stretch' : ''}`}
+      style={bar ? { width: size } : { width: size, height: size }}
+    >
       {!off && (
         <span
           key={flashKey}
-          className={`absolute inset-0 rounded-full ${color === 'rainbow' ? 'led-rainbow' : ''}`}
+          className={`absolute inset-0 ${shape} ${color === 'rainbow' ? (bar ? 'led-rainbow-bar' : 'led-rainbow') : ''}`}
           style={{
-            background: LED_CSS[color],
+            background: bar && color === 'rainbow'
+              ? 'linear-gradient(#ef4444, #f59e0b, #22c55e, #06b6d4, #3b82f6, #d946ef)'
+              : LED_CSS[color],
             opacity: BRIGHTNESS_OPACITY[brightness],
-            boxShadow: color === 'rainbow' ? undefined : `0 0 ${size / 2}px ${LED_CSS[color]}`,
+            boxShadow: color === 'rainbow' ? undefined : `0 0 ${bar ? size : size / 2}px ${LED_CSS[color]}`,
             animation: flashKey && flashes > 0 ? `ledPulse 0.9s ease-in-out ${flashes}` : undefined,
           }}
         />
@@ -621,12 +630,9 @@ export const DeviceTestPage: React.FC<DeviceTestPageProps> = ({ scope, deviceId,
             >
               <div className="flex flex-col gap-4">
                 <div className="flex flex-col items-start gap-2">
-                  <div className="p-3 bg-neutral-800 rounded-lg inline-flex items-center gap-3">
+                  <div className="p-3 bg-neutral-800 rounded-lg inline-flex items-stretch gap-3">
                     <MonoCanvas mono={previewMono} scale={2} lowBattery={showBattery} />
-                    <div className="flex flex-col items-center gap-1">
-                      <LedDot color={previewLed.ledColor} brightness={previewLed.ledBrightness} flashKey={flashKey} flashes={previewLed.flashCount} />
-                      <span className="text-[10px] text-neutral-400">LED</span>
-                    </div>
+                    <LedDot bar size={16} color={previewLed.ledColor} brightness={previewLed.ledBrightness} flashKey={flashKey} flashes={previewLed.flashCount} />
                   </div>
                   <div className="flex flex-wrap items-center gap-3 text-xs text-neutral-600">
                     {previewFrame ? (
@@ -903,9 +909,11 @@ export const DeviceTestPage: React.FC<DeviceTestPageProps> = ({ scope, deviceId,
                         <button onClick={() => setQueue((q) => q.filter((x) => x.key !== f.key))} className="text-red-500" title="Удалить">✕</button>
                       </span>
                     </div>
-                    <MonoCanvas mono={f.mono} scale={0.5} className="border" />
+                    <div className="flex items-stretch gap-1 self-start p-1 bg-neutral-800 rounded">
+                      <MonoCanvas mono={f.mono} scale={0.5} />
+                      <LedDot bar size={5} color={f.ledColor} brightness={f.ledBrightness} />
+                    </div>
                     <div className="flex flex-wrap items-center gap-1 text-[11px]">
-                      <LedDot color={f.ledColor} brightness={f.ledBrightness} size={12} />
                       <select value={f.ledColor} onChange={(e) => updateQueued(f.key, { ledColor: e.target.value as LedColor })} className="border rounded px-0.5">
                         {LED_COLORS.map((c) => <option key={c} value={c}>{LED_COLOR_LABELS[c]}</option>)}
                       </select>

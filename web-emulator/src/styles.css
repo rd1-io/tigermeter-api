@@ -56,3 +56,9 @@ body { font-feature-settings: "tnum" on, "lnum" on; }
 }
 
 .led-rainbow { animation: ledRainbowSpin 6s linear infinite; }
+
+@keyframes ledRainbowHue {
+  to { filter: hue-rotate(360deg); }
+}
+
+.led-rainbow-bar { animation: ledRainbowHue 6s linear infinite; }
